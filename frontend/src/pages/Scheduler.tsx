@@ -1,0 +1,217 @@
+import { useState, useEffect } from 'react';
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Alert } from 'antd';
+import { SyncOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+import type { Report, SchedulerStatus, SchedulerJob } from '../types';
+import { reportApi, schedulerApi } from '../api';
+
+export default function SchedulerPage() {
+  const [status, setStatus] = useState<SchedulerStatus | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadStatus = async () => {
+    try {
+      const data = await schedulerApi.getStatus();
+      setStatus(data);
+    } catch {
+      message.error('加载调度器状态失败');
+    }
+  };
+
+  const loadReports = async () => {
+    setLoading(true);
+    try {
+      const data = await reportApi.list({ is_active: true });
+      setReports(data);
+    } catch {
+      message.error('加载报表失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStatus();
+    loadReports();
+  }, []);
+
+  const handleSync = async () => {
+    try {
+      const result = await schedulerApi.sync();
+      message.success(result.message);
+      loadStatus();
+    } catch {
+      message.error('同步失败');
+    }
+  };
+
+  const handleAddSchedule = (report: Report) => {
+    setSelectedReport(report);
+    form.setFieldsValue({
+      report_id: report.id,
+      cron_expression: '0 9 * * * *',  // Default: 9:00 AM daily
+      schedule_description: `定时生成 ${report.name}`,
+    });
+    setModalVisible(true);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      setSubmitting(true);
+      await schedulerApi.createJob(values.report_id, values.cron_expression);
+      message.success('定时任务创建成功');
+      setModalVisible(false);
+      loadStatus();
+      // Update report's is_scheduled flag
+      setReports(reports.map(r =>
+        r.id === values.report_id ? { ...r, is_scheduled: true, cron_expression: values.cron_expression } : r
+      ));
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      message.error(error.response?.data?.detail || '创建失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteSchedule = async (reportId: number) => {
+    try {
+      await schedulerApi.deleteJob(reportId);
+      message.success('定时任务已删除');
+      loadStatus();
+      // Update report's is_scheduled flag
+      setReports(reports.map(r =>
+        r.id === reportId ? { ...r, is_scheduled: false } : r
+      ));
+    } catch {
+      message.error('删除失败');
+    }
+  };
+
+  const jobColumns: ColumnsType<SchedulerJob> = [
+    { title: '任务ID', dataIndex: 'job_id', key: 'job_id' },
+    { title: '下次执行', dataIndex: 'next_run', key: 'next_run', render: (v) => v || '-' },
+    { title: '触发器', dataIndex: 'trigger', key: 'trigger' },
+  ];
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+        <h2 style={{ margin: 0 }}>定时任务管理</h2>
+        <Space>
+          <Button icon={<SyncOutlined />} onClick={handleSync}>
+            同步调度器
+          </Button>
+          <Button icon={<ClockCircleOutlined />} onClick={loadStatus}>
+            刷新状态
+          </Button>
+        </Space>
+      </div>
+
+      <Card title="调度器状态" style={{ marginBottom: 24 }}>
+        {status ? (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Tag color={status.is_running ? 'green' : 'red'} style={{ width: 'fit-content' }}>
+              {status.is_running ? '运行中' : '已停止'}
+            </Tag>
+            {status.jobs.length > 0 ? (
+              <Table
+                columns={jobColumns}
+                dataSource={status.jobs}
+                rowKey="job_id"
+                size="small"
+                pagination={false}
+              />
+            ) : (
+              <Alert message="暂无运行的定时任务" type="info" showIcon />
+            )}
+          </Space>
+        ) : (
+          <div>加载中...</div>
+        )}
+      </Card>
+
+      <Card title="报表定时任务配置">
+        <Table
+          columns={[
+            { title: '报表名称', dataIndex: 'name', key: 'name' },
+            { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+            { title: '定时任务', key: 'schedule', render: (_, record) => (
+              record.is_scheduled ? (
+                <Tag icon={<ClockCircleOutlined />} color="green">
+                  {record.cron_expression || '已配置'}
+                </Tag>
+              ) : (
+                <Tag>未配置</Tag>
+              )
+            )},
+            { title: '操作', key: 'action', render: (_, record) => (
+              record.is_scheduled ? (
+                <Popconfirm title="确定删除定时任务?" onConfirm={() => handleDeleteSchedule(record.id)}>
+                  <Button type="link" danger icon={<DeleteOutlined />}>
+                    删除
+                  </Button>
+                </Popconfirm>
+              ) : (
+                <Button type="link" icon={<PlusOutlined />} onClick={() => handleAddSchedule(record)}>
+                  添加定时任务
+                </Button>
+              )
+            )},
+          ]}
+          dataSource={reports}
+          rowKey="id"
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+        />
+      </Card>
+
+      <Modal
+        title="添加定时任务"
+        open={modalVisible}
+        onOk={handleSubmit}
+        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="report_id" label="报表" rules={[{ required: true }]}>
+            <Input disabled value={selectedReport?.name} />
+          </Form.Item>
+
+          <Form.Item
+            name="cron_expression"
+            label="Cron 表达式"
+            rules={[{ required: true, message: '请输入 cron 表达式' }]}
+            help="格式: 分 时 日 月 周 年 (例: 0 9 * * * * = 每天9点执行)"
+          >
+            <Input placeholder="0 9 * * * *" />
+          </Form.Item>
+
+          <Form.Item name="schedule_description" label="描述">
+            <Input placeholder="定时任务描述" />
+          </Form.Item>
+
+          <Alert
+            message="Cron 表达式说明"
+            description={
+              <div>
+                <p>分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-6) 年</p>
+                <p>* = 任意值, - = 范围, / = 步长</p>
+                <p>例: <code>0 9 * * * *</code> = 每天9:00</p>
+                <p>例: <code>0 */2 * * * *</code> = 每2小时</p>
+                <p>例: <code>0 0 * * 1 *</code> = 每周一0:00</p>
+              </div>
+            }
+            type="info"
+          />
+        </Form>
+      </Modal>
+    </div>
+  );
+}

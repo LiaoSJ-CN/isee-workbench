@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/liaosj/Documents/code/business_analysis_report_tools/.venv/bin/ruff check *)",
+      "Bash(npm create *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(micromamba install *)",
+      "Bash(python3 -m pip install apscheduler openpyxl httpx --quiet)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/data-sources)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:8000/reports)",
+      "Bash(curl -s http://localhost:8000/scheduler/status)",
+      "Bash(curl -s -X POST http://localhost:8000/data-sources -H 'Content-Type: application/json' -d '{\"name\":\"测试数据库\",\"db_type\":\"postgresql\",\"host\":\"localhost\",\"port\":5432,\"database\":\"test\",\"username\":\"user\",\"password\":\"pass\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/reports -H 'Content-Type: application/json' -d '{\"name\":\"月度销售报表\",\"description\":\"测试报表\",\"data_source_id\":1,\"output_formats\":[\"excel\",\"html\"]}')",
+      "Bash(curl -s -X POST http://localhost:8000/reports/1/items -H 'Content-Type: application/json' -d '{\"name\":\"销售额统计\",\"item_type\":\"table\",\"table_name\":\"sales\",\"fields\":[\"region\",\"SUM\\(amount\\) as total\"],\"group_by\":[\"region\"],\"order_by\":[{\"field\":\"total\",\"direction\":\"DESC\"}],\"limit\":100,\"display_config\":{\"title\":\"各地区销售额\"}}')",
+      "Bash(pkill -f \"uvicorn app.main:app\")",
+      "Bash(sqlite3 *)",
+      "Bash(curl *)",
+      "Bash(/Users/liaosj/Documents/code/business_analysis_report_tools/backend/.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
