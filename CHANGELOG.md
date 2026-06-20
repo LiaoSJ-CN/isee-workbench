@@ -4,6 +4,11 @@
 
 ## [未发布]
 
+### 安全改进
+- 移除 `deps.get_current_user` 中已无用的 `?token=` query-param fallback（`ReportPreview` 改为走 `Authorization` 头 + blob URL iframe 后该入口已无消费者）
+
+### 测试
+- 新增 `backend/scripts/smoke_preview_endpoint.py`：通过 FastAPI `TestClient` 走完整 router 路径调用 `/reports/{id}/preview`，断言响应含 `<base href=...>`、`Authorization` 头认证通过、`?token=` fallback 已拒绝（401）。补足既有 smoke 只直接调 `generate_report` 而绕过 router 留下的覆盖盲区
 
 ---
 
