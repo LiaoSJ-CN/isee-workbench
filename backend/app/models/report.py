@@ -24,6 +24,7 @@ class Report(Base):
     is_scheduled = Column(Boolean, default=False)
     cron_expression = Column(String(100), nullable=True)
     schedule_description = Column(String(255), nullable=True)
+    notification_config = Column(JSON, nullable=True, default=dict)
 
     # Output configuration
     output_formats = Column(JSON, nullable=True, default=lambda: ["excel", "html"])

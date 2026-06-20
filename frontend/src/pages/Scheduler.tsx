@@ -1,9 +1,24 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, message, Popconfirm, Alert } from 'antd';
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Alert } from 'antd';
 import { SyncOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, SchedulerStatus, SchedulerJob } from '../types';
 import { reportApi, schedulerApi } from '../api';
+
+type NotificationType = 'none' | 'webhook' | 'email';
+
+function buildNotificationConfig(
+  values: Record<string, unknown>
+): Record<string, unknown> | null {
+  const t = values.notification_type as NotificationType | undefined;
+  if (t === 'webhook') {
+    return { type: 'webhook', webhook_url: values.webhook_url ?? '' };
+  }
+  if (t === 'email') {
+    return { type: 'email' };
+  }
+  return null;
+}
 
 export default function SchedulerPage() {
   const [status, setStatus] = useState<SchedulerStatus | null>(null);
@@ -57,6 +72,8 @@ export default function SchedulerPage() {
       report_id: report.id,
       cron_expression: '0 9 * * * *',  // Default: 9:00 AM daily
       schedule_description: `定时生成 ${report.name}`,
+      notification_type: 'none',
+      webhook_url: '',
     });
     setModalVisible(true);
   };
@@ -65,7 +82,13 @@ export default function SchedulerPage() {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await schedulerApi.createJob(values.report_id, values.cron_expression);
+      const notificationConfig = buildNotificationConfig(values);
+      await schedulerApi.createJob(
+        values.report_id,
+        values.cron_expression,
+        values.schedule_description,
+        notificationConfig,
+      );
       message.success('定时任务创建成功');
       setModalVisible(false);
       loadStatus();
@@ -196,6 +219,40 @@ export default function SchedulerPage() {
 
           <Form.Item name="schedule_description" label="描述">
             <Input placeholder="定时任务描述" />
+          </Form.Item>
+
+          <Form.Item name="notification_type" label="通知方式">
+            <Select
+              options={[
+                { value: 'none', label: '不通知' },
+                { value: 'webhook', label: 'Webhook' },
+                { value: 'email', label: 'Email (占位)' },
+              ]}
+            />
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, curr) =>
+              prev.notification_type !== curr.notification_type
+            }
+          >
+            {({ getFieldValue }) =>
+              getFieldValue('notification_type') === 'webhook' ? (
+                <Form.Item
+                  name="webhook_url"
+                  label="Webhook URL"
+                  rules={[{
+                    validator: (_, v) =>
+                      !v || String(v).startsWith('http')
+                        ? Promise.resolve()
+                        : Promise.reject(new Error('URL 必须以 http 开头')),
+                  }]}
+                >
+                  <Input placeholder="https://example.com/webhook" />
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
 
           <Alert

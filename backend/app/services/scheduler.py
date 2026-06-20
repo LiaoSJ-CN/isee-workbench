@@ -123,6 +123,7 @@ class ReportScheduler:
                 self.add_report_job(
                     report_id=report.id,
                     cron_expression=report.cron_expression,
+                    notification_config=report.notification_config or {},
                 )
             except Exception as exc:
                 logger.error(f"Failed to schedule report {report.id}: {exc}")

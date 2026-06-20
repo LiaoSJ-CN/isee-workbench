@@ -254,14 +254,16 @@ export const schedulerApi = {
   createJob: async (
     reportId: number,
     cronExpression: string,
-    notificationConfig?: Record<string, unknown>
+    scheduleDescription?: string,
+    notificationConfig?: Record<string, unknown> | null
   ): Promise<SchedulerJob> => {
-    const { data } = await api.post(`/scheduler/jobs/${reportId}`, null, {
-      params: {
-        cron_expression: cronExpression,
-        notification_config: notificationConfig,
-      },
-    });
+    const body = {
+      report_id: reportId,
+      cron_expression: cronExpression,
+      schedule_description: scheduleDescription ?? null,
+      notification_config: notificationConfig ?? {},
+    };
+    const { data } = await api.post(`/scheduler/jobs/${reportId}`, body);
     return data;
   },
 
