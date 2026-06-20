@@ -27,7 +27,6 @@ def make_generator() -> ReportGenerator:
     """Build a ReportGenerator without touching DB / network."""
     gen = ReportGenerator.__new__(ReportGenerator)
     gen.data_source = None
-    gen.url = None
     return gen
 
 

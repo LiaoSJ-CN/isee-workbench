@@ -1,6 +1,7 @@
 """Service for generating business analysis reports."""
 
 import re
+import threading
 from datetime import datetime
 from html import escape as h
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,55 @@ class ReportGeneratorError(Exception):
 # Filename-safe subset: word chars, CJK Unified Ideographs, hyphen, dot.
 _SAFE_FILENAME_RE = re.compile(r"[^\w一-鿿\-.]+")
 _FILENAME_MAX_LEN = 200
+
+
+# Module-level engine cache, keyed by DataSource.id. Lets reports that share
+# a DataSource reuse one pool of connections across calls, avoiding the
+# TCP+auth handshake tax on every generation. Eviction is explicit: callers
+# that mutate a DataSource row must call ``evict_engine`` so the next call
+# rebuilds the engine with the new connection URL.
+_engine_cache: dict[int, Engine] = {}
+_engine_cache_lock = threading.Lock()
+
+
+def _get_or_create_engine(data_source: DataSource) -> Engine:
+    """Return the cached Engine for ``data_source``, building one on miss.
+
+    Double-checked locking keeps the fast path (cache hit) lock-free while
+    staying safe under concurrent first-time access. ``pool_pre_ping=True``
+    on remote backends makes SQLAlchemy discard stale pooled connections
+    (e.g. after the remote DB restarts) instead of failing the next query.
+    """
+    cached = _engine_cache.get(data_source.id)
+    if cached is not None:
+        return cached
+    with _engine_cache_lock:
+        cached = _engine_cache.get(data_source.id)
+        if cached is not None:
+            return cached
+        url = build_connection_url(data_source)
+        if data_source.db_type == "sqlite":
+            engine = create_engine(url)
+        else:
+            engine = create_engine(
+                url,
+                connect_args={"connect_timeout": 30},
+                pool_pre_ping=True,
+            )
+        _engine_cache[data_source.id] = engine
+        return engine
+
+
+def evict_engine(data_source_id: int) -> None:
+    """Drop the cached engine for ``data_source_id`` and dispose its pool.
+
+    Call this after updating or deleting a DataSource so the next call
+    rebuilds the engine with the new connection URL.
+    """
+    with _engine_cache_lock:
+        engine = _engine_cache.pop(data_source_id, None)
+    if engine is not None:
+        engine.dispose()
 
 
 def _safe_filename(name: str, fallback: str = "report") -> str:
@@ -43,20 +94,19 @@ class ReportGenerator:
     def __init__(self, data_source: DataSource):
         """Initialize the generator with a data source."""
         self.data_source = data_source
-        self.url = build_connection_url(data_source)
 
     def __enter__(self):
-        """Create database engine."""
-        if self.data_source.db_type == "sqlite":
-            self.engine = create_engine(self.url)
-        else:
-            self.engine = create_engine(self.url, connect_args={"connect_timeout": 30})
+        """Get (or create) cached database engine for the data source."""
+        self.engine = _get_or_create_engine(self.data_source)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Dispose database engine."""
-        if hasattr(self, "engine"):
-            self.engine.dispose()
+        """Intentionally do not dispose — engine is cached for reuse.
+
+        Connections stay in the pool for the next caller that hits the
+        same DataSource. Call ``evict_engine(ds_id)`` when the underlying
+        DataSource config changes.
+        """
 
     def build_query(
         self, item: ReportItem, parameters: dict[str, Any]
