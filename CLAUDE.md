@@ -47,7 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-经营分析报表系统 — 一个配置化的经营分析报表生成系统。支持连接数据库、SQL 数据探索，以及通过可视化拖拽编辑器构建报表。
+数据分析应用iSee — 一个配置化的数据分析应用系统。支持连接数据库、SQL 数据探索、ELT 数据加工处理，以及通过可视化拖拽编辑器构建报表。
 
 - **后端**: FastAPI + SQLAlchemy + Pydantic，Python ≥ 3.11
 - **前端**: React 19 + TypeScript + Vite + Ant Design + Chart.js + CodeMirror 6
@@ -187,6 +187,9 @@ CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
 
 - 后端虚拟环境为 `backend/.venv/`（当前实际使用 Python 3.14，但 `pyproject.toml` 要求 ≥ 3.11）。
 - 前端开发服务运行在 `http://localhost:5173`，后端在 `http://localhost:8000`。
+- **默认登录** `admin` / `admin`；改 `backend/.env` 的 `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `JWT_SECRET_KEY`。Token 存前端 localStorage（access 24h，refresh 7d）。
+- 所有 API 强制 JWT 鉴权（HS256），除 `auth.py` 自身。`deps.get_current_user` 兼容 `Authorization` header 和 `?token=` query 参数。
 - `DataSource` 模型即使对 SQLite 也要求填写 `host`、`port`、`username`、`password`；配置 SQLite 数据源时可使用占位值。
 - 数据探索器会拒绝不以 `SELECT` 开头或包含危险关键字的 SQL。
-- `ReportPreview.tsx` 使用 `isomorphic-dompurify` 对 HTML 预览进行消毒。
+- 报表预览走 iframe `src=` 直接加载后端生成的 HTML；**后端已用 `html.escape` 转义所有用户数据**。iframe 加 `sandbox="allow-scripts"` 防逃逸到父页面。
+- `backend/scripts/` 下的 smoke 测试：`smoke_xss_check.py`（恶意 payload 转义）、`smoke_xss_regression.py`（seed 数据回归）、`smoke_path_traversal.py`（文件名 sanitize）。

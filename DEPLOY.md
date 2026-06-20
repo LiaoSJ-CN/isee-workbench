@@ -199,7 +199,13 @@ services:
 | `APP_NAME` | Business Analysis Report Backend | 应用名称 |
 | `DEBUG` | false | 调试模式 |
 | `DATABASE_URL` | sqlite:///./app.db | 数据库连接 URL |
-| `CORS_ORIGINS` | http://localhost:5173 | 允许的跨域来源 |
+| `CORS_ORIGINS` | http://localhost:5173 | 允许的跨域来源（JSON 数组字符串） |
+| `ADMIN_USERNAME` | `admin` | 单管理员用户名 |
+| `ADMIN_PASSWORD` | `admin` | 单管理员密码（明文，**仅 demo 用**） |
+| `JWT_SECRET_KEY` | （未设则随机生成 + 警告） | JWT HS256 签名密钥；**生产必须显式设置** |
+| `JWT_ALGORITHM` | `HS256` | JWT 签名算法 |
+| `ACCESS_TOKEN_MINUTES` | `1440` (1 天) | Access token 有效期 |
+| `REFRESH_TOKEN_DAYS` | `7` | Refresh token 有效期 |
 
 示例 `.env` 文件：
 
@@ -208,6 +214,9 @@ APP_NAME=经营分析报表系统
 DEBUG=false
 DATABASE_URL=sqlite:///./app.db
 CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me-in-production
+JWT_SECRET_KEY=your-very-long-random-secret-here
 ```
 
 ---
@@ -285,8 +294,9 @@ kill -9 <PID>
 
 ## 生产环境检查清单
 
-- [ ] 修改默认 `APP_SECRET_KEY`
-- [ ] 启用 HTTPS
+- [ ] 设置 `JWT_SECRET_KEY` 为随机长字符串（至少 32 字节）
+- [ ] 修改默认 `ADMIN_PASSWORD`
+- [ ] 启用 HTTPS（若用 cookie 类方案）
 - [ ] 配置防火墙规则
 - [ ] 设置日志轮转
 - [ ] 配置备份策略

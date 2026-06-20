@@ -3,10 +3,11 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.schemas.report import (
@@ -21,7 +22,11 @@ from app.schemas.report import (
 )
 from app.services.report_generator import ReportGeneratorError, generate_report
 
-router = APIRouter(prefix="/reports", tags=["reports"])
+router = APIRouter(
+    prefix="/reports",
+    tags=["reports"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # ---- Report Item Endpoints ----
@@ -214,13 +219,15 @@ def generate_report_endpoint(request: ReportGenerateRequest, db: Session = Depen
         ) from exc
 
 
-@router.get("/{report_id}/preview", response_model=dict)
+@router.get("/{report_id}/preview", response_class=HTMLResponse)
 def preview_report(
     report_id: int,
     format: str = Query(default="html", pattern="^(html|json)$"),
     db: Session = Depends(get_db),
 ):
-    """Preview a report without generating a file."""
+    """Preview a report without generating a file. Returns raw HTML so the
+    frontend iframe can load it directly via <iframe src=...> and scripts
+    (Chart.js) execute without being stripped by DOMPurify."""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
@@ -233,7 +240,7 @@ def preview_report(
             db=db,
             preview_only=True,
         )
-        return result
+        return HTMLResponse(content=result["preview_data"])
     except ReportGeneratorError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

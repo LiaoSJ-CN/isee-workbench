@@ -1,6 +1,8 @@
 """Service for generating business analysis reports."""
 
+import re
 from datetime import datetime
+from html import escape as h
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,23 @@ from app.services.connection import build_connection_url
 
 class ReportGeneratorError(Exception):
     """Raised when report generation fails."""
+
+
+# Filename-safe subset: word chars, CJK Unified Ideographs, hyphen, dot.
+_SAFE_FILENAME_RE = re.compile(r"[^\w一-鿿\-.]+")
+_FILENAME_MAX_LEN = 200
+
+
+def _safe_filename(name: str, fallback: str = "report") -> str:
+    """Sanitize a string for use as a filename component.
+
+    Strips path separators and other unsafe characters to prevent
+    path traversal (e.g. ``../../etc/passwd``). Keeps word chars,
+    CJK ideographs, hyphen, and dot. Falls back to ``fallback`` when
+    the result would be empty, and caps length to avoid OS limits.
+    """
+    sanitized = _SAFE_FILENAME_RE.sub("_", name).strip("._") or fallback
+    return sanitized[:_FILENAME_MAX_LEN]
 
 
 class ReportGenerator:
@@ -196,8 +215,8 @@ class ReportGenerator:
             "<html>",
             "<head>",
             "<meta charset='utf-8'>",
-            f"<title>{report.name}</title>",
-            "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'></script>",
+            f"<title>{h(report.name)}</title>",
+            "<script src='/static/chart.umd.min.js'></script>",
             "<style>",
             "body { font-family: -apple-system, BlinkMacSystemFont, "
             "'Segoe UI', Roboto, sans-serif; padding: 20px; }",
@@ -221,11 +240,11 @@ class ReportGenerator:
             "</style>",
             "</head>",
             "<body>",
-            f"<h1>{report.name}</h1>",
+            f"<h1>{h(report.name)}</h1>",
         ]
 
         if report.description:
-            html_parts.append(f"<p>{report.description}</p>")
+            html_parts.append(f"<p>{h(report.description)}</p>")
 
         chart_index = 0
         # Render each item
@@ -241,7 +260,7 @@ class ReportGenerator:
                     formatted = self._format_value(value)
                     html_parts.append("<div class='metric'>")
                     html_parts.append(f"<div class='metric-value'>{formatted}</div>")
-                    html_parts.append(f"<div class='metric-label'>{col}</div>")
+                    html_parts.append(f"<div class='metric-label'>{h(col)}</div>")
                     html_parts.append("</div>")
                 html_parts.append("</div>")
 
@@ -259,9 +278,9 @@ class ReportGenerator:
                 height = config.get("height", 400)
 
                 html_parts.append("<div class='chart-container'>")
-                html_parts.append(f"<h2>{title}</h2>")
+                html_parts.append(f"<h2>{h(title)}</h2>")
                 if subtitle:
-                    html_parts.append(f"<h3>{subtitle}</h3>")
+                    html_parts.append(f"<h3>{h(subtitle)}</h3>")
 
                 # Prepare chart data
                 labels = item_data.iloc[:, 0].tolist() if len(item_data.columns) > 0 else []
@@ -339,26 +358,31 @@ class ReportGenerator:
                         },
                     }
 
-                html_parts.append(f"<div class='chart-wrapper' style='height:{height}px'>")
+                html_parts.append(f"<div class='chart-wrapper' style='height:{h(str(height))}px'>")
                 html_parts.append(f"<canvas id='{chart_id}'></canvas>")
                 html_parts.append("</div>")
                 html_parts.append("</div>")
 
-                # Add Chart.js script
-                chart_js = f"new Chart(document.getElementById('{chart_id}'),"
-                chart_js += str(chart_config).replace("'", '"') + ");"
+                # Add Chart.js script — use json.dumps to serialize Python
+                # True/False/None as valid JS true/false/null (not str()).
+                import json
+                chart_js = (
+                    f"new Chart(document.getElementById('{chart_id}'),"
+                    + json.dumps(chart_config)
+                    + ");"
+                )
                 html_parts.append("<script>")
                 html_parts.append(chart_js)
                 html_parts.append("</script>")
 
             elif item.item_type == "table" and item_data is not None:
                 title = config.get("title") or item.name
-                html_parts.append(f"<h2>{title}</h2>")
+                html_parts.append(f"<h2>{h(title)}</h2>")
                 html_parts.append(self._df_to_html_table(item_data))
 
             elif item.item_type == "text":
                 content = config.get("content", "") if config else ""
-                html_parts.append(f"<div class='text-block'>{content}</div>")
+                html_parts.append(f"<div class='text-block'>{h(content)}</div>")
 
         html_parts.extend([
             f"<div class='timestamp'>"
@@ -383,7 +407,7 @@ class ReportGenerator:
         # Header
         html.append("<thead><tr>")
         for col in display_df.columns:
-            html.append(f"<th>{col}</th>")
+            html.append(f"<th>{h(col)}</th>")
         html.append("</tr></thead>")
 
         # Body
@@ -411,7 +435,7 @@ class ReportGenerator:
             return f"{val:,.2f}"
         if isinstance(val, int):
             return f"{val:,}"
-        return str(val)
+        return h(str(val))
 
 
 def generate_report(
@@ -453,14 +477,14 @@ def generate_report(
             else:
                 # Save HTML file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = output_dir / f"{report.name}_{timestamp}.html"
+                filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.html"
                 filename.write_text(html_content, encoding="utf-8")
                 return {"file_path": str(filename)}
 
         elif output_format == "excel":
             # Create Excel file with multiple sheets
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = output_dir / f"{report.name}_{timestamp}.xlsx"
+            filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.xlsx"
 
             with pd.ExcelWriter(filename, engine="openpyxl") as writer:
                 # Summary sheet

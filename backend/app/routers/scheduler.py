@@ -7,12 +7,17 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import get_current_user
 from app.models.report import Report
 from app.services.scheduler import get_scheduler
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/scheduler", tags=["scheduler"])
+router = APIRouter(
+    prefix="/scheduler",
+    tags=["scheduler"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class SchedulerJobResponse(BaseModel):

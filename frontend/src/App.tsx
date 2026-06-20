@@ -1,10 +1,12 @@
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Layout, Menu } from 'antd';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { Layout, Menu, Button, Spin } from 'antd';
 import {
   DatabaseOutlined,
   FileTextOutlined,
   ClockCircleOutlined,
   SearchOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import {
   DataSourceList,
@@ -13,7 +15,9 @@ import {
   ReportPreview,
   SchedulerPage,
   DataExplorer,
+  Login,
 } from './pages';
+import { authApi } from './api';
 
 const { Header, Content } = Layout;
 
@@ -54,7 +58,52 @@ function AppMenu() {
   );
 }
 
-function AppContent() {
+/** Gate: verifies session on mount, redirects to /login if 401. */
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const [checking, setChecking] = useState(true);
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    authApi
+      .me()
+      .then(() => {
+        if (!cancelled) setAuthed(true);
+      })
+      .catch(() => {
+        // 401 already triggered a global redirect to /login; nothing to do.
+      })
+      .finally(() => {
+        if (!cancelled) setChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (checking) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+  if (!authed) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  return <>{children}</>;
+}
+
+function AppShell() {
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      window.location.href = '/login';
+    }
+  };
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center' }}>
@@ -62,6 +111,14 @@ function AppContent() {
           经营分析报表
         </div>
         <AppMenu />
+        <Button
+          type="text"
+          icon={<LogoutOutlined />}
+          onClick={handleLogout}
+          style={{ color: 'white' }}
+        >
+          退出
+        </Button>
       </Header>
       <Content>
         <Routes>
@@ -81,7 +138,17 @@ function AppContent() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/*"
+          element={
+            <RequireAuth>
+              <AppShell />
+            </RequireAuth>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 }

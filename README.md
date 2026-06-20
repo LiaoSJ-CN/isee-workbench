@@ -69,6 +69,16 @@ npm run dev
 前端地址: http://localhost:5173
 后端地址: http://localhost:8000
 
+### 3. 默认登录
+
+```
+用户名: admin
+密码:   admin
+```
+
+可在 `backend/.env` 用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `JWT_SECRET_KEY` 覆盖。
+token 存浏览器 localStorage；access 24h，refresh 7d，过期自动续签。
+
 ## 功能特性
 
 ### 数据源管理
@@ -125,3 +135,14 @@ npm run dev
 | POST | /scheduler/jobs/{report_id} | 创建定时任务 |
 | DELETE | /scheduler/jobs/{report_id} | 删除定时任务 |
 | POST | /explorer/query | 执行 SQL 查询 |
+
+### 认证端点
+
+| 方法 | 路径 | 功能 | 鉴权 |
+|------|------|------|------|
+| POST | /auth/login | 登录，发放 access + refresh token | 无 |
+| POST | /auth/refresh | 用 refresh token 换新 access token | 无（凭 refresh token） |
+| POST | /auth/logout | 登出（无状态，客户端丢弃 token 即可） | 无 |
+| GET | /auth/me | 返回当前登录用户 | Bearer access token |
+
+所有 `/data-sources` `/reports` `/scheduler` `/explorer` 路由都需 `Authorization: Bearer <access_token>` 头（除 `/reports/{id}/preview` 也支持 `?token=` query 参数给 iframe 用）。

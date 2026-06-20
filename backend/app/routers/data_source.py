@@ -4,11 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.schemas.data_source import DataSourceCreate, DataSourceResponse, DataSourceUpdate
 from app.services.connection import ConnectionError, test_connection
 
-router = APIRouter(prefix="/data-sources", tags=["data-sources"])
+router = APIRouter(
+    prefix="/data-sources",
+    tags=["data-sources"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("", response_model=list[DataSourceResponse])

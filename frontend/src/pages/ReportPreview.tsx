@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Space, Card, message, Spin, Descriptions, Tag, Table } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-import DOMPurify from 'isomorphic-dompurify';
 import type { Report } from '../types';
 import { reportApi } from '../api';
 
@@ -10,7 +9,7 @@ export default function ReportPreview() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [report, setReport] = useState<Report | null>(null);
-  const [htmlContent, setHtmlContent] = useState<string>('');
+  const [previewSrc, setPreviewSrc] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -39,15 +38,11 @@ export default function ReportPreview() {
     if (!id) return;
     setGenerating(true);
     try {
-      const result = await reportApi.preview(Number(id), 'html');
-      if (result.preview_data) {
-        // Sanitize HTML to prevent XSS attacks
-        const sanitized = DOMPurify.sanitize(result.preview_data as string, {
-          ALLOWED_TAGS: ['html', 'head', 'body', 'script', 'style', 'div', 'span', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr', 'ul', 'ol', 'li', 'pre', 'code', 'canvas'],
-          ALLOWED_ATTR: ['id', 'class', 'style', 'src', 'charset', 'crossorigin', 'integrity', 'referrerpolicy', 'width', 'height', 'title'],
-        });
-        setHtmlContent(sanitized);
-      }
+      // Iframe src requests can't carry an Authorization header, so pass the
+      // access token via ?token= (the backend accepts this as a fallback).
+      const token = localStorage.getItem('access_token') ?? '';
+      const url = `http://localhost:8000/reports/${id}/preview?format=html&t=${Date.now()}&token=${encodeURIComponent(token)}`;
+      setPreviewSrc(url);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error(error.response?.data?.detail || '预览生成失败');
@@ -137,12 +132,13 @@ export default function ReportPreview() {
       )}
 
       <Card title="HTML 预览">
-        {htmlContent ? (
+        {previewSrc ? (
           <iframe
-            srcDoc={htmlContent}
+            src={previewSrc}
+            sandbox="allow-scripts"
             style={{
               width: '100%',
-              height: '600px',
+              height: '2400px',
               border: '1px solid #d9d9d9',
               borderRadius: 4
             }}

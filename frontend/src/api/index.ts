@@ -14,11 +14,94 @@ import type {
 } from '../types';
 
 const API_BASE = 'http://localhost:8000';
+const ACCESS_KEY = 'access_token';
+const REFRESH_KEY = 'refresh_token';
 
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
 });
+
+// Attach the access token to every outbound request.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(ACCESS_KEY);
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// On 401, try refreshing the access token once, then retry the original
+// request. If that fails, clear tokens and bounce to /login. The
+// /auth/refresh call itself must not trigger this path.
+let refreshing: Promise<string | null> | null = null;
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const status = err?.response?.status;
+    const original = err?.config as (typeof err.config & { _retry?: boolean }) | undefined;
+    const onLogin = window.location.pathname.startsWith('/login');
+    const isRefreshCall = original?.url?.includes('/auth/refresh');
+
+    if (status === 401 && !onLogin && !isRefreshCall && original && !original._retry) {
+      const refreshToken = localStorage.getItem(REFRESH_KEY);
+      if (refreshToken) {
+        try {
+          // Dedupe concurrent refresh calls.
+          if (!refreshing) {
+            refreshing = axios
+              .post(`${API_BASE}/auth/refresh`, { refresh_token: refreshToken })
+              .then((r) => r.data.access_token as string)
+              .finally(() => {
+                refreshing = null;
+              });
+          }
+          const newAccess = await refreshing;
+          if (newAccess) {
+            localStorage.setItem(ACCESS_KEY, newAccess);
+            original._retry = true;
+            original.headers.Authorization = `Bearer ${newAccess}`;
+            return api(original);
+          }
+        } catch {
+          // fall through to logout
+        }
+      }
+      localStorage.removeItem(ACCESS_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      window.location.href = '/login';
+    }
+    return Promise.reject(err);
+  }
+);
+
+// ============ Auth ============
+
+export const authApi = {
+  login: async (
+    username: string,
+    password: string
+  ): Promise<{ access_token: string; refresh_token: string; token_type: string }> => {
+    const { data } = await api.post('/auth/login', { username, password });
+    localStorage.setItem(ACCESS_KEY, data.access_token);
+    localStorage.setItem(REFRESH_KEY, data.refresh_token);
+    return data;
+  },
+  logout: async (): Promise<{ ok: boolean }> => {
+    try {
+      const { data } = await api.post('/auth/logout');
+      return data;
+    } finally {
+      localStorage.removeItem(ACCESS_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+    }
+  },
+  me: async (): Promise<{ username: string }> => {
+    const { data } = await api.get('/auth/me');
+    return data;
+  },
+};
 
 // ============ Data Sources ============
 

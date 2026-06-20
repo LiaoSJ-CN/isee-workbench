@@ -7,10 +7,15 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.services.connection import ConnectionError, build_connection_url
 
-router = APIRouter(prefix="/explorer", tags=["explorer"])
+router = APIRouter(
+    prefix="/explorer",
+    tags=["explorer"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class QueryRequest(BaseModel):
