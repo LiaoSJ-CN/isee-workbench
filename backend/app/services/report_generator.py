@@ -131,7 +131,7 @@ class ReportGenerator:
 
         # Validate and sanitize table name (only alphanumeric and underscore)
         import re
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-_]*$', table_name):
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
             raise ReportGeneratorError(f"Invalid table name: {table_name}")
 
         # Build SELECT clause (validate field names)

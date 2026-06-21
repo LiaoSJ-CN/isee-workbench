@@ -175,6 +175,20 @@ def test_build_query_rejects_sql_injection_in_table_name() -> None:
         g.build_query(_item(table_name="tbl; DROP TABLE users"), {})
 
 
+def test_build_query_rejects_table_name_with_injection_chars_no_space() -> None:
+    """Regression: the table-name regex `^[a-zA-Z_][a-zA-Z0-_]*$` has a typo:
+    `0-_` is the ASCII range 48..95, which includes `;`(59), `:`, `<=>?@`,
+    `[\\]^`. The earlier SQL-injection test happens to fail because its
+    payload contains a space (ASCII 32, outside the range). Without the
+    space, the buggy regex accepts the whole string and the table name is
+    concatenated directly into SQL.
+    """
+    g = _gen()
+    # No spaces anywhere — every char is in the buggy 48..95 range.
+    with pytest.raises(Exception):
+        g.build_query(_item(table_name="users;DROPTABLEx"), {})
+
+
 def test_build_query_rejects_invalid_where_field() -> None:
     g = _gen()
     item = _item(where_conditions=[{"field": "x; DROP", "operator": "=", "value": 1}])
