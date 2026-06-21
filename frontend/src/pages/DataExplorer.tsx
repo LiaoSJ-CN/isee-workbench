@@ -138,9 +138,9 @@ function newHistoryId(): string {
 
 /** Build a stable row-key from column values. More robust than array index
  * for React reconciliation when the same row appears across re-renders. */
-function resultRowKey(record: Record<string, unknown>, columns: string[], index: number): string {
+function resultRowKey(record: Record<string, unknown>, columns: string[], index?: number): string {
   const content = columns.slice(0, 4).map((c) => String(record[c] ?? '\x00')).join('\x1f');
-  return content || String(index);
+  return content || String(index ?? 0);
 }
 
 export default function DataExplorer() {
