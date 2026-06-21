@@ -37,8 +37,8 @@ isee-workbench/
 #### 1. 克隆项目
 
 ```bash
-git clone <repository-url> business_analysis_report_tools
-cd business_analysis_report_tools
+git clone <repository-url> isee-workbench
+cd isee-workbench
 ```
 
 #### 2. 部署后端
