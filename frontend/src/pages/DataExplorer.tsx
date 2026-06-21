@@ -4,6 +4,7 @@ import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, Delete
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, HistoryEntry } from '../types';
 import { dataSourceApi, explorerApi } from '../api';
+import { formatError } from '../utils/error';
 import SqlEditor from '../components/SqlEditor';
 
 const { Option } = Select;
@@ -163,8 +164,8 @@ export default function DataExplorer() {
     dataSourceApi.list().then((data) => {
       setDataSources(data);
       setSelectedDs((prev) => prev ?? (data.length > 0 ? data[0].id : null));
-    }).catch(() => {
-      message.error('加载数据源失败');
+    }).catch((err: unknown) => {
+      message.error(formatError(err, '加载数据源失败'));
     });
   }, []);
 
@@ -229,8 +230,8 @@ export default function DataExplorer() {
           error: data.error,
         })
       );
-    } catch {
-      message.error('查询执行失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '查询执行失败'));
       // Network-level failure — still log so user can see what they tried.
       setHistory((h) =>
         appendHistory(h, {

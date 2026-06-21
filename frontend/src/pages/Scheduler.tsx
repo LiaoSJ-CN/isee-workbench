@@ -4,6 +4,7 @@ import { SyncOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined } from 
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, SchedulerStatus, SchedulerJob } from '../types';
 import { reportApi, schedulerApi } from '../api';
+import { formatError } from '../utils/error';
 
 type NotificationType = 'none' | 'webhook' | 'email';
 
@@ -33,8 +34,8 @@ export default function SchedulerPage() {
     try {
       const data = await schedulerApi.getStatus();
       setStatus(data);
-    } catch {
-      message.error('加载调度器状态失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载调度器状态失败'));
     }
   };
 
@@ -43,8 +44,8 @@ export default function SchedulerPage() {
     try {
       const data = await reportApi.list({ is_active: true });
       setReports(data);
-    } catch {
-      message.error('加载报表失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载报表失败'));
     } finally {
       setLoading(false);
     }
@@ -61,8 +62,8 @@ export default function SchedulerPage() {
       const result = await schedulerApi.sync();
       message.success(result.message);
       loadStatus();
-    } catch {
-      message.error('同步失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '同步失败'));
     }
   };
 
@@ -113,8 +114,8 @@ export default function SchedulerPage() {
       setReports(prev => prev.map(r =>
         r.id === reportId ? { ...r, is_scheduled: false } : r
       ));
-    } catch {
-      message.error('删除失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '删除失败'));
     }
   };
 

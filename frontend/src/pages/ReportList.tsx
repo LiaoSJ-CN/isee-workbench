@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, ReportCreate, DataSource } from '../types';
 import { reportApi, dataSourceApi } from '../api';
+import { formatError } from '../utils/error';
 
 export default function ReportList() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -22,8 +23,8 @@ export default function ReportList() {
       const data = await reportApi.list();
       setReports(data);
       setPagination((prev) => ({ ...prev, total: data.length }));
-    } catch {
-      message.error('加载报表失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载报表失败'));
     } finally {
       setLoading(false);
     }
@@ -33,8 +34,8 @@ export default function ReportList() {
     try {
       const data = await dataSourceApi.list();
       setDataSources(data);
-    } catch {
-      message.error('加载数据源失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载数据源失败'));
     }
   };
 
@@ -88,8 +89,8 @@ export default function ReportList() {
           message.success(`成功删除 ${selectedRowKeys.length} 个报表`);
           setSelectedRowKeys([]);
           loadReports();
-        } catch {
-          message.error('删除失败');
+        } catch (err: unknown) {
+          message.error(formatError(err, '删除失败'));
         }
       },
     });
@@ -100,8 +101,8 @@ export default function ReportList() {
       await reportApi.delete(id);
       message.success('删除成功');
       loadReports();
-    } catch {
-      message.error('删除失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '删除失败'));
     }
   };
 

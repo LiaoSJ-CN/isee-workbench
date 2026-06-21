@@ -28,6 +28,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { Report, ReportItem, ReportItemCreate, ReportItemUpdate, DataSource } from '../types';
 import { reportApi, dataSourceApi } from '../api';
+import { formatError } from '../utils/error';
 
 // ============ Sortable Item Component ============
 
@@ -438,8 +439,8 @@ export default function ReportEditor() {
     try {
       const data = await reportApi.get(Number(id));
       setReport(data);
-    } catch {
-      message.error('加载报表失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载报表失败'));
     } finally {
       setLoading(false);
     }
@@ -449,8 +450,8 @@ export default function ReportEditor() {
     try {
       const data = await dataSourceApi.list();
       setDataSources(data);
-    } catch {
-      message.error('加载数据源失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载数据源失败'));
     }
   };
 
@@ -472,8 +473,8 @@ export default function ReportEditor() {
         is_active: report.is_active,
       });
       message.success('保存成功');
-    } catch {
-      message.error('保存失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '保存失败'));
     } finally {
       setSaving(false);
     }
@@ -501,8 +502,8 @@ export default function ReportEditor() {
       }
       setItemModalVisible(false);
       loadReport();
-    } catch {
-      message.error('操作失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '操作失败'));
     }
   };
 
@@ -512,8 +513,8 @@ export default function ReportEditor() {
       await reportApi.deleteItem(report.id, itemId);
       message.success('删除成功');
       loadReport();
-    } catch {
-      message.error('删除失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '删除失败'));
     }
   };
 
@@ -555,8 +556,8 @@ export default function ReportEditor() {
     if (payload.length === 0) return;
     try {
       await reportApi.reorderItems(report.id, payload);
-    } catch {
-      message.error('排序保存失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '排序保存失败'));
       loadReport();
     }
   };

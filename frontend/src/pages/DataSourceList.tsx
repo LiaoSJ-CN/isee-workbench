@@ -4,6 +4,7 @@ import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCi
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, DataSourceCreate } from '../types';
 import { dataSourceApi } from '../api';
+import { formatError } from '../utils/error';
 
 const { TextArea } = Input;
 
@@ -24,8 +25,8 @@ export default function DataSourceList() {
       const data = await dataSourceApi.list();
       setDataSources(data);
       setPagination((prev) => ({ ...prev, total: data.length }));
-    } catch {
-      message.error('加载数据源失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '加载数据源失败'));
     } finally {
       setLoading(false);
     }
@@ -78,8 +79,8 @@ export default function DataSourceList() {
           message.success(`成功删除 ${selectedRowKeys.length} 个数据源`);
           setSelectedRowKeys([]);
           loadDataSources();
-        } catch {
-          message.error('删除失败');
+        } catch (err: unknown) {
+          message.error(formatError(err, '删除失败'));
         }
       },
     });
@@ -90,8 +91,8 @@ export default function DataSourceList() {
       await dataSourceApi.delete(id);
       message.success('删除成功');
       loadDataSources();
-    } catch {
-      message.error('删除失败');
+    } catch (err: unknown) {
+      message.error(formatError(err, '删除失败'));
     }
   };
 
