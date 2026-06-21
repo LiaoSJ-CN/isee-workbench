@@ -136,11 +136,13 @@ mypy app
 
 ### 后端 (`backend/app/`)
 
-- `main.py` — FastAPI 入口。注册路由、配置 CORS、启动时创建 SQLAlchemy 表 (`create_all`) + 补齐缺失列 (`ensure_columns`)，并启动 APScheduler 单例。
+- `main.py` — FastAPI 入口。注册路由、配置 CORS、统一日志配置（`RotatingFileHandler` → `logs/app.log`）。启动时创建 SQLAlchemy 表 + 补齐缺失列。默认 `SCHEDULER_DISABLED=true` 不启动调度器。
+- `crypto.py` — Fernet 对称加密工具，用于数据源密码的静态加密存储。解密时自动识别存量明文（向后兼容）。
 - `db_migrations.py` — `ensure_columns(engine)` 启动期补齐 SQLAlchemy MetaData 中已声明、但 DB 中尚未存在的列（`create_all` 只建表不补列）。
 - `scheduler_runner.py` — Sidecar 进程入口（`python -m app.scheduler_runner`）。独占 APScheduler tick 循环，配合 web 进程的 `SCHEDULER_DISABLED=true` 解决 `gunicorn -w N` 下 job 跑 N 次的问题。
 - `config.py` — 基于 Pydantic-settings 的配置，从 `backend/.env` 加载。
-- `database.py` — 元数据库的 SQLAlchemy engine/session 设置。
+- `database.py` — 元数据库的 SQLAlchemy engine/session 设置。对非 SQLite 数据库启用 `pool_pre_ping`。
+- `middleware/` — 可复用中间件：`rate_limit.py`（内存滑动窗口限流器）。
 - `models/` — SQLAlchemy 模型：
   - `DataSource` — 外部数据库连接信息。
   - `Report` — 报表定义、调度配置、输出格式。
@@ -179,7 +181,7 @@ mypy app
 
 ### 定时调度
 
-- APScheduler 运行在后端进程内（默认）。启动时 `main.py` 调用 `scheduler.sync_with_database()` 加载所有已启用调度的活跃报表。
+- APScheduler 默认在 web 进程中禁用（`SCHEDULER_DISABLED=true`）。单进程开发时可设为 `false` 直接在 web 进程中跑。启动时 `main.py`（若启用）调用 `scheduler.sync_with_database()` 加载所有已启用调度的活跃报表。
 - Cron 表达式使用 6 个字段：`min hour dom mon dow year`；由 `ScheduleTaskCreate._validate_cron` 在 Pydantic 层用 `CronTrigger` 校验每段范围（越界返回 422）。
 - `sync_with_database()` 是 reconcile，不是纯 add：会清理 DB 里已不再 active 的孤立 job（DELETE 后的孤儿）。
 - 定时报表支持 webhook 通知（按任务配置）。
@@ -188,7 +190,7 @@ mypy app
 
 `app/services/scheduler.py` 的 `_scheduler` 是进程内单例。`gunicorn -w N` 下每个 worker 会独立跑 APScheduler，同一个 job 每个 tick 执行 N 次。修复方案：
 
-1. Web 进程设 `SCHEDULER_DISABLED=true`（在 `backend/.env`），启动时跳过 `scheduler.start()` 和 `sync_with_database()`。`/scheduler/*` API 端点仍然可用（它们操作 DB 和 in-process APScheduler 实例的元数据，不实际 tick）。
+1. Web 进程保持默认 `SCHEDULER_DISABLED=true`（无需额外配置），启动时跳过 `scheduler.start()` 和 `sync_with_database()`。`/scheduler/*` API 端点仍然可用（它们操作 DB 和 in-process APScheduler 实例的元数据，不实际 tick）。单进程开发时可设 `SCHEDULER_DISABLED=false`。
 2. 单独跑 `python -m app.scheduler_runner` 一个 sidecar 进程。该进程独占调度器 tick 循环，每 `SCHEDULER_RESYNC_INTERVAL` 秒（默认 30）从 DB 重读一次，幂等 reconcile。SIGTERM/SIGINT 触发 graceful shutdown。
 
 ⚠️ sidecar 必须只跑一个实例；跑多个 = 原 bug 重现。需要多实例 HA 时升级到 celery beat / 外部 leader 选举。
@@ -203,6 +205,16 @@ mypy app
 | `DEBUG` | `false` | FastAPI 调试模式 |
 | `DATABASE_URL` | `sqlite:///./app.db` | 元数据库连接 URL |
 | `CORS_ORIGINS` | `http://localhost:5173`, `http://127.0.0.1:5173` | 允许的跨域来源 |
+| `SCHEDULER_DISABLED` | `true` | web 进程跳过调度器 tick（sidecar 模式） |
+| `SCHEDULER_RESYNC_INTERVAL` | `30` | sidecar 从 DB 重读调度的间隔（秒） |
+| `ADMIN_USERNAME` | `admin` | 管理员用户名 |
+| `ADMIN_PASSWORD` | `admin` | 管理员密码（**生产必改**） |
+| `JWT_SECRET_KEY` | (自动生成) | JWT 签名密钥（**生产必设，否则重启 token 全失效**） |
+| `ENCRYPTION_KEY` | (自动生成) | 数据源密码加密密钥（**生产必设，否则重启后已存密码不可读**） |
+| `LOGIN_RATE_LIMIT` | `10` | 每 IP 每分钟最大登录尝试次数 |
+| `LOG_LEVEL` | `INFO` | 日志级别（DEBUG/INFO/WARNING/ERROR） |
+| `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
+| `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
 
 示例 `backend/.env`：
 
@@ -211,6 +223,10 @@ APP_NAME=iSee数据分析工作台
 DEBUG=false
 DATABASE_URL=sqlite:///./app.db
 CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=changeme
+JWT_SECRET_KEY=<生成一个长随机串>
+ENCRYPTION_KEY=<生成一个 Fernet key>
 ```
 
 ## 开发注意事项
