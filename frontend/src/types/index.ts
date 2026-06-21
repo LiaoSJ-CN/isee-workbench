@@ -70,21 +70,23 @@ export interface DisplayConfig {
   height?: number;
   width?: number;
   content?: string;
-  // 图表额外配置
-  showLegend?: boolean;
-  legendPosition?: 'top' | 'bottom' | 'left' | 'right';
-  showDataLabel?: boolean;
-  showGrid?: boolean;
+  // 图表额外配置 — sub-field keys must match backend `DisplayConfig` (snake_case).
+  // Backend silently drops unknown keys (Pydantic extra='ignore'), so camelCase
+  // here would cause user toggles to vanish on save.
+  show_legend?: boolean;
+  legend_position?: 'top' | 'bottom' | 'left' | 'right';
+  show_data_label?: boolean;
+  show_grid?: boolean;
   stacked?: boolean;
   horizontal?: boolean;
   // 坐标轴配置
-  xAxisField?: string;
-  yAxisFields?: string[];
+  x_axis_field?: string;
+  y_axis_fields?: string[];
   // 饼图/环形图配置
-  showPercentage?: boolean;
+  show_percentage?: boolean;
   // 仪表盘配置
-  minValue?: number;
-  maxValue?: number;
+  min_value?: number;
+  max_value?: number;
   unit?: string;
 }
 

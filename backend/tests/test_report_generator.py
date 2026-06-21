@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from app.schemas.report import DisplayConfig
 from app.services.report_generator import ReportGenerator, _safe_filename
 
 
@@ -42,6 +43,48 @@ def test_safe_filename_length_capped() -> None:
     raw = "a" * 500
     got = _safe_filename(raw)
     assert len(got) == 200
+
+
+# ---------- DisplayConfig round-trip ----------
+# Locks the snake_case contract. The frontend `DisplayConfig` TS interface
+# mirrors these field names; if anyone flips Pydantic to populate_by_name=True
+# or extra='allow', these assertions will fail instead of silently accepting
+# camelCase keys (which used to drop chart toggles on save — see #12).
+
+def test_display_config_accepts_snake_case_fields() -> None:
+    cfg = DisplayConfig(
+        show_legend=False,
+        legend_position="bottom",
+        show_grid=False,
+        show_data_label=True,
+    )
+    assert cfg.show_legend is False
+    assert cfg.legend_position == "bottom"
+    assert cfg.show_grid is False
+    assert cfg.show_data_label is True
+
+
+def test_display_config_drops_unknown_camelcase_keys() -> None:
+    # Pydantic default `extra='ignore'` should silently drop the camelCase
+    # variants that the old (buggy) frontend form used to send. If this ever
+    # stops being true, the rename in #12 has been undone and chart toggles
+    # may regress — update the test alongside the rename.
+    cfg = DisplayConfig.model_validate(
+        {"showLegend": False, "legendPosition": "bottom", "showGrid": False}
+    )
+    # Defaults preserved — camelCase payload did NOT populate snake_case fields.
+    assert cfg.show_legend is True
+    assert cfg.legend_position == "top"
+    assert cfg.show_grid is True
+
+
+def test_display_config_extra_keys_present_in_model_dump() -> None:
+    # Extra camelCase keys should be excluded from model_dump (round-trip),
+    # so persisting + re-reading cannot resurrect them.
+    cfg = DisplayConfig.model_validate({"showLegend": False, "show_legend": False})
+    dumped = cfg.model_dump()
+    assert "show_legend" in dumped
+    assert "showLegend" not in dumped
 
 
 # ---------- build_query ----------

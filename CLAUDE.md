@@ -92,7 +92,7 @@ npm run lint
 
 ### 运行测试
 
-后端测试套件位于 `backend/tests/`（pytest，62 个用例，~0.15s 跑完）。先装依赖：
+后端测试套件位于 `backend/tests/`（pytest，80 个用例，~0.2s 跑完）。先装依赖：
 
 ```bash
 cd backend
@@ -162,10 +162,10 @@ mypy app
 - `types/index.ts` — 与后端 Pydantic schema 对应的 TypeScript 类型。
 - `pages/` — 页面级组件：
   - `DataSourceList.tsx` — 管理数据源连接。
-  - `DataExplorer.tsx` — SQL 编辑器（CodeMirror），模板保存在 `localStorage`，支持 CSV 导出。
+  - `DataExplorer.tsx` — SQL 编辑器（CodeMirror），模板保存在 `localStorage`，支持 CSV 导出；执行历史面板在 `localStorage:sqlHistory:v1`，100 条 FIFO + 5s dedup。
   - `ReportList.tsx` — 报表列表和创建。
   - `ReportEditor.tsx` — 使用 `@dnd-kit` 的拖拽式报表构建器。
-  - `ReportPreview.tsx` — 渲染生成的 HTML 预览；使用 DOMPurify 防止 XSS。
+  - `ReportPreview.tsx` — 通过 `Authorization` 头取 HTML → blob URL → iframe（`sandbox="allow-scripts"`）。XSS 防护在后端（`html.escape`），不在前端。
   - `Scheduler.tsx` — 基于 Cron 表达式的调度界面。
 - `components/SqlEditor.tsx` — 可复用的 CodeMirror 6 SQL 编辑器。
 
@@ -217,8 +217,7 @@ CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
 - 后端虚拟环境为 `backend/.venv/`（当前实际使用 Python 3.14，但 `pyproject.toml` 要求 ≥ 3.11）。
 - 前端开发服务运行在 `http://localhost:5173`，后端在 `http://localhost:8000`。
 - **默认登录** `admin` / `admin`；改 `backend/.env` 的 `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `JWT_SECRET_KEY`。Token 存前端 localStorage（access 24h，refresh 7d）。
-- 所有 API 强制 JWT 鉴权（HS256），除 `auth.py` 自身。`deps.get_current_user` 兼容 `Authorization` header 和 `?token=` query 参数。
+- 所有 API 强制 JWT 鉴权（HS256），除 `auth.py` 自身。`deps.get_current_user` 只接受 `Authorization: Bearer ...` 头；早期的 `?token=` query-param fallback 已在 `515bbd9` 移除（消除 token 出现在浏览器历史/访问日志的泄漏面）。
 - `DataSource` 模型即使对 SQLite 也要求填写 `host`、`port`、`username`、`password`；配置 SQLite 数据源时可使用占位值。
 - 数据探索器会拒绝不以 `SELECT` 开头或包含危险关键字的 SQL。
 - 报表预览走 iframe `src=` 直接加载后端生成的 HTML；**后端已用 `html.escape` 转义所有用户数据**。iframe 加 `sandbox="allow-scripts"` 防逃逸到父页面。
-- `backend/scripts/` 下的 smoke 测试：`smoke_xss_check.py`（恶意 payload 转义）、`smoke_xss_regression.py`（seed 数据回归）、`smoke_path_traversal.py`（文件名 sanitize）。

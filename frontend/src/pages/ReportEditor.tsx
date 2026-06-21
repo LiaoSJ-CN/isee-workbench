@@ -365,7 +365,7 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
                   <Form.Item name={['display_config', 'height']} label="高度 (px)" style={{ flex: 1 }}>
                     <InputNumber min={200} max={800} defaultValue={400} />
                   </Form.Item>
-                  <Form.Item name={['display_config', 'showLegend']} label="显示图例" valuePropName="checked">
+                  <Form.Item name={['display_config', 'show_legend']} label="显示图例" valuePropName="checked">
                     <Select defaultValue={true}>
                       <Select.Option value={true}>是</Select.Option>
                       <Select.Option value={false}>否</Select.Option>
@@ -373,7 +373,7 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
                   </Form.Item>
                 </Space>
 
-                <Form.Item name={['display_config', 'legendPosition']} label="图例位置">
+                <Form.Item name={['display_config', 'legend_position']} label="图例位置">
                   <Select defaultValue="top">
                     <Select.Option value="top">顶部</Select.Option>
                     <Select.Option value="bottom">底部</Select.Option>
@@ -383,7 +383,7 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
                 </Form.Item>
 
                 <Space style={{ width: '100%' }} size="large">
-                  <Form.Item name={['display_config', 'showGrid']} label="显示网格线" valuePropName="checked">
+                  <Form.Item name={['display_config', 'show_grid']} label="显示网格线" valuePropName="checked">
                     <Select defaultValue={true}>
                       <Select.Option value={true}>是</Select.Option>
                       <Select.Option value={false}>否</Select.Option>
