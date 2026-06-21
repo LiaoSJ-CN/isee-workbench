@@ -222,6 +222,9 @@ export const reportApi = {
     return data;
   },
 
+  // SEC-11: This returns a raw URL without an auth token. Using it with
+  // fetch() or window.open() will 401. Use download() instead, which
+  // attaches the Bearer token via the axios interceptor.
   getExportUrl: (reportId: number, format: 'excel' | 'html'): string => {
     return `${API_BASE}/reports/${reportId}/export/${format}`;
   },

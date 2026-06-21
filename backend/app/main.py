@@ -182,7 +182,7 @@ def health_check() -> dict[str, str]:
         db.execute(text("SELECT 1"))
         db.close()
     except Exception as exc:
-        db_status = f"unavailable: {exc}"
+        db_status = "unavailable"
         logger.error("Health check: database probe failed — %s", exc)
 
     overall = "ok" if db_status == "ok" else "unhealthy"

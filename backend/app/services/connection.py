@@ -1,5 +1,6 @@
 """Service for managing connections to external data sources."""
 
+import logging
 from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, text
@@ -7,6 +8,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.crypto import decrypt as crypto_decrypt
 from app.models.data_source import DataSource
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionError(Exception):
@@ -54,4 +57,5 @@ def test_connection(source: DataSource) -> dict[str, str | bool]:
         engine.dispose()
         return {"success": True, "version": version}
     except SQLAlchemyError as exc:
-        raise ConnectionError(f"Failed to connect: {exc}") from exc
+        logger.error("Connection test failed for source %s: %s", source.id, exc)
+        raise ConnectionError("Failed to connect to the data source") from exc

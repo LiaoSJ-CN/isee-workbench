@@ -12,8 +12,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Create directories the app writes to at runtime
-RUN mkdir -p generated_reports logs static
+# Create directories the app writes to at runtime and a non-root user.
+# Running as root is a container-escape risk — even a minimal breakout
+# yields full root inside the container (SEC-12).
+RUN mkdir -p generated_reports logs static && \
+    useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 

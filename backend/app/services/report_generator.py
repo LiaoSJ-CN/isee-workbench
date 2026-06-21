@@ -4,6 +4,7 @@ import json
 import logging
 import numbers
 import re
+import secrets
 import threading
 from datetime import datetime
 from html import escape as h
@@ -370,6 +371,10 @@ class ReportGenerator:
                 # Prepare chart data
                 labels = item_data.iloc[:, 0].tolist() if len(item_data.columns) > 0 else []
                 chart_id = f"chart_{chart_index}"
+                # chart_index is an int, so chart_id is always safe — but
+                # assert this to prevent regressions (SEC-1).
+                assert chart_id.replace("_", "").isalnum(), \
+                    f"Unsafe chart_id: {chart_id!r}"
 
                 # Handle different chart types
                 if chart_type in ("pie", "doughnut", "polarArea"):
@@ -580,9 +585,13 @@ def generate_report(
             if preview_only:
                 return {"preview_data": html_content, "errors": errors}
             else:
-                # Save HTML file
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}.html"
+                # Save HTML file with random suffix to prevent enumeration (SEC-19).
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+                rand = secrets.token_hex(4)
+                filename = (
+                    output_dir
+                    / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.html"
+                )
                 try:
                     filename.write_text(html_content, encoding="utf-8")
                 except OSError as exc:
@@ -590,9 +599,10 @@ def generate_report(
                 return {"file_path": str(filename), "errors": errors}
 
         elif output_format == "excel":
-            # Create Excel file with multiple sheets
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}.xlsx"
+            # Create Excel file with random suffix to prevent enumeration (SEC-19).
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            rand = secrets.token_hex(4)
+            filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.xlsx"
 
             try:
                 with pd.ExcelWriter(filename, engine="openpyxl") as writer:

@@ -53,11 +53,19 @@ def decrypt(stored: str) -> str:
         return _get_fernet().decrypt(stored.encode()).decode()
     except InvalidToken:
         if stored.startswith("gAAAAA"):
-            logger.warning(
+            # Looks like a Fernet token but can't be decrypted — almost
+            # certainly a key mismatch. Returning the raw ciphertext would
+            # cause confusing downstream auth errors, so fail loudly.
+            logger.error(
                 "Failed to decrypt a stored value that looks like a Fernet "
                 "token. This usually means ENCRYPTION_KEY was changed after "
                 "data-source passwords were encrypted. Restore the original "
                 "ENCRYPTION_KEY or re-save each data-source password."
             )
-        # Legacy plaintext or undecryptable ciphertext — return as-is.
+            raise ValueError(
+                "ENCRYPTION_KEY mismatch — stored passwords cannot be decrypted. "
+                "Restore the original key or re-save data-source passwords."
+            ) from None
+        # Legacy plaintext — return as-is so existing data sources keep
+        # working after encryption is first enabled.
         return stored
