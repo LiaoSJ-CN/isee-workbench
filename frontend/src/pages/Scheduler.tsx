@@ -93,7 +93,7 @@ export default function SchedulerPage() {
       setModalVisible(false);
       loadStatus();
       // Update report's is_scheduled flag
-      setReports(reports.map(r =>
+      setReports(prev => prev.map(r =>
         r.id === values.report_id ? { ...r, is_scheduled: true, cron_expression: values.cron_expression } : r
       ));
     } catch (err: unknown) {
@@ -110,7 +110,7 @@ export default function SchedulerPage() {
       message.success('定时任务已删除');
       loadStatus();
       // Update report's is_scheduled flag
-      setReports(reports.map(r =>
+      setReports(prev => prev.map(r =>
         r.id === reportId ? { ...r, is_scheduled: false } : r
       ));
     } catch {
