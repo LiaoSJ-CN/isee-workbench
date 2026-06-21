@@ -505,3 +505,116 @@ def test_scheduler_disabled_lifespan_skips_startup(monkeypatch) -> None:
     assert not scheduler._is_running, (
         "lifespan must not start APScheduler when SCHEDULER_DISABLED=true"
     )
+
+
+# ---------- SSRF guard integration ----------
+
+
+def _stub_report(name: str = "ssrf_test") -> Report:
+    """Minimal in-memory Report for _send_notification — no DB commit."""
+    return Report(id=9999, name=name)
+
+
+def test_send_notification_blocks_webhook_to_loopback(monkeypatch, caplog) -> None:
+    """A webhook URL pointing at 127.0.0.1 must be rejected before any
+    outbound HTTP. Verifies the guard is wired into _send_notification,
+    not just sitting in a module no one calls."""
+    import logging
+
+    from app.services import scheduler as scheduler_module
+
+    called = []
+
+    def fake_post(*args, **kwargs):
+        called.append((args, kwargs))
+        raise AssertionError("httpx.post must NOT be called for a blocked URL")
+
+    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+
+    with caplog.at_level(logging.ERROR, logger="app.services.scheduler"):
+        scheduler_module._send_notification(
+            notification_config={"type": "webhook", "webhook_url": "http://127.0.0.1:8000/x"},
+            report=_stub_report(),
+            file_paths=["/tmp/r.xlsx"],
+        )
+
+    assert called == [], "httpx.post must never be called for a blocked URL"
+    assert any("SSRF guard" in rec.message for rec in caplog.records), (
+        "operator-visible error must mention the SSRF guard so the cause is obvious"
+    )
+
+
+def test_send_notification_blocks_webhook_to_private_ip_literal(monkeypatch) -> None:
+    """Same as above but for an RFC1918 IPv4 literal — covers the IP-literal
+    branch of the guard, not just the DNS branch."""
+    from app.services import scheduler as scheduler_module
+
+    called = []
+
+    def fake_post(*args, **kwargs):
+        called.append(1)
+        raise AssertionError("must not be called")
+
+    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+
+    scheduler_module._send_notification(
+        notification_config={"type": "webhook", "webhook_url": "http://10.0.0.5/x"},
+        report=_stub_report(),
+        file_paths=[],
+    )
+
+    assert called == []
+
+
+def test_send_notification_blocks_webhook_with_disallowed_scheme(monkeypatch) -> None:
+    """file:// and other non-http schemes must also be rejected — covers the
+    scheme allow-list, which is the cheapest rejection and easiest to miss."""
+    from app.services import scheduler as scheduler_module
+
+    called = []
+
+    def fake_post(*args, **kwargs):
+        called.append(1)
+        raise AssertionError("must not be called")
+
+    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+
+    scheduler_module._send_notification(
+        notification_config={"type": "webhook", "webhook_url": "file:///etc/passwd"},
+        report=_stub_report(),
+        file_paths=[],
+    )
+
+    assert called == []
+
+
+def test_send_notification_delivers_valid_webhook(monkeypatch) -> None:
+    """Sanity check: a public IP literal passes the guard and httpx.post
+    is invoked exactly once with the expected payload + follow_redirects=False."""
+    from app.services import scheduler as scheduler_module
+
+    captured = []
+
+    class FakeResponse:
+        status_code = 200
+
+    def fake_post(url, **kwargs):
+        captured.append((url, kwargs))
+        return FakeResponse()
+
+    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+
+    scheduler_module._send_notification(
+        notification_config={"type": "webhook", "webhook_url": "https://8.8.8.8/hook"},
+        report=Report(id=42, name="ok"),
+        file_paths=["/tmp/r.xlsx"],
+    )
+
+    assert len(captured) == 1
+    url, kwargs = captured[0]
+    assert url == "https://8.8.8.8/hook"
+    assert kwargs["follow_redirects"] is False, (
+        "explicit follow_redirects=False prevents a 30x from smuggling a host"
+    )
+    assert kwargs["timeout"] == 30
+    assert kwargs["json"]["report_id"] == 42

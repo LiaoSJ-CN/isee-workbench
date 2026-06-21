@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.report import Report
 from app.services.report_generator import generate_report
+from app.services.ssrf_guard import SSRFBlocked, validate_webhook_url
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,19 @@ def _send_notification(
     if notification_type == "webhook":
         webhook_url = notification_config.get("webhook_url")
         if webhook_url:
+            # Validate before any outbound HTTP — the URL is user-supplied
+            # and otherwise a SSRF vector into internal services / cloud
+            # metadata. follow_redirects=False keeps a 30x from smuggling
+            # a different host past the check.
+            try:
+                validate_webhook_url(webhook_url)
+            except SSRFBlocked as exc:
+                logger.error(
+                    f"Refusing webhook notification for report {report.id}: "
+                    f"URL blocked by SSRF guard: {exc}"
+                )
+                return
+
             payload = {
                 "report_name": report.name,
                 "report_id": report.id,
@@ -234,7 +248,12 @@ def _send_notification(
                 "files": file_paths,
             }
             try:
-                httpx.post(webhook_url, json=payload, timeout=30)
+                httpx.post(
+                    webhook_url,
+                    json=payload,
+                    timeout=30,
+                    follow_redirects=False,
+                )
                 logger.info(f"Sent webhook notification for report {report.id}")
             except Exception as exc:
                 logger.error(f"Failed to send webhook notification: {exc}")
