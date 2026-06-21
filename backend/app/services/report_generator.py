@@ -15,6 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.services.connection import build_connection_url
@@ -537,7 +538,7 @@ def generate_report(
         raise ReportGeneratorError("Data source not found for report")
 
     results = {}
-    output_dir = Path(__file__).parent.parent.parent / "generated_reports"
+    output_dir = settings.generated_reports_dir
     output_dir.mkdir(exist_ok=True)
 
     with ReportGenerator(data_source) as generator:

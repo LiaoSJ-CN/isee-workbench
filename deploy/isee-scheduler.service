@@ -1,0 +1,25 @@
+[Unit]
+Description=iSee Workbench scheduled report sidecar
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/isee-workbench/backend
+EnvironmentFile=/opt/isee-workbench/backend/.env
+ExecStart=/opt/isee-workbench/backend/.venv/bin/python -m app.scheduler_runner
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/opt/isee-workbench/backend/logs/scheduler.log
+StandardError=append:/opt/isee-workbench/backend/logs/scheduler.log
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/isee-workbench/backend/generated_reports
+ReadWritePaths=/opt/isee-workbench/backend/logs
+ReadOnlyPaths=/opt/isee-workbench/backend/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -229,6 +229,7 @@ docker compose --profile postgres up -d
 | `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
 | `SCHEDULER_DISABLED` | `true` | web 进程跳过调度器（sidecar 模式） |
 | `SCHEDULER_RESYNC_INTERVAL` | `30` | sidecar 从 DB 重读调度的间隔（秒） |
+| `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
 
 示例 `.env` 文件：
 
@@ -265,6 +266,56 @@ DATABASE_URL=postgresql+psycopg2://username:password@localhost:5432/dbname
 - PostgreSQL
 - OpenGauss
 - DWS (华为云数据仓库)
+
+---
+
+## 数据库迁移（Alembic）
+
+项目已初始化 Alembic 迁移框架（`backend/alembic/`）。
+
+```bash
+cd backend
+
+# 生成迁移（自动检测模型变更）
+python -m alembic revision --autogenerate -m "描述"
+
+# 执行迁移
+python -m alembic upgrade head
+
+# 回滚一步
+python -m alembic downgrade -1
+```
+
+---
+
+## 调度器 sidecar 部署
+
+生产环境需单独运行调度器进程。`deploy/` 目录提供两种方式：
+
+### systemd
+
+```bash
+sudo cp deploy/isee-scheduler.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now isee-scheduler
+sudo systemctl status isee-scheduler
+```
+
+### PM2
+
+```bash
+pm2 start deploy/ecosystem.config.js
+pm2 save
+```
+
+---
+
+## CI/CD
+
+GitHub Actions 工作流（`.github/workflows/ci.yml`）自动执行：
+
+- 后端：ruff lint + mypy 类型检查 + pytest
+- 前端：eslint + tsc 类型检查 + Vite 构建
 
 ---
 

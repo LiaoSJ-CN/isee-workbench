@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # MUST pin this — changing the key makes stored passwords unreadable.
     encryption_key: str = ""
 
+    # --- Report output ---
+    # Directory where generated report files (HTML / Excel) are saved.
+    generated_reports_dir: Path = Path(__file__).resolve().parent.parent / "generated_reports"
+
     # --- Logging ---
     log_level: str = "INFO"
 

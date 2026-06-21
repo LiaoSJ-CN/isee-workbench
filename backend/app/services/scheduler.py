@@ -105,7 +105,7 @@ class ReportScheduler:
 
         return {
             "job_id": job.id,
-            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+            "next_run": next_run.isoformat() if (next_run := getattr(job, "next_run_time", None)) else None,
             "trigger": str(job.trigger),
         }
 
