@@ -1,5 +1,6 @@
 """Service for generating business analysis reports."""
 
+import json
 import numbers
 import re
 import threading
@@ -130,7 +131,6 @@ class ReportGenerator:
             raise ReportGeneratorError(f"Report item '{item.name}' has no table_name defined")
 
         # Validate and sanitize table name (only alphanumeric and underscore)
-        import re
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
             raise ReportGeneratorError(f"Invalid table name: {table_name}")
 
@@ -425,7 +425,6 @@ class ReportGenerator:
 
                 # Add Chart.js script — use json.dumps to serialize Python
                 # True/False/None as valid JS true/false/null (not str()).
-                import json
                 chart_js = (
                     f"new Chart(document.getElementById('{chart_id}'),"
                     + json.dumps(chart_config)

@@ -4,10 +4,12 @@ import logging
 from datetime import datetime
 from typing import Any
 
+import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.models.report import Report
 from app.services.report_generator import generate_report
 
@@ -165,8 +167,6 @@ def _execute_scheduled_report(report_id: int, notification_config: dict[str, Any
 
     This is called by APScheduler and should not be called directly.
     """
-    from app.database import SessionLocal
-
     logger.info(f"Executing scheduled report {report_id}")
 
     db = SessionLocal()
@@ -225,8 +225,6 @@ def _send_notification(
     notification_type = notification_config.get("type")
 
     if notification_type == "webhook":
-        import httpx
-
         webhook_url = notification_config.get("webhook_url")
         if webhook_url:
             payload = {
