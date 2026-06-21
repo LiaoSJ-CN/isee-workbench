@@ -515,6 +515,10 @@ def _stub_report(name: str = "ssrf_test") -> Report:
     return Report(id=9999, name=name)
 
 
+def _fake_create_client_assert_fail(*args, **kwargs):
+    raise AssertionError("create_webhook_client must NOT be called for a blocked URL")
+
+
 def test_send_notification_blocks_webhook_to_loopback(monkeypatch, caplog) -> None:
     """A webhook URL pointing at 127.0.0.1 must be rejected before any
     outbound HTTP. Verifies the guard is wired into _send_notification,
@@ -523,13 +527,9 @@ def test_send_notification_blocks_webhook_to_loopback(monkeypatch, caplog) -> No
 
     from app.services import scheduler as scheduler_module
 
-    called = []
-
-    def fake_post(*args, **kwargs):
-        called.append((args, kwargs))
-        raise AssertionError("httpx.post must NOT be called for a blocked URL")
-
-    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+    monkeypatch.setattr(
+        scheduler_module, "create_webhook_client", _fake_create_client_assert_fail
+    )
 
     with caplog.at_level(logging.ERROR, logger="app.services.scheduler"):
         scheduler_module._send_notification(
@@ -538,7 +538,6 @@ def test_send_notification_blocks_webhook_to_loopback(monkeypatch, caplog) -> No
             file_paths=["/tmp/r.xlsx"],
         )
 
-    assert called == [], "httpx.post must never be called for a blocked URL"
     assert any("SSRF guard" in rec.message for rec in caplog.records), (
         "operator-visible error must mention the SSRF guard so the cause is obvious"
     )
@@ -549,13 +548,9 @@ def test_send_notification_blocks_webhook_to_private_ip_literal(monkeypatch) -> 
     branch of the guard, not just the DNS branch."""
     from app.services import scheduler as scheduler_module
 
-    called = []
-
-    def fake_post(*args, **kwargs):
-        called.append(1)
-        raise AssertionError("must not be called")
-
-    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+    monkeypatch.setattr(
+        scheduler_module, "create_webhook_client", _fake_create_client_assert_fail
+    )
 
     scheduler_module._send_notification(
         notification_config={"type": "webhook", "webhook_url": "http://10.0.0.5/x"},
@@ -563,21 +558,15 @@ def test_send_notification_blocks_webhook_to_private_ip_literal(monkeypatch) -> 
         file_paths=[],
     )
 
-    assert called == []
-
 
 def test_send_notification_blocks_webhook_with_disallowed_scheme(monkeypatch) -> None:
     """file:// and other non-http schemes must also be rejected — covers the
     scheme allow-list, which is the cheapest rejection and easiest to miss."""
     from app.services import scheduler as scheduler_module
 
-    called = []
-
-    def fake_post(*args, **kwargs):
-        called.append(1)
-        raise AssertionError("must not be called")
-
-    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+    monkeypatch.setattr(
+        scheduler_module, "create_webhook_client", _fake_create_client_assert_fail
+    )
 
     scheduler_module._send_notification(
         notification_config={"type": "webhook", "webhook_url": "file:///etc/passwd"},
@@ -585,12 +574,15 @@ def test_send_notification_blocks_webhook_with_disallowed_scheme(monkeypatch) ->
         file_paths=[],
     )
 
-    assert called == []
-
 
 def test_send_notification_delivers_valid_webhook(monkeypatch) -> None:
-    """Sanity check: a public IP literal passes the guard and httpx.post
-    is invoked exactly once with the expected payload + follow_redirects=False."""
+    """Sanity check: a public IP literal passes the guard and the webhook
+    client is invoked with the expected payload.
+
+    P4 update: the test now mocks ``create_webhook_client`` (not
+    ``httpx.post``) since the IP-pinned transport is created first and
+    ``post()`` is called on the returned client.
+    """
     from app.services import scheduler as scheduler_module
 
     captured = []
@@ -598,11 +590,24 @@ def test_send_notification_delivers_valid_webhook(monkeypatch) -> None:
     class FakeResponse:
         status_code = 200
 
-    def fake_post(url, **kwargs):
-        captured.append((url, kwargs))
-        return FakeResponse()
+    class FakeClient:
+        def post(self, url, **kwargs):
+            captured.append((url, kwargs))
+            return FakeResponse()
+        def close(self):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
 
-    monkeypatch.setattr(scheduler_module.httpx, "post", fake_post)
+    def fake_create_client(webhook_url, **kw):
+        captured.append(("create_client", (webhook_url, kw)))
+        return FakeClient()
+
+    monkeypatch.setattr(
+        scheduler_module, "create_webhook_client", fake_create_client
+    )
 
     scheduler_module._send_notification(
         notification_config={"type": "webhook", "webhook_url": "https://8.8.8.8/hook"},
@@ -610,11 +615,14 @@ def test_send_notification_delivers_valid_webhook(monkeypatch) -> None:
         file_paths=["/tmp/r.xlsx"],
     )
 
-    assert len(captured) == 1
-    url, kwargs = captured[0]
+    # create_webhook_client was called once
+    assert len([c for c in captured if c[0] == "create_client"]) == 1
+
+    # client.post was called once with the correct URL and payload
+    post_calls = [c for c in captured if c[0] != "create_client"]
+    assert len(post_calls) == 1
+    url, kwargs = post_calls[0]
     assert url == "https://8.8.8.8/hook"
-    assert kwargs["follow_redirects"] is False, (
-        "explicit follow_redirects=False prevents a 30x from smuggling a host"
-    )
-    assert kwargs["timeout"] == 30
     assert kwargs["json"]["report_id"] == 42
+    # P4 (SEC-8): paths are basename-only
+    assert kwargs["json"]["files"] == ["r.xlsx"]

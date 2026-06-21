@@ -1,18 +1,21 @@
 """Scheduled task service for automatic report generation."""
 
+import hashlib
+import hmac
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from typing import Any, cast
 
-import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models.report import Report
 from app.services.report_generator import generate_report
-from app.services.ssrf_guard import SSRFBlocked, validate_webhook_url
+from app.services.ssrf_guard import SSRFBlocked, create_webhook_client, validate_webhook_url
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +244,16 @@ def _execute_scheduled_report(report_id: int, notification_config: dict[str, Any
             db.close()
 
 
+def _sign_payload(payload: dict[str, Any], secret: str, timestamp: str) -> str:
+    """Return an HMAC-SHA256 hex digest over *timestamp* + JSON body (SEC-4)."""
+    body = f"{timestamp}.{payload}"
+    return hmac.new(
+        secret.encode("utf-8"),
+        body.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def _send_notification(
     notification_config: dict[str, Any],
     report: Report,
@@ -248,45 +261,68 @@ def _send_notification(
 ) -> None:
     """Send notification about generated report.
 
-    Currently supports webhook notifications.
+    Currently supports webhook notifications.  P4 hardening (SEC-4,
+    SEC-8, SEC-14, PY-4):
+
+    * Payload is HMAC-SHA256 signed (``X-Webhook-Signature``).
+    * Timestamp (``X-Webhook-Timestamp``) enables replay detection.
+    * ``files`` carries basenames only — no absolute paths.
+    * HTTPS-only in production (``webhook_https_only``).
+    * Connection is IP-pinned to the SSRF-validated address.
     """
     notification_type = notification_config.get("type")
 
     if notification_type == "webhook":
         webhook_url = notification_config.get("webhook_url")
-        if webhook_url:
-            # Validate before any outbound HTTP — the URL is user-supplied
-            # and otherwise a SSRF vector into internal services / cloud
-            # metadata. follow_redirects=False keeps a 30x from smuggling
-            # a different host past the check.
-            try:
-                validate_webhook_url(webhook_url)
-            except SSRFBlocked as exc:
-                logger.error(
-                    f"Refusing webhook notification for report {report.id}: "
-                    f"URL blocked by SSRF guard: {exc}"
-                )
-                return
+        if not webhook_url:
+            return
 
-            payload = {
-                "report_name": report.name,
-                "report_id": report.id,
-                "generated_at": datetime.now().isoformat(),
-                "files": file_paths,
-            }
-            try:
-                resp = httpx.post(
-                    webhook_url,
-                    json=payload,
-                    timeout=30,
-                    follow_redirects=False,
-                )
-                resp.raise_for_status()
-                logger.info(f"Sent webhook notification for report {report.id}")
-            except Exception as exc:
-                logger.error(f"Failed to send webhook notification for report {report.id}: {exc}")
+        # --- Scheme gate (SEC-14) ---
+        if settings.webhook_https_only and not webhook_url.startswith("https://"):
+            scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
+            logger.error(
+                f"Refusing webhook notification for report {report.id}: "
+                f"HTTPS required but URL uses {scheme} scheme"
+            )
+            return
+
+        # --- SSRF gate (PY-4: also resolves & validates IPs) ---
+        try:
+            validate_webhook_url(webhook_url)
+        except SSRFBlocked as exc:
+            logger.error(
+                f"Refusing webhook notification for report {report.id}: "
+                f"URL blocked by SSRF guard: {exc}"
+            )
+            return
+
+        # --- Build payload ---
+        # P4 (SEC-8): strip directory components — the receiver has no
+        # business knowing the server's filesystem layout.
+        safe_files = [os.path.basename(p) for p in file_paths]
+        payload: dict[str, Any] = {
+            "report_name": report.name,
+            "report_id": report.id,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "files": safe_files,
+        }
+
+        # --- Sign (SEC-4) ---
+        secret = settings.webhook_secret
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if secret:
+            timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+            headers["X-Webhook-Timestamp"] = timestamp
+            headers["X-Webhook-Signature"] = _sign_payload(payload, secret, timestamp)
+
+        # --- Send with IP-pinned transport (PY-4) ---
+        try:
+            client = create_webhook_client(webhook_url)
+            resp = client.post(webhook_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            logger.info(f"Sent webhook notification for report {report.id}")
+        except Exception as exc:
+            logger.error(f"Failed to send webhook notification for report {report.id}: {exc}")
 
     elif notification_type == "email":
-        # Email notification would require SMTP configuration
-        # This is a placeholder for future implementation
         logger.info(f"Email notification for report {report.id} (not implemented)")

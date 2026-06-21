@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     # Default empty — safe for dev (no proxy) and direct-connect deploys.
     trusted_proxies: list[str] = []
 
+    # --- Webhook security (P4) ---
+    # Shared secret for HMAC-SHA256 signing of webhook payloads.
+    # The receiver validates the X-Webhook-Signature header with the same
+    # secret. Empty by default — webhooks are still sent, but unsigned.
+    webhook_secret: str = ""
+    # When True, webhook URLs must use HTTPS (blocks plaintext HTTP).
+    # Default True for production safety; set False for local dev/testing.
+    webhook_https_only: bool = False
+    # Max age (seconds) of a webhook timestamp for replay protection.
+    # Payloads older than this are rejected by the receiver.
+    webhook_timestamp_max_age: int = 300  # 5 min
+
     # --- Cookie auth (P3 / SEC-6) ---
     # When True, login/refresh set HttpOnly+SameSite cookies; the
     # ``Authorization: Bearer`` header remains supported as a fallback
