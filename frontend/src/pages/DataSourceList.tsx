@@ -128,11 +128,11 @@ export default function DataSourceList() {
   };
 
   const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
-    setPagination({
-      ...pagination,
+    setPagination(prev => ({
+      ...prev,
       current: pag.current || 1,
       pageSize: pag.pageSize || 10,
-    });
+    }));
   };
 
   const rowSelection = {
