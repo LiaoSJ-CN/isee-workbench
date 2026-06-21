@@ -119,6 +119,31 @@ export default function SchedulerPage() {
     }
   };
 
+  // Pause/resume a scheduled report by re-POSTing the same cron + notif config
+  // with is_active flipped. Backend drops the APScheduler job on the next sync
+  // when is_active=False (verified by test_create_job_with_is_active_false_
+  // excluded_from_sync), and re-adds it when is_active=True. The cron and
+  // notification_config are preserved on the Report row.
+  const handleToggleActive = async (record: Report) => {
+    const nextActive = !record.is_active;
+    try {
+      await schedulerApi.createJob(
+        record.id,
+        record.cron_expression ?? '',
+        record.schedule_description,
+        record.notification_config ?? null,
+        nextActive,
+      );
+      message.success(nextActive ? '已启用' : '已暂停');
+      setReports(prev => prev.map(r =>
+        r.id === record.id ? { ...r, is_active: nextActive } : r
+      ));
+      loadStatus();
+    } catch (err: unknown) {
+      message.error(formatError(err, nextActive ? '启用失败' : '暂停失败'));
+    }
+  };
+
   const jobColumns: ColumnsType<SchedulerJob> = [
     { title: '任务ID', dataIndex: 'job_id', key: 'job_id' },
     { title: '下次执行', dataIndex: 'next_run', key: 'next_run', render: (v) => v || '-' },
@@ -169,8 +194,11 @@ export default function SchedulerPage() {
             { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
             { title: '定时任务', key: 'schedule', render: (_, record) => (
               record.is_scheduled ? (
-                <Tag icon={<ClockCircleOutlined />} color="green">
-                  {record.cron_expression || '已配置'}
+                <Tag
+                  icon={record.is_active ? <ClockCircleOutlined /> : <PauseCircleOutlined />}
+                  color={record.is_active ? 'green' : 'orange'}
+                >
+                  {record.is_active ? record.cron_expression || '运行中' : '已暂停'}
                 </Tag>
               ) : (
                 <Tag>未配置</Tag>
@@ -178,11 +206,20 @@ export default function SchedulerPage() {
             )},
             { title: '操作', key: 'action', render: (_, record) => (
               record.is_scheduled ? (
-                <Popconfirm title="确定删除定时任务?" onConfirm={() => handleDeleteSchedule(record.id)}>
-                  <Button type="link" danger icon={<DeleteOutlined />}>
-                    删除
+                <Space>
+                  <Button
+                    type="link"
+                    icon={record.is_active ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                    onClick={() => handleToggleActive(record)}
+                  >
+                    {record.is_active ? '暂停' : '启用'}
                   </Button>
-                </Popconfirm>
+                  <Popconfirm title="确定删除定时任务?" onConfirm={() => handleDeleteSchedule(record.id)}>
+                    <Button type="link" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </Space>
               ) : (
                 <Button type="link" icon={<PlusOutlined />} onClick={() => handleAddSchedule(record)}>
                   添加定时任务

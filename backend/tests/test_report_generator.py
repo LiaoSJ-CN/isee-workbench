@@ -13,7 +13,6 @@ import pytest
 from app.schemas.report import DisplayConfig
 from app.services.report_generator import ReportGenerator, _safe_filename
 
-
 # ---------- _safe_filename (path traversal prevention) ----------
 
 @pytest.mark.parametrize(

@@ -265,13 +265,15 @@ export const schedulerApi = {
     reportId: number,
     cronExpression: string,
     scheduleDescription?: string,
-    notificationConfig?: Record<string, unknown> | null
+    notificationConfig?: Record<string, unknown> | null,
+    isActive: boolean = true,
   ): Promise<SchedulerJob> => {
     const body = {
       report_id: reportId,
       cron_expression: cronExpression,
       schedule_description: scheduleDescription ?? null,
       notification_config: notificationConfig ?? {},
+      is_active: isActive,
     };
     const { data } = await api.post(`/scheduler/jobs/${reportId}`, body);
     return data;

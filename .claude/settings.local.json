@@ -37,9 +37,12 @@
       "Bash(/opt/homebrew/bin/python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\(d.get\\('paths',{}\\).keys\\(\\)\\)\\)\")",
       "Bash(git add *)",
+      "Bash(ruff check *)",
+      "Bash(ruff check --fix *)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'数据源: {len\\(d\\)} 个'\\)\")",
       "mcp__plugin_ecc_playwright__browser_navigate",
-      "Read(//private/tmp/**)"
+      "Read(//private/tmp/**)",
+      "mcp__codegraph__codegraph_explore"
     ]
   }
 }
