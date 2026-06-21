@@ -109,6 +109,22 @@ class ReportScheduler:
             "trigger": str(job.trigger),
         }
 
+    def get_status(self) -> dict[str, Any]:
+        """Return the current scheduler status without exposing internals."""
+        return {
+            "is_running": self.scheduler.running,
+            "jobs": [
+                {
+                    "job_id": job.id,
+                    "next_run": next_run.isoformat()
+                    if (next_run := getattr(job, "next_run_time", None))
+                    else None,
+                    "trigger": str(job.trigger),
+                }
+                for job in self.scheduler.get_jobs()
+            ],
+        }
+
     def sync_with_database(self, db: Session) -> None:
         """Reconcile scheduler jobs with the database.
 
@@ -248,15 +264,16 @@ def _send_notification(
                 "files": file_paths,
             }
             try:
-                httpx.post(
+                resp = httpx.post(
                     webhook_url,
                     json=payload,
                     timeout=30,
                     follow_redirects=False,
                 )
+                resp.raise_for_status()
                 logger.info(f"Sent webhook notification for report {report.id}")
             except Exception as exc:
-                logger.error(f"Failed to send webhook notification: {exc}")
+                logger.error(f"Failed to send webhook notification for report {report.id}: {exc}")
 
     elif notification_type == "email":
         # Email notification would require SMTP configuration

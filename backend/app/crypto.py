@@ -8,9 +8,13 @@ work after the encryption feature is first enabled — they will be
 re-encrypted on the next update.
 """
 
+import logging
+
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _fernet: Fernet | None = None
 
@@ -39,9 +43,21 @@ def decrypt(stored: str) -> str:
     token), it is returned as-is so existing data sources keep working
     after the encryption feature is first enabled.  Those passwords will
     be re-encrypted on the next update of the data source.
+
+    When *stored* looks like a Fernet token but fails decryption — most
+    likely because ``ENCRYPTION_KEY`` was changed — a warning is logged
+    so operators can distinguish a genuine key-mismatch from legacy
+    plaintext.
     """
     try:
         return _get_fernet().decrypt(stored.encode()).decode()
     except InvalidToken:
-        # Legacy plaintext value — not yet encrypted.
+        if stored.startswith("gAAAAA"):
+            logger.warning(
+                "Failed to decrypt a stored value that looks like a Fernet "
+                "token. This usually means ENCRYPTION_KEY was changed after "
+                "data-source passwords were encrypted. Restore the original "
+                "ENCRYPTION_KEY or re-save each data-source password."
+            )
+        # Legacy plaintext or undecryptable ciphertext — return as-is.
         return stored

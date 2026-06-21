@@ -44,7 +44,17 @@
       "Read(//private/tmp/**)",
       "mcp__codegraph__codegraph_explore",
       "Bash(npx eslint *)",
-      "Bash(codegraph explore *)"
+      "Bash(codegraph explore *)",
+      "Bash(python3 -c ' *)",
+      "Bash(perl -e 'alarm 10; exec @ARGV' -- npx -y @playwright/mcp@0.0.69 --extension)",
+      "Bash(npx playwright *)",
+      "Read(//Users/liaosj/Library/Caches/ms-playwright/**)",
+      "Bash(claude --version)",
+      "Bash(claude mcp *)",
+      "Bash(claude --doctor)",
+      "Bash(claude plugins *)",
+      "mcp__codegraph__codegraph_search",
+      "mcp__codegraph__codegraph_node"
     ]
   }
 }

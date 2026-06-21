@@ -1,6 +1,7 @@
 """Service for generating iSee reports."""
 
 import json
+import logging
 import numbers
 import re
 import threading
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
+
+logger = logging.getLogger(__name__)
 from app.services.connection import build_connection_url
 
 
@@ -225,14 +228,18 @@ class ReportGenerator:
 
         # Build LIMIT clause (validate integer)
         limit_clause = ""
-        if item.limit:
+        if item.limit is not None:
             try:
                 limit_val = int(item.limit)
                 if limit_val > 0:
                     limit_clause = " LIMIT :limit_param"
                     params["limit_param"] = limit_val
             except (ValueError, TypeError):
-                pass  # Skip invalid limit
+                logger.warning(
+                    "Invalid limit=%r for report_item %s — "
+                    "ignoring, query will be unbounded",
+                    item.limit, item.id,
+                )
 
         # Assemble query
         query = f"SELECT {select_clause} FROM {table_name}"
@@ -591,7 +598,7 @@ def generate_report(
                 for item_name, df in results.items():
                     if not df.empty:
                         # Clean sheet name
-                        sheet_name = item_name[:31].replace("/", "_").replace("*", "")
+                        sheet_name = re.sub(r'[\\/*?:\[\]]', '_', item_name[:31])
                         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
             return {"file_path": str(filename), "errors": errors}

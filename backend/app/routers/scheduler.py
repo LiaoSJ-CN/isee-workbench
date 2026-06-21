@@ -39,18 +39,7 @@ class SchedulerSyncResponse(BaseModel):
 @router.get("/status", response_model=dict)
 def get_scheduler_status():
     """Get the current status of the scheduler."""
-    scheduler = get_scheduler()
-    return {
-        "is_running": scheduler.scheduler.running,
-        "jobs": [
-            {
-                "id": job.id,
-                "next_run": next_run.isoformat() if (next_run := getattr(job, "next_run_time", None)) else None,
-                "trigger": str(job.trigger),
-            }
-            for job in scheduler.scheduler.get_jobs()
-        ],
-    }
+    return get_scheduler().get_status()
 
 
 @router.post("/sync", response_model=SchedulerSyncResponse)

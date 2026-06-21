@@ -209,6 +209,7 @@ class ReportUpdate(BaseModel):
     schedule_description: str | None = None
     output_formats: list[str] | None = None
     is_active: bool | None = None
+    notification_config: dict[str, Any] | None = None
 
 
 class ReportResponse(ReportBase):
@@ -220,6 +221,7 @@ class ReportResponse(ReportBase):
     is_scheduled: bool
     cron_expression: str | None = None
     schedule_description: str | None = None
+    notification_config: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

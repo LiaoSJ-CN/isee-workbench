@@ -147,6 +147,7 @@ export interface Report {
   is_scheduled: boolean;
   cron_expression?: string;
   schedule_description?: string;
+  notification_config?: Record<string, unknown> | null;
   created_at?: string;
   updated_at?: string;
   items: ReportItem[];
