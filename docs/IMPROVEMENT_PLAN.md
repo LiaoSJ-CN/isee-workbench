@@ -4,6 +4,28 @@
 > `/Users/liaosj/.claude/plans/cozy-brewing-falcon.md`（plan 文件）。
 > 本文档是面向团队的高层索引。
 
+## 🔖 会话断点 / Resume Point
+
+**最后会话（2026-08-13）：**
+
+| 项 | 状态 |
+|---|---|
+| 批 0 重验证 | ✅ 完成 — pytest 315/315、ruff 0、mypy 0、eslint 0、tsc 0、vite build 0 |
+| 批 1 Quick wins | ✅ 完成 — commit `d55955a` |
+| 批 6a request-id + Sentry | ⏳ **下次会话从这里开始** |
+| 其余批次 | ⏸ 未开始 |
+
+**下一会话怎么接：**
+
+1. 打开本文件 → 看「当前进度」表
+2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 6a」章节
+4. 建 TaskCreate 覆盖批 6a 子项，开始干
+
+完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
+
+---
+
 ## 背景
 
 2026-06-21 完成 11 阶段审计（63 项修复、12 commit），代码质量基线（ruff/mypy/tsc/eslint 全 0、315 用例通过）已达标。
