@@ -18,7 +18,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff
-      - run: ruff check app/
+      # Scan app + tests so CI matches `make lint` (which scans `.`).
+      - run: ruff check .
 
   backend-typecheck:
     runs-on: ubuntu-latest
@@ -32,18 +33,29 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: pip install mypy
-      - run: mypy app/
+      # Tests/ is excluded: fixtures use untyped pytest helpers and don't
+      # need to satisfy the same bar as production code. Run `mypy tests/`
+      # locally if you want to spot-check a specific module.
+      - run: mypy app
 
   backend-test:
+    # Run pytest on the lowest-supported Python (pyproject `>= 3.11`) and
+    # the local dev version (`.venv` is 3.14) so we catch deprecation or
+    # version-specific breakage early. New Python versions have been the
+    # source of subtle regressions before (see P10 / PY-16).
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio httpx
       - run: pytest -q

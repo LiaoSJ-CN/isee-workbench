@@ -6,10 +6,13 @@ the happy/sad path of a real query against the seeded sqlite source.
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models.data_source import DataSource
+from app.services.report_generator import _get_or_create_engine
 from app.services.sql_validator import UnsafeSQLError, validate_select_only
 
 
@@ -160,3 +163,49 @@ def test_explorer_populates_engine_cache(
     assert r.json()["success"] is True
 
     assert seeded_sqlite_source.id in _engine_cache
+
+
+def test_explorer_row_cap_applies_to_unbounded_select(
+    client: TestClient, auth_headers: dict, seeded_sqlite_source: DataSource, monkeypatch
+) -> None:
+    """Regression: a user-supplied SELECT with no LIMIT clause must still
+    be capped at ``settings.explorer_max_rows``. The endpoint wraps the
+    user SQL in ``SELECT * FROM (…) AS _explorer_sub LIMIT N`` so the
+    cap fires regardless of what the user wrote. A query that orders by
+    a stable column must also preserve ORDER BY through the wrap.
+    """
+    monkeypatch.setattr(settings, "explorer_max_rows", 5)
+
+    engine = _get_or_create_engine(seeded_sqlite_source)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS _test_explorer_cap"))
+        conn.execute(
+            text(
+                "CREATE TABLE _test_explorer_cap (id INTEGER PRIMARY KEY, label TEXT)"
+            )
+        )
+        # 20 rows; cap=5 means the response should hold rows 1..5 in id order.
+        for i in range(1, 21):
+            conn.execute(
+                text("INSERT INTO _test_explorer_cap VALUES (:i, :l)"),
+                {"i": i, "l": f"row-{i}"},
+            )
+
+    try:
+        r = client.post(
+            "/explorer/query",
+            headers=auth_headers,
+            json={
+                "data_source_id": seeded_sqlite_source.id,
+                "sql": "SELECT id, label FROM _test_explorer_cap ORDER BY id",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["success"] is True
+        assert body["row_count"] == 5
+        # ORDER BY must survive the subquery wrap — first 5 ids, in order.
+        assert [row["id"] for row in body["rows"]] == [1, 2, 3, 4, 5]
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS _test_explorer_cap"))

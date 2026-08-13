@@ -1,0 +1,60 @@
+# Pre-commit hooks for isee-workbench.
+#
+# Quick start:
+#   pip install pre-commit
+#   pre-commit install
+#   # Now `git commit` will run the hooks below on staged files.
+#
+# Skip a hook in an emergency:  git commit --no-verify
+# Run on all files:             pre-commit run --all-files
+#
+# Heavy checks (mypy, tsc, pytest) live in CI (.github/workflows/ci.yml)
+# because they need the full project context. This file only runs the
+# fast, auto-fixable linters — fail fast on what `ruff --fix` / `eslint
+# --fix` can repair before the commit lands.
+#
+# Tests/test-cov/typecheck are intentionally NOT here — see the Makefile
+# (`make test`, `make typecheck`).
+
+repos:
+  # Trailing whitespace + EOF newline + mixed line endings — universal cleanup.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+        # Don't fight our workflow file (which GitHub requires to use `on:`).
+        exclude: ^\.github/workflows/.*\.yml$
+
+  # Python: ruff lint + format. `ruff` covers the same rules as the
+  # flake8 + isort + pyupgrade + bugbear combination the project used
+  # before P2.5. `--fix` is safe for the rule set we enable.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  # Frontend: ESLint with `--fix` against the existing config. We don't
+  # run Prettier here — the project hasn't adopted it yet (planned for
+  # 批 10). ESLint catches the same formatting issues for now.
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.13.0
+    hooks:
+      - id: eslint
+        args: [--fix, --max-warnings=0]
+        files: ^frontend/src/.*\.(ts|tsx)$
+        additional_dependencies:
+          - eslint@^10
+          - typescript-eslint@^8
+          - eslint-plugin-jsx-a11y@^6
+          - eslint-plugin-react-hooks@^7
+          - eslint-plugin-react-refresh@^0.5
+          - globals@^17
+        # `npm ci` before this hook so the deps above resolve.
