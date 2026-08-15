@@ -192,6 +192,33 @@ export interface ReportGenerateResponse {
   item_errors?: Record<string, string>;
 }
 
+// ---- Async report jobs (批 3a backend, 批 3b frontend) ----
+
+export type JobStatus = 'pending' | 'running' | 'done' | 'failed';
+export type JobOutputFormat = 'excel';
+
+export interface ReportJobCreate {
+  output_format?: JobOutputFormat;
+  parameters?: Record<string, unknown>;
+  priority?: number;
+}
+
+export interface ReportJob {
+  id: number;
+  report_id: number;
+  status: JobStatus;
+  output_format: JobOutputFormat;
+  priority: number;
+  parameters: Record<string, unknown> | null;
+  created_by: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  file_path: string | null;
+  file_url: string | null;
+  error: string | null;
+}
+
 export interface SchedulerJob {
   job_id: string;
   next_run?: string;

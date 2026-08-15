@@ -10,6 +10,8 @@ import type {
   ReportItemCreate,
   ReportItemUpdate,
   ReportGenerateResponse,
+  ReportJob,
+  ReportJobCreate,
   SchedulerStatus,
   SchedulerJob,
 } from '../types';
@@ -330,6 +332,27 @@ export const explorerApi = {
       data_source_id: dataSourceId,
       sql: sql,
     });
+    return data;
+  },
+};
+
+// ============ Async report jobs (批 3b) ============
+
+/**
+ * Backend wraps long-running Excel renders in a :class:`ReportJob` row
+ * and exposes `POST /reports/{id}/jobs` (enqueue) + `GET /jobs/{id}`
+ * (status). The frontend polls the latter every 2s while
+ * pending/running and downloads the produced file via
+ * `reportApi.download` once `status === 'done'`.
+ */
+export const jobsApi = {
+  enqueue: async (reportId: number, payload: ReportJobCreate = {}): Promise<ReportJob> => {
+    const { data } = await api.post(`/reports/${reportId}/jobs`, payload);
+    return data;
+  },
+
+  get: async (jobId: number): Promise<ReportJob> => {
+    const { data } = await api.get(`/jobs/${jobId}`);
     return data;
   },
 };

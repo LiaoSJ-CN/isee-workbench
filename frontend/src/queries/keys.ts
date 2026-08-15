@@ -41,4 +41,10 @@ export const queryKeys = {
     lastResult: (dataSourceId: number, sqlHash: string) =>
       [...queryKeys.explorer.all, 'lastResult', dataSourceId, sqlHash] as const,
   },
+  jobs: {
+    all: ['jobs'] as const,
+    detail: (jobId: number) => [...queryKeys.jobs.all, 'detail', jobId] as const,
+    forReport: (reportId: number) =>
+      [...queryKeys.jobs.all, 'report', reportId] as const,
+  },
 } as const;
