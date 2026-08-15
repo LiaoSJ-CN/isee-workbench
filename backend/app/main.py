@@ -22,10 +22,12 @@ from app.middleware.sentry import init_sentry
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
+from app.models import report_job as _report_job_module  # noqa: F401
 from app.models import revoked_token as _revoked_token_module  # noqa: F401
 from app.models import user as _user_module  # noqa: F401
 from app.models.user import User
-from app.routers import auth, data_source, explorer, report, scheduler
+from app.routers import auth, data_source, explorer, jobs, report, scheduler
+from app.services.job_queue import shutdown_executor
 from app.services.password import hash_password
 from app.services.scheduler import get_scheduler
 
@@ -167,6 +169,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if not settings.scheduler_disabled:
         get_scheduler().shutdown()
+    # Stop the report-job executor pool. ``wait=False`` so an in-flight
+    # render doesn't hold up process exit — the job row stays in
+    # ``running`` state and would need an operator-side reconcile
+    # (out of scope for batch 3a; plan checkpoint noted this risk).
+    shutdown_executor(wait=False)
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +208,10 @@ app.include_router(data_source.router)
 app.include_router(report.router)
 app.include_router(scheduler.router)
 app.include_router(explorer.router)
+# Async report-generation jobs (批 3a). Two routers because the surface
+# mixes /reports/{id}/jobs and /jobs/{id} prefixes.
+app.include_router(jobs.report_jobs_router)
+app.include_router(jobs.jobs_router)
 
 # Serve locally-bundled Chart.js so generated HTML previews work without external CDN.
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
