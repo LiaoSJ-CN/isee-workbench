@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.middleware.rate_limit import RateLimiter
 from app.models.data_source import DataSource
 from app.services.connection import ConnectionError
 from app.services.report_generator import _get_or_create_engine
@@ -27,6 +28,19 @@ router = APIRouter(
     tags=["explorer"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+# Per-IP rate limit on the SQL exploration endpoint. 30/min/IP keeps a
+# single analyst comfortable while making abuse (or a runaway script)
+# visible to the operator — ``X-Too-Many-Requests`` is a clear signal.
+_explorer_query_limiter = RateLimiter(
+    max_requests=settings.explorer_query_rate_limit,
+    window_seconds=60,
+)
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 class QueryRequest(BaseModel):
@@ -47,21 +61,42 @@ class QueryResponse(BaseModel):
 
 
 @router.post("/query", response_model=QueryResponse)
-def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse:
+def execute_query(
+    payload: QueryRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> QueryResponse:
     """Execute a SELECT SQL query against a data source."""
+    # Rate-limit by IP *before* any DB work — the limit protects against
+    # runaway scripts that hammer the endpoint without ever being authed
+    # to a meaningful user. Namespace the key so the budget is independent
+    # from ``/reports/generate`` and ``/reports/{id}/jobs`` (both of which
+    # also use client IP as their key material).
+    if _explorer_query_limiter.is_rate_limited(f"explorer_query:{_client_ip(request)}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Too many explorer queries. Limit: "
+                f"{settings.explorer_query_rate_limit}/min/IP."
+            ),
+            headers={"Retry-After": "60"},
+        )
+
     # Get data source
-    data_source = db.query(DataSource).filter(DataSource.id == request.data_source_id).first()
+    data_source = (
+        db.query(DataSource).filter(DataSource.id == payload.data_source_id).first()
+    )
     if not data_source:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Data source {request.data_source_id} not found",
+            detail=f"Data source {payload.data_source_id} not found",
         )
 
     # Security check — all validation lives in sql_validator now.
     # We keep returning 200 + success=False (not 422) so the existing
     # frontend explorer code path is unchanged.
     try:
-        validate_select_only(request.sql)
+        validate_select_only(payload.sql)
     except UnsafeSQLError as exc:
         return QueryResponse(
             success=False,
@@ -87,7 +122,7 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
         # rows into memory, even if the user forgets a LIMIT clause.
         max_rows = max(1, settings.explorer_max_rows)
         capped_sql = (
-            f"SELECT * FROM ({request.sql}) AS _explorer_sub "
+            f"SELECT * FROM ({payload.sql}) AS _explorer_sub "
             f"LIMIT {max_rows}"
         )
 
@@ -135,7 +170,7 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
     except Exception:
         logger.exception(
             "Unexpected error during query execution for data source %s",
-            request.data_source_id,
+            payload.data_source_id,
         )
         return QueryResponse(
             success=False,

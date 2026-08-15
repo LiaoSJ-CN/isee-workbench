@@ -12,11 +12,13 @@ Surface (all auth-gated; HTML preview stays synchronous on the existing
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session  # noqa: F401 — typing-only, kept for handlers
 
+from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.middleware.rate_limit import RateLimiter
 from app.models.report import Report
 from app.models.report_job import ReportJob
 from app.models.user import User
@@ -55,6 +57,20 @@ def _serialize(job: ReportJob) -> ReportJobResponse:
     return ReportJobResponse.from_orm_with_url(job)
 
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+# Per-IP rate limit on job enqueue. Sharing the same budget as the
+# synchronous ``/reports/generate`` endpoint — both paths consume the
+# same underlying worker pool — so a single client can't bypass the
+# limit by mixing sync + async.
+_enqueue_job_limiter = RateLimiter(
+    max_requests=settings.reports_generate_rate_limit,
+    window_seconds=60,
+)
+
+
 @report_jobs_router.post(
     "/{report_id}/jobs",
     response_model=ReportJobResponse,
@@ -63,6 +79,7 @@ def _serialize(job: ReportJob) -> ReportJobResponse:
 def create_report_job(
     report_id: int,
     payload: ReportJobCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportJobResponse:
@@ -72,6 +89,20 @@ def create_report_job(
     missing reports so the caller sees the failure synchronously
     instead of a queued ``failed`` row 200ms later.
     """
+    # Rate-limit by IP before any DB lookup. Same *budget* as
+    # ``/reports/generate`` — both paths share the underlying pool —
+    # but a distinct key namespace so the limiter state isn't shared
+    # via DB row key collision (each limiter records its own bucket).
+    if _enqueue_job_limiter.is_rate_limited(f"enqueue_job:{_client_ip(request)}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Too many job enqueues. Limit: "
+                f"{settings.reports_generate_rate_limit}/min/IP."
+            ),
+            headers={"Retry-After": "60"},
+        )
+
     if not db.query(Report).filter(Report.id == report_id).first():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

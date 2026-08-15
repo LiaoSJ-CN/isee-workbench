@@ -35,6 +35,10 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.middleware.metrics import (
+    report_generate_duration_seconds,
+    report_generate_errors_total,
+)
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.services.report_generator.engine import (
@@ -128,11 +132,48 @@ def generate_report(
 
     Public signature is identical to the pre-split module — routers
     and the scheduler call this with no changes.
+
+    Wrapped by the ``report_generate_duration_seconds`` histogram and
+    the ``report_generate_errors_total{reason=...}`` counter (批 6b.1).
     """
+    # ``preview_only`` is a hidden code path used only by the iframe
+    # preview endpoint; collapse it to ``html`` for the label so we
+    # don't pollute the cardinality with a single-use bucket.
+    format_label = output_format if not preview_only else "html"
+
+    try:
+        with report_generate_duration_seconds.labels(format=format_label).time():
+            return _generate_report_impl(
+                report=report,
+                output_format=output_format,
+                parameters=parameters,
+                db=db,
+                preview_only=preview_only,
+                base_url=base_url,
+            )
+    except ReportGeneratorError:
+        report_generate_errors_total.labels(reason="generator_error").inc()
+        raise
+    except OSError:
+        report_generate_errors_total.labels(reason="io_error").inc()
+        raise
+
+
+def _generate_report_impl(
+    report: Report,
+    output_format: str,
+    parameters: dict[str, Any],
+    db: Session,
+    preview_only: bool = False,
+    base_url: str | None = None,
+) -> dict[str, Any]:
     data_source = (
         db.query(DataSource).filter(DataSource.id == report.data_source_id).first()
     )
     if not data_source:
+        # Bucket this separately from generator errors — it means the
+        # operator deleted the data source underneath the report.
+        report_generate_errors_total.labels(reason="data_source_missing").inc()
         raise ReportGeneratorError("Data source not found for report")
 
     results: dict[str, pd.DataFrame] = {}

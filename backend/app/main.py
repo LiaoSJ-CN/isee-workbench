@@ -15,6 +15,8 @@ from sqlalchemy import text
 from alembic import command as alembic_command
 from app.config import settings
 from app.database import SessionLocal
+from app.middleware.csrf import CSRFMiddleware
+from app.middleware.metrics import setup_metrics
 from app.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.middleware.request_id import RequestIDMiddleware, install_request_id_log_factory
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -203,6 +205,11 @@ app.add_middleware(ProxyHeadersMiddleware)
 # Attach baseline security headers to every response (P5 / SEC-5).
 app.add_middleware(SecurityHeadersMiddleware)
 
+# CSRF defence (批 6b.3) — sits inside SecurityHeadersMiddleware so the
+# 403 response still carries the X-Content-Type-Options etc. headers.
+# Inside CORS so the preflight handler is unaffected.
+app.add_middleware(CSRFMiddleware)
+
 app.include_router(auth.router)
 app.include_router(data_source.router)
 app.include_router(report.router)
@@ -212,6 +219,12 @@ app.include_router(explorer.router)
 # mixes /reports/{id}/jobs and /jobs/{id} prefixes.
 app.include_router(jobs.report_jobs_router)
 app.include_router(jobs.jobs_router)
+
+# Prometheus /metrics + default HTTP histogram. Must come AFTER the
+# routers so Instrumentator sees the final route table. Idempotent for
+# tests that re-import the module — Instrumentator is process-singleton
+# per app instance.
+setup_metrics(app)
 
 # Serve locally-bundled Chart.js so generated HTML previews work without external CDN.
 STATIC_DIR.mkdir(parents=True, exist_ok=True)

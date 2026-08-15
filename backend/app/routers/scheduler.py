@@ -3,12 +3,13 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.report import Report
+from app.schemas.notification import NotificationConfig
 from app.schemas.report import ScheduleTaskCreate
 from app.services.scheduler import InvalidCronExpression, get_scheduler
 
@@ -109,20 +110,37 @@ def create_or_update_job(
         )
 
     # Persist schedule + notification config; DB is the single source of truth.
+    # ``payload.notification_config`` is a typed Pydantic model (WebhookConfig
+    # | EmailConfig | DingTalkConfig | None) — the JSON column needs a plain
+    # dict, so we dump the model. ``model_dump(mode="json")`` converts the
+    # HttpUrl to a string (instead of leaving it as a Pydantic URL type
+    # which the JSON encoder can't serialise).
     report_obj.is_scheduled = True
     report_obj.cron_expression = payload.cron_expression
     report_obj.schedule_description = payload.schedule_description
-    report_obj.notification_config = payload.notification_config
+    report_obj.notification_config = (
+        payload.notification_config.model_dump(mode="json")
+        if payload.notification_config is not None
+        else None
+    )
     report_obj.is_active = payload.is_active
     db.commit()
 
     scheduler = get_scheduler()
-    notification_config = report_obj.notification_config or {}
+    # ``report_obj.notification_config`` is now a dict (dumped at write
+    # time). Re-parse into the typed NotificationConfig so the scheduler
+    # in-memory state matches the on-disk shape.
+    raw_cfg = report_obj.notification_config
+    typed_cfg: NotificationConfig | None
+    if raw_cfg is None:
+        typed_cfg = None
+    else:
+        typed_cfg = TypeAdapter(NotificationConfig).validate_python(raw_cfg)
     try:
         scheduler.add_report_job(
             report_id=report_id,
             cron_expression=payload.cron_expression,
-            notification_config=notification_config or {},
+            notification_config=typed_cfg,
         )
     except InvalidCronExpression as exc:
         raise HTTPException(

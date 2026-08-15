@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.notification import NotificationConfig
 from app.services.scheduler import validate_cron_expression
 
 
@@ -210,7 +211,17 @@ class ReportUpdate(BaseModel):
     schedule_description: str | None = None
     output_formats: list[str] | None = None
     is_active: bool | None = None
-    notification_config: dict[str, Any] | None = None
+    notification_config: NotificationConfig | None = None
+
+    @field_validator("notification_config", mode="before")
+    @classmethod
+    def _empty_dict_to_none(cls, v: Any) -> Any:
+        """See :meth:`ReportResponse._empty_dict_to_none` — the
+        legacy ``dict()`` default has to round-trip as ``None`` so
+        Pydantic doesn't trip on the empty-dict discriminator."""
+        if isinstance(v, dict) and not v:
+            return None
+        return v
 
 
 class ReportResponse(ReportBase):
@@ -222,9 +233,21 @@ class ReportResponse(ReportBase):
     is_scheduled: bool
     cron_expression: str | None = None
     schedule_description: str | None = None
-    notification_config: dict[str, Any] | None = None
+    notification_config: NotificationConfig | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @field_validator("notification_config", mode="before")
+    @classmethod
+    def _empty_dict_to_none(cls, v: Any) -> Any:
+        """Pre-union, the SQLAlchemy column default was ``dict()`` —
+        old rows (and any new rows that haven't set the field) come
+        back as ``{}``. The discriminated union rejects an empty
+        dict because it has no ``type`` discriminator, so map the
+        legacy shape to ``None`` for backwards compatibility."""
+        if isinstance(v, dict) and not v:
+            return None
+        return v
 
 
 class ReportDetailResponse(ReportResponse):
@@ -269,7 +292,7 @@ class ScheduleTaskCreate(BaseModel):
     cron_expression: str = Field(...)
     schedule_description: str | None = Field(default=None, max_length=255)
     is_active: bool = Field(default=True)
-    notification_config: dict[str, Any] = Field(default_factory=dict)
+    notification_config: NotificationConfig | None = None
 
     @field_validator("cron_expression")
     @classmethod

@@ -10,8 +10,10 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.middleware.rate_limit import RateLimiter
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.models.report_parameter import ReportParameter
@@ -38,6 +40,19 @@ router = APIRouter(
     prefix="/reports",
     tags=["reports"],
     dependencies=[Depends(get_current_user)],
+)
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+# Per-IP rate limit on synchronous report generation. Report renders can
+# each take seconds; the 10/min/IP cap prevents one analyst from
+# monopolising a worker thread and slowing everyone else.
+_generate_report_limiter = RateLimiter(
+    max_requests=settings.reports_generate_rate_limit,
+    window_seconds=60,
 )
 
 
@@ -259,10 +274,26 @@ def delete_report(report_id: int, db: Session = Depends(get_db)) -> None:
 
 @router.post("/generate", response_model=ReportGenerateResponse)
 def generate_report_endpoint(
-    request: ReportGenerateRequest, db: Session = Depends(get_db)
+    payload: ReportGenerateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> ReportGenerateResponse:
     """Generate a report and return the output file or preview data."""
-    report = db.query(Report).filter(Report.id == request.report_id).first()
+    # Rate-limit by IP before any DB / query work. Report renders can
+    # take seconds, so this cap protects the worker pool from a single
+    # runaway client. Namespace the key so the budget is independent from
+    # ``/explorer/query`` and ``/reports/{id}/jobs``.
+    if _generate_report_limiter.is_rate_limited(f"reports_generate:{_client_ip(request)}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Too many report generations. Limit: "
+                f"{settings.reports_generate_rate_limit}/min/IP."
+            ),
+            headers={"Retry-After": "60"},
+        )
+
+    report = db.query(Report).filter(Report.id == payload.report_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
@@ -273,7 +304,7 @@ def generate_report_endpoint(
     # them reach the SQL validator and fail in an opaque way.
     try:
         validated_params = validate_parameters(
-            spec=list(report.parameters), values=request.parameters
+            spec=list(report.parameters), values=payload.parameters
         )
     except ParameterValidationError as exc:
         raise HTTPException(
@@ -284,7 +315,7 @@ def generate_report_endpoint(
     try:
         result = generate_report(
             report=report,
-            output_format=request.output_format,
+            output_format=payload.output_format,
             parameters=validated_params,
             db=db,
         )
@@ -295,7 +326,7 @@ def generate_report_endpoint(
             success=True,
             report_id=cast(int, report.id),
             report_name=cast(str, report.name),
-            output_format=request.output_format,
+            output_format=payload.output_format,
             item_errors=item_errors,
             **result,
         )

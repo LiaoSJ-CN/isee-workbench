@@ -27,11 +27,25 @@ Public surface
 from __future__ import annotations
 
 import re
-from typing import Any, Final, cast
+from typing import Any, Final, NoReturn, cast
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
+
+from app.middleware.metrics import sql_validator_rejections_total
+
+
+def _reject(rule: str, message: str) -> NoReturn:
+    """Increment ``sql_validator_rejections_total{rule=...}`` and raise.
+
+    Every rejection path in this module goes through here so the
+    Prometheus counter stays in sync with the actual failure reason.
+    Callers should pass a stable ``rule`` token (not the user-facing
+    message) — the token is what dashboards alert on.
+    """
+    sql_validator_rejections_total.labels(rule=rule).inc()
+    raise UnsafeSQLError(message)
 
 # ---------- public error type ----------
 
@@ -127,9 +141,9 @@ def _walk_for_forbidden(node: exp.Expression) -> None:
     """
     kind = type(node).__name__.lower()
     if kind in _FORBIDDEN_NODE_KINDS:
-        raise UnsafeSQLError(f"forbidden statement kind: {type(node).__name__}")
+        _reject("forbidden_node", f"forbidden statement kind: {type(node).__name__}")
     if isinstance(node, exp.Into):
-        raise UnsafeSQLError("SELECT INTO is not allowed")
+        _reject("select_into", "SELECT INTO is not allowed")
     for child in node.iter_expressions():
         _walk_for_forbidden(child)
 
@@ -163,15 +177,16 @@ def validate_select_only(sql: str, *, dialect: str | None = None) -> None:
             AST node anywhere, top-level not a ``Select``.
     """
     if not sql or not sql.strip():
-        raise UnsafeSQLError("empty SQL")
+        _reject("empty", "empty SQL")
 
     # Cheap pre-check: reject anything that doesn't even start with
     # SELECT or WITH. Defends against sqlglot's quirks where e.g.
     # ``REINDEX`` is parsed as a bare ``Column`` and would otherwise
     # look like a valid single-column SELECT.
     if not _TOP_LEVEL_PATTERN.match(sql):
-        raise UnsafeSQLError(
-            "only SELECT (or WITH … SELECT) statements are allowed"
+        _reject(
+            "not_select_top_level",
+            "only SELECT (or WITH … SELECT) statements are allowed",
         )
 
     # Belt-and-suspenders: sqlglot silently swallows a trailing
@@ -180,25 +195,26 @@ def validate_select_only(sql: str, *, dialect: str | None = None) -> None:
     # but a lone ``SELECT 1;`` would slip through. Reject any bare
     # ``;`` so the explorer stays a strict single-statement sandbox.
     if _BARE_SEMICOLON_RE.search(sql):
-        raise UnsafeSQLError("statement separator ';' is not allowed")
+        _reject("bare_semicolon", "statement separator ';' is not allowed")
 
     try:
         statements = sqlglot.parse(sql, read=dialect)
     except ParseError as exc:
-        raise UnsafeSQLError(f"unparseable SQL: {exc}") from None
+        _reject("parse_error", f"unparseable SQL: {exc}")
 
     if not statements:
-        raise UnsafeSQLError("empty SQL")
+        _reject("empty", "empty SQL")
     if len(statements) > 1:
-        raise UnsafeSQLError(
-            f"multiple statements not allowed ({len(statements)} found)"
+        _reject(
+            "multi_stmt",
+            f"multiple statements not allowed ({len(statements)} found)",
         )
 
     stmt = statements[0]
     if stmt is None:
         # sqlglot only returns None entries for blank / pure-comment
         # inputs; the pre-checks above already ruled those out.
-        raise UnsafeSQLError("empty SQL")
+        _reject("empty", "empty SQL")
     # Walk BEFORE the top-level isinstance check so CTE-wrapped DML
     # (``WITH del AS (DELETE …) SELECT * FROM del``) is caught even
     # though the outer node is a Select.
@@ -207,8 +223,9 @@ def validate_select_only(sql: str, *, dialect: str | None = None) -> None:
     # it. Everything else (Command, Describe, Use, …) is rejected
     # here on top of the per-node walk above.
     if not isinstance(stmt, (exp.Select, exp.Union)):
-        raise UnsafeSQLError(
-            f"only SELECT statements are allowed (got {type(stmt).__name__})"
+        _reject(
+            "not_select_ast",
+            f"only SELECT statements are allowed (got {type(stmt).__name__})",
         )
 
 
@@ -301,17 +318,17 @@ def build_safe_where_clause(
         multiple conditions in a loop.
     """
     if not is_safe_identifier(field):
-        raise UnsafeSQLError(f"invalid field name: {field!r}")
+        _reject("invalid_field", f"invalid field name: {field!r}")
     op_upper = operator.strip().upper()
     if op_upper not in ALLOWED_WHERE_OPERATORS:
-        raise UnsafeSQLError(f"operator not allowed: {operator!r}")
+        _reject("invalid_operator", f"operator not allowed: {operator!r}")
 
     if op_upper in ("IS NULL", "IS NOT NULL"):
         return f"{field} {op_upper}", param_index
 
     if op_upper in ("IN", "NOT IN"):
         if not isinstance(value, list) or not value:
-            raise UnsafeSQLError(f"{op_upper} requires a non-empty list")
+            _reject("in_requires_list", f"{op_upper} requires a non-empty list")
         names: list[str] = []
         for v in value:
             name = f"{param_prefix}{param_index}"
@@ -322,7 +339,7 @@ def build_safe_where_clause(
 
     if op_upper in ("BETWEEN", "NOT BETWEEN"):
         if not isinstance(value, list) or len(value) != 2:
-            raise UnsafeSQLError(f"{op_upper} requires a 2-element list")
+            _reject("between_requires_pair", f"{op_upper} requires a 2-element list")
         lo = f"{param_prefix}{param_index}"
         params[lo] = value[0]
         param_index += 1
@@ -353,7 +370,7 @@ def substitute_parameters(
     any input that ends up syntactically invalid.
     """
     if not sql:
-        raise UnsafeSQLError("empty SQL")
+        _reject("empty", "empty SQL")
     out = sql
     query_params: dict[str, Any] = {}
     for key, value in parameters.items():

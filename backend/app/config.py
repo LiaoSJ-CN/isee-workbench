@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{Path(__file__).parent.parent / 'app.db'}"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    # CSRF defence (批 6b.3). When enabled, ``CSRFMiddleware`` rejects
+    # state-changing requests whose ``Origin`` is not in ``cors_origins``.
+    # Disable only for tests / scripts that intentionally post from an
+    # untracked origin; production should leave this on.
+    csrf_enabled: bool = True
+
     # --- Scheduler ---
     # Sidecar deployment: when true the web process skips starting
     # APScheduler. Run ``python -m app.scheduler_runner`` as a separate
@@ -43,6 +49,14 @@ class Settings(BaseSettings):
     # --- Brute-force protection ---
     # Max login attempts per IP per minute before returning 429.
     login_rate_limit: int = 10
+
+    # --- API rate limits (批 6b.2) ---
+    # Per-IP, per-minute ceilings on the expensive / write-prone endpoints.
+    # Defaults are tuned for a single-user dev box — tighten via env vars
+    # (``EXPLORER_QUERY_RATE_LIMIT=30 REPORTS_GENERATE_RATE_LIMIT=10``)
+    # before going to a shared deployment.
+    explorer_query_rate_limit: int = 30
+    reports_generate_rate_limit: int = 10
 
     # --- Trusted proxies (P3.5 / PY-12) ---
     # IPs or CIDR subnets of reverse proxies that may set X-Forwarded-For.

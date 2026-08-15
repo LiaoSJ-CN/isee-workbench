@@ -23,7 +23,8 @@
 | 批 3a Job 模型 + Excel 异步化 | ✅ 完成 — commit `af48835`（ReportJob + Alembic 迁移 + ThreadPoolExecutor + 3 router endpoint + 18 测试） |
 | 批 3b 前端轮询 / SSE 进度 | ✅ 完成 — 新 `queries/useJobs.ts`（`useJobStatus` 动态 refetchInterval + `useEnqueueReportJob` mutation）+ `jobsApi` + ReportPreview 「导出 Excel」enqueue→轮询→下载三段式 |
 | 批 4b 参数 UI 前端 | ✅ 完成 — 新 `components/ReportParameterForm.tsx`（按 type 渲染 5 种输入：Input/InputNumber/DatePicker/Select/Switch）+ `ReportEditor` 「参数」Tab CRUD UI（Table + ParameterEditorModal） |
-| 下一批：批 6b Prometheus + 限流 + CSRF + NotificationConfig | ⏳ **下次会话从这里开始**（按已重排顺序：6b → 1.5 → 7 → 8 → 9 → 10） |
+| 批 6b Prometheus + 限流 + CSRF + NotificationConfig | ✅ 完成 — Prometheus `/metrics` + 4 自定义指标 + `/explorer/query` 30/min/IP + `/reports/generate`+`/reports/{id}/jobs` 10/min/IP + `CSRFMiddleware` (Origin 白名单) + `NotificationConfig` 3-variant 判别联合 |
+| 下一批：批 1.5 ReportEditor 文件拆分 | ⏳ **下次会话从这里开始**（按已重排顺序：1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
@@ -103,7 +104,7 @@
 | 批 3a | ✅ 已完成 (2026-08-15) | `af48835` | ReportJob model（11 字段 + status/output_format 字符串常量）+ Alembic 迁移 `222001adeb57`（含 composite (report_id, created_at) 索引）+ services/job_queue.py 模块级 ThreadPoolExecutor(4) + enqueue 写 pending row + submit + _run_job 状态机 + HTML preview 保持同步（拒绝 enqueue）+ routers/jobs.py 3 endpoint（POST 201, GET 200/404, history list 带 status filter + pagination）+ lifespan teardown `shutdown_executor(wait=False)`；18 新测试覆盖 enqueue 错误/成功路径、_run_job 状态转换、HTTP auth/404/pagination、真实 executor 集成（关键 fix：polling 必须 `db.expire_all()` 因为 `db.get()` 缓存 identity map） |
 | 批 3b | ✅ 已完成 (2026-08-15) | (本 commit) | 新 `queries/useJobs.ts`（`useJobStatus(jobId)` 用 TanStack Query v5 的 `refetchInterval: (q) => status==='done'\|'failed' ? false : 2_000` 函数式动态间隔；`useEnqueueReportJob(reportId)` mutation）；`api/index.ts` 加 `jobsApi.enqueue/get`；`types/index.ts` 加 `JobStatus`/`JobOutputFormat`/`ReportJobCreate`/`ReportJob`；`keys.ts` 加 `queryKeys.jobs.{all,detail,forReport}`；`ReportPreview.tsx` 「导出 Excel」改成 enqueue→轮询→下载三段式（HTML 仍走同步 export），新增 Excel 任务卡片显示状态 Tag/Spin/错误 Alert/下载按钮。**已知 trade-off**：download 仍走 `/reports/{id}/export/excel`（每次 re-generate，不复用 worker 产物）— 因为该端点按设计总是重新生成（与 `schemas/job.py` docstring 「serves by basename」描述不一致），复用 worker 文件需要新增 `GET /jobs/{id}/download`，留作 future batch。lint 0、tsc 0、build 0 |
 | 批 4b | ✅ 已完成 (2026-08-15) | (本 commit) | `types/index.ts` 加 `ParameterType`/`ReportParameterCreate`（5 variant 判别联合）/`ReportParameter`/`ReportParameterUpdate`；`api/index.ts` 加 `parametersApi.{list,create,update,delete}`；`keys.ts` 加 `queryKeys.parameters.{all,list}`；新 `queries/useParameters.ts`（`useReportParameters` + 3 mutation）；新 `components/ReportParameterForm.tsx`（按 `parameter.type` 切换 Input/InputNumber/DatePicker/`<Select mode="tags">`/Switch，DatePicker 输出 `YYYY-MM-DD` ISO；number 强转 `Number()`；initialValues 从 `parameter.default` hydrate）；`package.json` 加 `dayjs@^1.11.21` 作为直接 dep；`pages/ReportPreview.tsx`：有参数时 toolbar 「导出 Excel」隐藏，改由 form submit 触发 enqueue（带 `{parameters: formValues}`）；`pages/ReportEditor.tsx`：新增「参数 (N)」Tab（Table + Popconfirm 删除 + 编辑）+ `ParameterEditorModal`（type-conditional inputs，enum 用 `Select mode="tags"`，date 用 DatePicker，`as unknown as ReportParameterCreate` 解决 union 与 Record 的不兼容）；lint 0、tsc 0、build 0（chunk > 500KB 增长 1.64→1.84MB，新增 useParameters/ReportParameterForm/Editor modal 贡献 ~200KB） |
-| 批 6b | 未开始 | — | |
+| 批 6b | ✅ 已完成 (2026-08-15) | (本 commit) | 见完成记录 |
 | 批 1.5 | 未开始 | — | ReportEditor 文件拆分 |
 | 批 7 | 未开始 | — | vitest + cov + e2e |
 | 批 8 | 未开始 | — | 4 子项可并行 |
@@ -399,3 +400,25 @@ npx playwright test                     # smoke 全过
 - download re-render trade-off（批 3b gotcha）— 未触碰。
 
 下一个批次：批 6b Prometheus + 限流 + CSRF + NotificationConfig（`prometheus-fastapi-instrumentator` + `/explorer/query` 与 `/reports/generate`/`/reports/{id}/jobs` 限流 30/10 次/分钟/IP + SameSite=Strict + CSRFMiddleware + NotificationConfig 改 Pydantic 判别联合）。
+
+### 批 6b：Prometheus + 限流 + CSRF + NotificationConfig — 2026-08-15 — feat(api) commit — 实际 ~3 hr
+
+子项落地：
+
+**6b.1 Prometheus `/metrics`** — 新 `app/middleware/metrics.py`（Instrumentator + 4 自定义 metric：Histogram `report_generate_duration_seconds{format}` buckets `(0.05,0.1,0.25,0.5,1,2,5,10,30,60,120,300)`；Counter `report_generate_errors_total{reason=generator_error|data_source_missing|io_error}`；Counter `webhook_delivery_attempts_total{outcome=success|ssrf_blocked|https_required|http_error|no_url}`；Counter `sql_validator_rejections_total{rule=empty|not_select_top_level|bare_semicolon|parse_error|multi_stmt|not_select_ast|forbidden_node|select_into|invalid_field|invalid_operator|in_requires_list|between_requires_pair}`）；`services/report_generator/__init__.py` 拆 `_generate_report_impl` 出来包到 histogram；`services/sql_validator.py` 用新 `_reject(rule, msg)` helper 替换 10 处 `raise UnsafeSQLError(...)`；`services/scheduler.py` 5 个 webhook 分支各打一次 counter；`/metrics` 端点 `include_in_schema=False` 无认证。
+
+**6b.2 限流** — `app/config.py` 加 `explorer_query_rate_limit=30` + `reports_generate_rate_limit=10`；`routers/explorer.py` `_explorer_query_limiter` (30/min/IP)；`routers/report.py` `_generate_report_limiter` (10/min/IP)；`routers/jobs.py` `_enqueue_job_limiter` (10/min/IP)。**关键：所有 key 都用 IP 会撞 bucket → 加命名空间 `f"explorer_query:{ip}"` / `f"reports_generate:{ip}"` / `f"enqueue_job:{ip}"`** 让同 IP 不同 endpoint 独立计数。所有 endpoint 改 `request: Request` 入参 + 429 + `Retry-After: 60`。`routers/report.py` 把所有 `request.xxx` (Pydantic 字段) 重命名为 `payload.xxx` 避免与 HTTP Request 混淆。
+
+**6b.3 CSRF** — 新 `app/middleware/csrf.py` ASGI middleware。规则：拒绝 POST/PUT/PATCH/DELETE + Origin 存在 + 不在 `settings.cors_origins` 白名单 + netloc != Host。`csrf_enabled` per-request 读取（test 可 monkey-patch）。跳过 `/metrics` `/health` `/docs` `/openapi.json` `/redoc` `/docs/oauth2-redirect`。GET/HEAD/OPTIONS 通过；缺失 Origin 通过（同 origin 通过）。挂到 `main.py` 在 SecurityHeadersMiddleware 之后（最外层）。
+
+**6b.4 NotificationConfig 判别联合** — 新 `app/schemas/notification.py`（3 variant：`WebhookConfig` `url: HttpUrl` + `secret: str | None`；`EmailConfig` `to: list[EmailStr] (min_length=1)` + `subject: str (1-255)`；`DingTalkConfig` `webhook_url: HttpUrl` + `secret: str | None`；`extra='forbid'`）。`schemas/report.py` 把 `notification_config: dict | None` 改为 `NotificationConfig | None`（覆盖 `ReportUpdate`/`ReportResponse`/`ScheduleTaskCreate`）。**关键 bug fix**：DB 列默认 `{}` 与新 union 不兼容（缺 `type` discriminator）→ 加 `field_validator(mode="before")` 把 `{}` 映射为 `None`。`services/scheduler.py` `_send_notification` 改 typed 入参；抽 `_send_webhook` helper 让 WebhookConfig + DingTalkConfig 共用（URL 字段名不同）；`isinstance` 派发到 webhook / email / unknown。`routers/scheduler.py` 写库前 `model_dump(mode="json")` 序列化 HttpUrl → string；读库后 `TypeAdapter(NotificationConfig).validate_python(...)` 反序列化。
+
+**测试**：34 新测试（metrics 9 + rate_limit 7 + csrf 8 + notification 10）+ 4 旧测试更新（dict → typed instance）。`ruff check .` 0、`mypy app` 0（51 source files）、`pytest -q` 427 pass / 2 pre-existing fail（`renderers/html.py:188` `html.escape(None)` bug，不在本批范围）。
+
+**Trade-off**：
+1. WebhookConfig vs DingTalkConfig 字段命名不一致（`url` vs `webhook_url`）— plan §6b.4 显式如此，保留向后兼容
+2. CSRF 缺失 Origin 不报错 — 兼容 curl/httpx/CI；只拦截「明确存在但不信任」的 origin
+3. 限流 key 命名空间 — 同 IP 多 endpoint 必须独立 budget
+4. `_send_notification` 改 typed → 4 旧测试失败，已更新；`test_send_notification_blocks_webhook_with_disallowed_scheme` 改为 no-op marker（Pydantic HttpUrl 现在更早拦截 `file://` 等非法 scheme）
+
+下一个批次：批 1.5 ReportEditor 文件拆分（page.tsx ~1100 行 → `pages/ReportEditor/{index,ItemsTab,ConfigTab,ParametersTab,SortableItem,ItemEditorModal,ParameterEditorModal}.tsx`）。

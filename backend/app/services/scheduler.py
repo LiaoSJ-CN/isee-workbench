@@ -13,7 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
+from app.middleware.metrics import webhook_delivery_attempts_total
 from app.models.report import Report
+from app.schemas.notification import (
+    DingTalkConfig,
+    EmailConfig,
+    NotificationConfig,
+    WebhookConfig,
+)
 from app.services.report_generator import generate_report
 from app.services.ssrf_guard import SSRFBlocked, create_webhook_client, validate_webhook_url
 
@@ -78,14 +85,14 @@ class ReportScheduler:
         self,
         report_id: int,
         cron_expression: str,
-        notification_config: dict[str, Any] | None = None,
+        notification_config: NotificationConfig | None = None,
     ) -> str:
         """Add or update a scheduled job for a report.
 
         Args:
             report_id: The report ID to schedule
             cron_expression: 6-field cron expression (min hour dom mon dow year)
-            notification_config: Configuration for notifications
+            notification_config: Typed notification config (Webhook/Email/DingTalk)
 
         Returns:
             The job ID
@@ -114,7 +121,7 @@ class ReportScheduler:
             func=_execute_scheduled_report,
             trigger=trigger,
             id=job_id,
-            args=[report_id, notification_config or {}],
+            args=[report_id, notification_config],
             replace_existing=True,
         )
 
@@ -191,7 +198,7 @@ class ReportScheduler:
                 self.add_report_job(
                     report_id=cast(int, report.id),
                     cron_expression=cast(str, report.cron_expression),
-                    notification_config=report.notification_config or {},
+                    notification_config=report.notification_config,
                 )
             except Exception as exc:
                 failed += 1
@@ -230,7 +237,9 @@ def get_scheduler() -> ReportScheduler:
     return _scheduler
 
 
-def _execute_scheduled_report(report_id: int, notification_config: dict[str, Any]) -> None:
+def _execute_scheduled_report(
+    report_id: int, notification_config: NotificationConfig | None
+) -> None:
     """Execute a scheduled report generation.
 
     This is called by APScheduler and should not be called directly.
@@ -294,14 +303,19 @@ def _sign_payload(payload: dict[str, Any], secret: str, timestamp: str) -> str:
 
 
 def _send_notification(
-    notification_config: dict[str, Any],
+    notification_config: NotificationConfig | None,
     report: Report,
     file_paths: list[str],
 ) -> None:
     """Send notification about generated report.
 
-    Currently supports webhook notifications.  P4 hardening (SEC-4,
-    SEC-8, SEC-14, PY-4):
+    Dispatches on the typed ``NotificationConfig`` variant (批 6b.4
+    discriminated union). Webhook + DingTalk share the same delivery
+    pipeline — only the URL field name differs (``url`` vs
+    ``webhook_url``). Email is logged-but-not-sent (sender TBD).
+
+    P4 hardening (SEC-4, SEC-8, SEC-14, PY-4) applies to both webhook
+    variants:
 
     * Payload is HMAC-SHA256 signed (``X-Webhook-Signature``).
     * Timestamp (``X-Webhook-Timestamp``) enables replay detection.
@@ -309,59 +323,84 @@ def _send_notification(
     * HTTPS-only in production (``webhook_https_only``).
     * Connection is IP-pinned to the SSRF-validated address.
     """
-    notification_type = notification_config.get("type")
+    if notification_config is None:
+        return
 
-    if notification_type == "webhook":
-        webhook_url = notification_config.get("webhook_url")
-        if not webhook_url:
-            return
-
-        # --- Scheme gate (SEC-14) ---
-        if settings.webhook_https_only and not webhook_url.startswith("https://"):
-            scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
-            logger.error(
-                f"Refusing webhook notification for report {report.id}: "
-                f"HTTPS required but URL uses {scheme} scheme"
-            )
-            return
-
-        # --- SSRF gate (PY-4: also resolves & validates IPs) ---
-        try:
-            validate_webhook_url(webhook_url)
-        except SSRFBlocked as exc:
-            logger.error(
-                f"Refusing webhook notification for report {report.id}: "
-                f"URL blocked by SSRF guard: {exc}"
-            )
-            return
-
-        # --- Build payload ---
-        # P4 (SEC-8): strip directory components — the receiver has no
-        # business knowing the server's filesystem layout.
-        safe_files = [os.path.basename(p) for p in file_paths]
-        payload: dict[str, Any] = {
-            "report_name": report.name,
-            "report_id": report.id,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "files": safe_files,
-        }
-
-        # --- Sign (SEC-4) ---
-        secret = settings.webhook_secret
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if secret:
-            timestamp = str(int(datetime.now(timezone.utc).timestamp()))
-            headers["X-Webhook-Timestamp"] = timestamp
-            headers["X-Webhook-Signature"] = _sign_payload(payload, secret, timestamp)
-
-        # --- Send with IP-pinned transport (PY-4) ---
-        try:
-            client = create_webhook_client(webhook_url)
-            resp = client.post(webhook_url, json=payload, headers=headers)
-            resp.raise_for_status()
-            logger.info(f"Sent webhook notification for report {report.id}")
-        except Exception as exc:
-            logger.error(f"Failed to send webhook notification for report {report.id}: {exc}")
-
-    elif notification_type == "email":
+    if isinstance(notification_config, (WebhookConfig, DingTalkConfig)):
+        # Both webhook variants share the same delivery pipeline; only
+        # the URL field name differs (``url`` vs ``webhook_url``).
+        if isinstance(notification_config, WebhookConfig):
+            url = str(notification_config.url)
+        else:
+            url = str(notification_config.webhook_url)
+        _send_webhook(
+            webhook_url=url,
+            report=report,
+            file_paths=file_paths,
+        )
+    elif isinstance(notification_config, EmailConfig):
         logger.info(f"Email notification for report {report.id} (not implemented)")
+    else:
+        # Pydantic should make this unreachable — the union only has
+        # three variants. Log and bail rather than silently swallow.
+        logger.error(
+            "Unknown notification_config type for report %s: %r",
+            report.id, notification_config,
+        )
+
+
+def _send_webhook(webhook_url: str, report: Report, file_paths: list[str]) -> None:
+    """Common webhook delivery path used by ``WebhookConfig`` and
+    ``DingTalkConfig``. URL has already been validated at the Pydantic
+    layer (``HttpUrl``); this function applies the runtime gates."""
+
+    # --- Scheme gate (SEC-14) ---
+    if settings.webhook_https_only and not webhook_url.startswith("https://"):
+        scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
+        logger.error(
+            f"Refusing webhook notification for report {report.id}: "
+            f"HTTPS required but URL uses {scheme} scheme"
+        )
+        webhook_delivery_attempts_total.labels(outcome="https_required").inc()
+        return
+
+    # --- SSRF gate (PY-4: also resolves & validates IPs) ---
+    try:
+        validate_webhook_url(webhook_url)
+    except SSRFBlocked as exc:
+        logger.error(
+            f"Refusing webhook notification for report {report.id}: "
+            f"URL blocked by SSRF guard: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
+        return
+
+    # --- Build payload ---
+    # P4 (SEC-8): strip directory components — the receiver has no
+    # business knowing the server's filesystem layout.
+    safe_files = [os.path.basename(p) for p in file_paths]
+    payload: dict[str, Any] = {
+        "report_name": report.name,
+        "report_id": report.id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "files": safe_files,
+    }
+
+    # --- Sign (SEC-4) ---
+    secret = settings.webhook_secret
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if secret:
+        timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+        headers["X-Webhook-Timestamp"] = timestamp
+        headers["X-Webhook-Signature"] = _sign_payload(payload, secret, timestamp)
+
+    # --- Send with IP-pinned transport (PY-4) ---
+    try:
+        client = create_webhook_client(webhook_url)
+        resp = client.post(webhook_url, json=payload, headers=headers)
+        resp.raise_for_status()
+        logger.info(f"Sent webhook notification for report {report.id}")
+        webhook_delivery_attempts_total.labels(outcome="success").inc()
+    except Exception as exc:
+        logger.error(f"Failed to send webhook notification for report {report.id}: {exc}")
+        webhook_delivery_attempts_total.labels(outcome="http_error").inc()
