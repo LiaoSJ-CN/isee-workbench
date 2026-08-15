@@ -19,14 +19,15 @@
 | 批 5.5 列表接口分页 | ✅ 完成 — commit `a1bacab`（limit/offset + X-Total-Count） |
 | 批 4a 参数 schema 后端 | ✅ 完成 — commit `61a8359`（model + 4 CRUD + 5-variant discriminated union + 运行时校验） |
 | 批 2a TanStack Query 基础 | ✅ 完成 — commit `9e12e56`（queries/ + 6 page 迁移 + RequireAuth useMe） |
-| 下一批：批 2b 乐观更新 + 虚拟滚动 + Skeleton | ⏳ **下次会话从这里开始**（按已重排顺序：2b → 3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
+| 批 2b 乐观更新 + 虚拟滚动 + Skeleton | ✅ 完成 — commit `ed10570`（useDelete*/useUpdateDataSource 乐观更新 + DataExplorer 虚拟滚动 + Skeleton 组件替换 3 处 Spin/loading） |
+| 下一批：批 3a Job 模型 + Excel 异步化 | ⏳ **下次会话从这里开始**（按已重排顺序：3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
 2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 2b」章节
-4. 建 TaskCreate 覆盖批 2b 子项（ReportEditor 拖拽排序乐观更新 + ReportEditor item CRUD 乐观更新 + DataSourceList/ReportList toggle is_active 乐观更新 + ReportPreview/DataExplorer 虚拟滚动 + 全局 Skeleton 组件），开始干
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 3a」章节
+4. 建 TaskCreate 覆盖批 3a 子项（ReportJob model + enqueue 队列 + 状态机 + 3 router endpoint + 测试），开始干
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
@@ -95,7 +96,7 @@
 | 批 5（含 5.1/5.2/5.3/5.4/5.5） | ✅ 已完成 (2026-08-15) | `5931231` `d241de9` `439c5fb` `a1bacab` | Alembic 接管 schema + 拆 report_generator (628→7) + get_current_user 返回 User + 列表分页 |
 | 批 4a | ✅ 已完成 (2026-08-15) | `61a8359` | ReportParameter model + 4 CRUD endpoints + Pydantic discriminated union (5 variants) + 运行时校验（缺失/类型/enum/未知 key） |
 | 批 2a | ✅ 已完成 (2026-08-15) | `9e12e56` | TanStack Query v5 + `queries/` 目录 + 6 page 迁移（DataSourceList/ReportList/Scheduler/ReportEditor/ReportPreview/DataExplorer）+ RequireAuth 用 useMe；移除 725 行手写 useEffect/setState；净 +467 行（含 7 个新 hook 文件 + QueryClient 接线） |
-| 批 2b | 未开始 | — | |
+| 批 2b | ✅ 已完成 (2026-08-15) | `ed10570` | 乐观更新（useDeleteDataSource/useDeleteReport/useUpdateDataSource/useReorderReportItems/useCreateReportItem/useDeleteReportItem 全部加 snapshot/rollback）+ DataExplorer Table virtual+scroll.y:500（10k+ 行场景）+ 新 components/Skeleton.tsx（TableSkeleton/CardSkeleton/InlineSkeleton）替换 ReportPreview/DataExplorer/ReportEditor 三处 Spin/loading 文本；跳过 useToggleDataSourceActive/Report（无 UI 消费者）+ ReportPreview 虚拟滚动（React 表 ≤10 行，真正大表在 iframe 内） |
 | 批 3a | 未开始 | — | Job 队列 |
 | 批 3b | 未开始 | — | |
 | 批 4b | 未开始 | — | |
@@ -273,3 +274,21 @@ npx playwright test                     # smoke 全过
 
 下一个批次：批 2b 乐观更新 + 虚拟滚动 + Skeleton（ReportEditor item CRUD 乐观更新 + DataSourceList/ReportList toggle is_active 乐观更新 + ReportPreview/DataExplorer 虚拟滚动 + Skeleton 组件）。
 -->
+
+### 批 2b：乐观更新 + 虚拟滚动 + Skeleton — 2026-08-15 — `ed10570` — ~1.5 hr
+
+子项落地：
+- **乐观更新**（`queries/useDataSources.ts` + `queries/useReports.ts`）：`useDeleteDataSource`/`useDeleteReport` 立刻从列表缓存移除行（`useDeleteReport` 还遍历 `findAll({ queryKey: reports.lists() })` 覆盖所有 filter 变体）；`useUpdateDataSource` 镜像 `useUpdateReport` 的 snapshot/rollback 同时打 list+detail 两路缓存；`useReorderReportItems`/`useCreateReportItem`/`useDeleteReportItem` 在 `reports.detail(id)` 上直接 patch items（temp id 用 `-Date.now()`，onSettled invalidate 拿到真 id 后自动替换）。
+- **虚拟滚动**（`pages/DataExplorer.tsx`）：结果 Table 加 `virtual` + `scroll.y: 500`，处理 10k+ 行；ReportPreview 跳过 —— 唯一 React Table 是 items 配置表（≤10 行），真正大表在 HTML iframe 内（不在 React tree 里）。
+- **Skeleton**（新 `components/Skeleton.tsx`）：`TableSkeleton`/`CardSkeleton`/`InlineSkeleton` 三个 wrapper；替换 ReportPreview 的 `<Spin size="large" />`、DataExplorer 的 `<Spin />`、ReportEditor 的「加载中...」文本。
+
+跳过的项（Simplicity First — 无 UI 消费者）：
+- `useToggleDataSourceActive` / `useToggleReportActive`：DataSourceList/ReportList 的列只把 `is_active` 显示为 Tag，没有 toggle 按钮。建无消费者的 hook 是 dead code，留给将来真加 toggle UI 时再写。
+
+测试与验证：
+- `npm run lint` 0、`npx tsc --noEmit` 0、`npm run build` 0（chunk > 500KB 警告 pre-existing）。
+
+已知 pre-existing 行为（不在本批范围）：
+- `ReportEditor` 的 buffer + cache 双轨：delete/create item 时只更新 query cache，不更新本地 `buffer` state（因为 `bufferHydrated` flag）。乐观 cache 更新对 ReportEditor **当前**无视觉影响（buffer 派生 `itemsView`），但对未来其他 consumer 已是正确基础设施。修这个 bug 属于改动行为，留给将来的清理批。
+
+下一个批次：批 3a Job 模型 + Excel 异步化（`ReportJob` model + APScheduler ThreadPoolExecutor + enqueue 队列 + 3 router endpoint + 测试）。
