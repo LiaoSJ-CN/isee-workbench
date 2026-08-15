@@ -22,7 +22,8 @@
 | 批 2b 乐观更新 + 虚拟滚动 + Skeleton | ✅ 完成 — commit `ed10570`（useDelete*/useUpdateDataSource 乐观更新 + DataExplorer 虚拟滚动 + Skeleton 组件替换 3 处 Spin/loading） |
 | 批 3a Job 模型 + Excel 异步化 | ✅ 完成 — commit `af48835`（ReportJob + Alembic 迁移 + ThreadPoolExecutor + 3 router endpoint + 18 测试） |
 | 批 3b 前端轮询 / SSE 进度 | ✅ 完成 — 新 `queries/useJobs.ts`（`useJobStatus` 动态 refetchInterval + `useEnqueueReportJob` mutation）+ `jobsApi` + ReportPreview 「导出 Excel」enqueue→轮询→下载三段式 |
-| 下一批：批 4b 参数 UI 前端 | ⏳ **下次会话从这里开始**（按已重排顺序：4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
+| 批 4b 参数 UI 前端 | ✅ 完成 — 新 `components/ReportParameterForm.tsx`（按 type 渲染 5 种输入：Input/InputNumber/DatePicker/Select/Switch）+ `ReportEditor` 「参数」Tab CRUD UI（Table + ParameterEditorModal） |
+| 下一批：批 6b Prometheus + 限流 + CSRF + NotificationConfig | ⏳ **下次会话从这里开始**（按已重排顺序：6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
@@ -101,7 +102,7 @@
 | 批 2b | ✅ 已完成 (2026-08-15) | `ed10570` | 乐观更新（useDeleteDataSource/useDeleteReport/useUpdateDataSource/useReorderReportItems/useCreateReportItem/useDeleteReportItem 全部加 snapshot/rollback）+ DataExplorer Table virtual+scroll.y:500（10k+ 行场景）+ 新 components/Skeleton.tsx（TableSkeleton/CardSkeleton/InlineSkeleton）替换 ReportPreview/DataExplorer/ReportEditor 三处 Spin/loading 文本；跳过 useToggleDataSourceActive/Report（无 UI 消费者）+ ReportPreview 虚拟滚动（React 表 ≤10 行，真正大表在 iframe 内） |
 | 批 3a | ✅ 已完成 (2026-08-15) | `af48835` | ReportJob model（11 字段 + status/output_format 字符串常量）+ Alembic 迁移 `222001adeb57`（含 composite (report_id, created_at) 索引）+ services/job_queue.py 模块级 ThreadPoolExecutor(4) + enqueue 写 pending row + submit + _run_job 状态机 + HTML preview 保持同步（拒绝 enqueue）+ routers/jobs.py 3 endpoint（POST 201, GET 200/404, history list 带 status filter + pagination）+ lifespan teardown `shutdown_executor(wait=False)`；18 新测试覆盖 enqueue 错误/成功路径、_run_job 状态转换、HTTP auth/404/pagination、真实 executor 集成（关键 fix：polling 必须 `db.expire_all()` 因为 `db.get()` 缓存 identity map） |
 | 批 3b | ✅ 已完成 (2026-08-15) | (本 commit) | 新 `queries/useJobs.ts`（`useJobStatus(jobId)` 用 TanStack Query v5 的 `refetchInterval: (q) => status==='done'\|'failed' ? false : 2_000` 函数式动态间隔；`useEnqueueReportJob(reportId)` mutation）；`api/index.ts` 加 `jobsApi.enqueue/get`；`types/index.ts` 加 `JobStatus`/`JobOutputFormat`/`ReportJobCreate`/`ReportJob`；`keys.ts` 加 `queryKeys.jobs.{all,detail,forReport}`；`ReportPreview.tsx` 「导出 Excel」改成 enqueue→轮询→下载三段式（HTML 仍走同步 export），新增 Excel 任务卡片显示状态 Tag/Spin/错误 Alert/下载按钮。**已知 trade-off**：download 仍走 `/reports/{id}/export/excel`（每次 re-generate，不复用 worker 产物）— 因为该端点按设计总是重新生成（与 `schemas/job.py` docstring 「serves by basename」描述不一致），复用 worker 文件需要新增 `GET /jobs/{id}/download`，留作 future batch。lint 0、tsc 0、build 0 |
-| 批 4b | 未开始 | — | |
+| 批 4b | ✅ 已完成 (2026-08-15) | (本 commit) | `types/index.ts` 加 `ParameterType`/`ReportParameterCreate`（5 variant 判别联合）/`ReportParameter`/`ReportParameterUpdate`；`api/index.ts` 加 `parametersApi.{list,create,update,delete}`；`keys.ts` 加 `queryKeys.parameters.{all,list}`；新 `queries/useParameters.ts`（`useReportParameters` + 3 mutation）；新 `components/ReportParameterForm.tsx`（按 `parameter.type` 切换 Input/InputNumber/DatePicker/`<Select mode="tags">`/Switch，DatePicker 输出 `YYYY-MM-DD` ISO；number 强转 `Number()`；initialValues 从 `parameter.default` hydrate）；`package.json` 加 `dayjs@^1.11.21` 作为直接 dep；`pages/ReportPreview.tsx`：有参数时 toolbar 「导出 Excel」隐藏，改由 form submit 触发 enqueue（带 `{parameters: formValues}`）；`pages/ReportEditor.tsx`：新增「参数 (N)」Tab（Table + Popconfirm 删除 + 编辑）+ `ParameterEditorModal`（type-conditional inputs，enum 用 `Select mode="tags"`，date 用 DatePicker，`as unknown as ReportParameterCreate` 解决 union 与 Record 的不兼容）；lint 0、tsc 0、build 0（chunk > 500KB 增长 1.64→1.84MB，新增 useParameters/ReportParameterForm/Editor modal 贡献 ~200KB） |
 | 批 6b | 未开始 | — | |
 | 批 1.5 | 未开始 | — | ReportEditor 文件拆分 |
 | 批 7 | 未开始 | — | vitest + cov + e2e |
@@ -358,3 +359,43 @@ npx playwright test                     # smoke 全过
 
 下一个批次：批 4b 参数 UI 前端（`components/ReportParameterForm.tsx` 新组件 + ReportPreview `useReport(reportId).parameters` 驱动 form + `useGenerateReport` mutation 提交）。
 -->
+
+### 批 4b：参数 UI 前端 — 2026-08-15 — feat(frontend) commit — 实际 ~2 hr
+
+子项落地：
+1. **types/index.ts**：`ParameterType` (5 字面量联合)、`ReportParameterBase` (私有) + `ReportParameterCreate` (5 变体判别联合) + `ReportParameter` (扁平 response shape) + `ReportParameterUpdate` (`Partial<{...}>`) — 全部镜像 Pydantic `schemas/report_parameter.py` 的形状。
+2. **queries/keys.ts**：`queryKeys.parameters.{all,list(reportId)}` tuple-typed。
+3. **api/index.ts**：`parametersApi.{list,create,update,delete}`，4 个 endpoint 全部 auth-gated (axios interceptor 走 Bearer)。
+4. **queries/useParameters.ts** (新文件)：
+   - `useReportParameters(reportId)` — query with `enabled: reportId != null`，sentinel `reportId=-1` 保 key 稳定。
+   - `useCreateReportParameter(reportId)` / `useUpdateReportParameter(reportId)` / `useDeleteReportParameter(reportId)` — mutations 在 `onSuccess` 调 `invalidateQueries({queryKey: parameters.list(reportId)})`。无乐观更新（list 只在 Editor Tab 出现，延迟可接受，保持简单）。
+5. **components/ReportParameterForm.tsx** (新文件)：
+   - Props: `{ parameters, onSubmit, loading?, hideSubmit?, submitLabel? }`。
+   - 按 `parameter.type` 渲染：string → `<Input>`、number → `<InputNumber>`、date → `<DatePicker>` (输出 `YYYY-MM-DD`)、enum → `<Select options={parameter.options}>`、bool → `<Switch>` (`valuePropName="checked"`)。
+   - `initialValues` 从 `parameter.default` hydrate，date 走 `dayjs(p.default)` round-trip。
+   - `handleFinish` 把 form values 强转：`date → YYYY-MM-DD`、`number → Number()`、其他原样。
+   - `rules: [{required: parameter.required}]` — 必填/类型由 Antd 拦截后再走 `onSubmit`。
+6. **pages/ReportPreview.tsx**：有参数时 toolbar 「导出 Excel」按钮隐藏，改由 form submit 触发 `useEnqueueReportJob({ parameters: formValues })`；无参数时 toolbar 按钮照旧。
+7. **pages/ReportEditor.tsx**：新增第三 Tab 「参数 (N)」：
+   - Table 展示 名称/标签/类型 (Tag)/必填/默认值/选项 (Tag 列表)/操作 (编辑 + Popconfirm 删除)。
+   - `ParameterEditorModal`（行内组件，跟 `ItemEditorModal` 同模式）：name (`pattern: ^[A-Za-z_][A-Za-z0-9_]*$` 且编辑时 disabled — 重命名走 delete+create)、label、type (Select，编辑时 disabled — 改 type 走 delete+create)、required (Switch)、options (only if type===enum，`<Select mode="tags">` 按回车添加)、default (按 paramType 切换 5 种 input)。`destroyOnHidden` 关 modal 时重置 form。
+8. **package.json**：`dayjs@^1.11.21` 加为直接 dep（之前是 antd 的 transitive dep，脆；现在 ReportParameterForm 和 ParameterEditorModal 都直接 import）。
+
+**关键 trade-off**：
+- `ReportParameterCreate` 是 5-variant discriminated union，但 form values 是 `Record<string, unknown>` — 二者结构不兼容。Modal submit 用 `payload as unknown as ReportParameterCreate` 双 cast 绕过 TS 检查，因为 runtime 字段确实对齐 (form 渲染与 schema 同步)。后端 Pydantic 会再次用 `Field(discriminator="type")` 二次校验。
+- `chunk > 500KB` 警告从 1.64MB 涨到 1.84MB（+200KB），原因：useParameters + ReportParameterForm + Editor modal。仍 pre-existing，留批 10 code-split。
+- `ReportList` 的 Excel 按钮（handleGenerate）仍走同步 `useGenerateReport`，未迁移到 useEnqueueReportJob — ReportList 是导航型页面，进度 UI 不适合在该位置加。如未来要做，需要 Drawer + 内嵌 progress tag。已记录在 批 3b 完成记录。
+- `ParameterEditorModal` 中 `name` 和 `type` 字段编辑时 disabled — 后端 `PUT` 支持 in-place 改名/改 type（`exclude_unset=True` + `IntegrityError → 409`），但前端禁掉是因为：rename 改名需要先校验新名不冲突；改 type 需要不同 form fields（input 形态变化）。简化路径：删 + 重建。
+
+**测试与验证**：
+- 无 frontend 测试框架（批 7 才上 vitest）；验证 = `npm run lint` 0、`npx tsc --noEmit` 0、`npm run build` 0。
+- 后端未动（CRUD endpoints + discriminated union 已在批 4a `61a8359` + 22 测试覆盖）；`pytest -q` 仍 395/395。
+- Net diff: +446 / -14（types 49 + api 39 + keys 5 + useParameters 79 + ReportParameterForm 90 + ReportEditor +321/-8 + ReportPreview +38/-14 + package.json +1）。
+
+**pre-existing carry-over**：
+- ReportEditor 已达 ~1100 行（批 4b 加 ParameterEditorModal 后），按 plan §批 1.5 是下一个要拆分的批次。
+- ReportEditor buffer/cache dual-track bug 仍未修（批 2b flag）。
+- 前端 useReport 的 `refetchOnWindowFocus: false` — accepted。
+- download re-render trade-off（批 3b gotcha）— 未触碰。
+
+下一个批次：批 6b Prometheus + 限流 + CSRF + NotificationConfig（`prometheus-fastapi-instrumentator` + `/explorer/query` 与 `/reports/generate`/`/reports/{id}/jobs` 限流 30/10 次/分钟/IP + SameSite=Strict + CSRFMiddleware + NotificationConfig 改 Pydantic 判别联合）。
