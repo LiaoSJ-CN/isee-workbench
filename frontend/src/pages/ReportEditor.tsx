@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Form, Input, Button, Space, Select, message, Modal,
@@ -26,9 +26,17 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { Report, ReportItem, ReportItemCreate, ReportItemUpdate, DataSource } from '../types';
-import { reportApi, dataSourceApi } from '../api';
+import type { Report, ReportItem, ReportItemCreate, ReportItemUpdate } from '../types';
 import { formatError } from '../utils/error';
+import {
+  useCreateReportItem,
+  useDeleteReportItem,
+  useReport,
+  useReorderReportItems,
+  useUpdateReport,
+  useUpdateReportItem,
+} from '../queries/useReports';
+import { useDataSources } from '../queries/useDataSources';
 
 // ============ Sortable Item Component ============
 
@@ -125,9 +133,10 @@ interface ItemEditorModalProps {
   onSave: (item: ReportItemCreate | ReportItemUpdate) => void;
   onCancel: () => void;
   isNew: boolean;
+  saving?: boolean;
 }
 
-function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorModalProps) {
+function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving }: ItemEditorModalProps) {
   const [form] = Form.useForm();
   // State initialized from item prop; onValuesChange keeps them in sync with form
   const [itemType, setItemType] = useState<string>(item?.item_type || 'table');
@@ -203,6 +212,7 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
       onCancel={onCancel}
       width={800}
       destroyOnClose
+      confirmLoading={saving}
     >
       <Form form={form} layout="vertical" onValuesChange={handleValuesChange}>
         <Space style={{ width: '100%' }} size="large">
@@ -438,11 +448,29 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
 export default function ReportEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [report, setReport] = useState<Report | null>(null);
-  const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [dsLoading, setDsLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const reportId = id ? Number(id) : null;
+
+  // Server truth from React Query cache. The cache is the source for
+  // items list and is what the page re-reads after any mutation.
+  const { data: report, isPending: reportLoading } = useReport(reportId);
+  // Edit buffer: a local copy of the report for unsaved edits in the
+  // "报表配置" tab. Initialized from the cache once it arrives.
+  const [buffer, setBuffer] = useState<Report | null>(null);
+  const [bufferHydrated, setBufferHydrated] = useState(false);
+  useEffect(() => {
+    if (!bufferHydrated && report) {
+      setBuffer(report);
+      setBufferHydrated(true);
+    }
+  }, [report, bufferHydrated]);
+
+  const { data: dataSources = [], isPending: dsLoading } = useDataSources();
+  const updateReport = useUpdateReport();
+  const createItem = useCreateReportItem(reportId ?? -1);
+  const updateItem = useUpdateReportItem(reportId ?? -1);
+  const deleteItem = useDeleteReportItem(reportId ?? -1);
+  const reorderItems = useReorderReportItems(reportId ?? -1);
+
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<ReportItem | null>(null);
   const [activeTab, setActiveTab] = useState('config');
@@ -452,56 +480,28 @@ export default function ReportEditor() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const loadReport = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
-    try {
-      const data = await reportApi.get(Number(id));
-      setReport(data);
-    } catch (err: unknown) {
-      message.error(formatError(err, '加载报表失败'));
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  const loadDataSources = useCallback(async () => {
-    setDsLoading(true);
-    try {
-      const data = await dataSourceApi.list();
-      setDataSources(data);
-    } catch (err: unknown) {
-      message.error(formatError(err, '加载数据源失败'));
-    } finally {
-      setDsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadReport();
-    loadDataSources();
-  }, [id, loadReport, loadDataSources]);
-
-  const handleSaveReport = async () => {
-    if (!report) return;
-    const snapshot = { ...report };
-    setSaving(true);
-    try {
-      await reportApi.update(report.id, {
-        name: report.name,
-        description: report.description,
-        data_source_id: report.data_source_id,
-        output_formats: report.output_formats,
-        is_active: report.is_active,
-      });
-      message.success('保存成功');
-    } catch (err: unknown) {
-      message.error(formatError(err, '保存失败'));
-      // Rollback in-memory state to last persisted values
-      setReport(snapshot);
-    } finally {
-      setSaving(false);
-    }
+  const handleSaveReport = () => {
+    if (!buffer || !reportId) return;
+    updateReport.mutate(
+      {
+        id: reportId,
+        payload: {
+          name: buffer.name,
+          description: buffer.description,
+          data_source_id: buffer.data_source_id,
+          output_formats: buffer.output_formats,
+          is_active: buffer.is_active,
+        },
+      },
+      {
+        onSuccess: () => message.success('保存成功'),
+        // Rollback handled by useUpdateReport's onError (writes prev back
+        // into the cache); the buffer follows the cache via the next
+        // refetch from onSettled's invalidation, so no manual setBuffer
+        // is needed on error.
+        onError: (err) => message.error(formatError(err, '保存失败')),
+      },
+    );
   };
 
   const handleAddItem = () => {
@@ -514,93 +514,103 @@ export default function ReportEditor() {
     setItemModalVisible(true);
   };
 
-  const handleSaveItem = async (itemData: ReportItemCreate | ReportItemUpdate) => {
-    if (!report) return;
-    try {
-      if (editingItem) {
-        await reportApi.updateItem(report.id, editingItem.id, itemData as ReportItemUpdate);
-        message.success('更新成功');
-      } else {
-        await reportApi.createItem(report.id, itemData as ReportItemCreate);
-        message.success('添加成功');
-      }
-      setItemModalVisible(false);
-      loadReport();
-    } catch (err: unknown) {
-      message.error(formatError(err, '操作失败'));
+  const handleSaveItem = (itemData: ReportItemCreate | ReportItemUpdate) => {
+    if (!reportId) return;
+    const onDone = () => setItemModalVisible(false);
+    if (editingItem) {
+      updateItem.mutate(
+        { itemId: editingItem.id, payload: itemData as ReportItemUpdate },
+        {
+          onSuccess: () => {
+            message.success('更新成功');
+            onDone();
+          },
+          onError: (err) => message.error(formatError(err, '操作失败')),
+        },
+      );
+    } else {
+      createItem.mutate(itemData as ReportItemCreate, {
+        onSuccess: () => {
+          message.success('添加成功');
+          onDone();
+        },
+        onError: (err) => message.error(formatError(err, '操作失败')),
+      });
     }
   };
 
-  const handleDeleteItem = async (itemId: number) => {
-    if (!report) return;
-    try {
-      await reportApi.deleteItem(report.id, itemId);
-      message.success('删除成功');
-      loadReport();
-    } catch (err: unknown) {
-      message.error(formatError(err, '删除失败'));
-    }
+  const handleDeleteItem = (itemId: number) => {
+    deleteItem.mutate(itemId, {
+      onSuccess: () => message.success('删除成功'),
+      onError: (err) => message.error(formatError(err, '删除失败')),
+    });
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    if (!report) return;
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = report.items.findIndex((i) => `item-${i.id}` === active.id);
-      const newIndex = report.items.findIndex((i) => `item-${i.id}` === over.id);
-      if (oldIndex !== -1 && newIndex !== -1) {
-        const newItems = arrayMove(report.items, oldIndex, newIndex);
-        const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
-        setReport({ ...report, items: updatedItems as ReportItem[] });
-        persistOrder(updatedItems as ReportItem[]);
-      }
-    }
-  };
+  // Items list shown to the user. After a successful mutation, the cache
+  // refetches and `items` re-derives. During a drag-reorder we mutate the
+  // local view of items via a separate `itemsView` state so the visual
+  // update is instant; the server reorder call is a follow-up.
+  const itemsView = useMemo(() => {
+    if (!buffer) return [];
+    return [...buffer.items].sort((a, b) => a.order_index - b.order_index);
+  }, [buffer]);
 
-  const handleMoveItem = async (index: number, direction: 'up' | 'down') => {
-    if (!report) return;
-    const newIndex = direction === 'up' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= report.items.length) return;
-
-    const newItems = arrayMove(report.items, index, newIndex);
-    const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
-    setReport({ ...report, items: updatedItems as ReportItem[] });
-
-    await persistOrder(updatedItems as ReportItem[]);
-  };
-
-  // Persist a new item ordering to the backend in a single atomic call.
-  // On any failure, reload from DB so the UI reflects the actual server state
-  // rather than the optimistic update.
-  const persistOrder = async (orderedItems: ReportItem[]) => {
-    if (!report) return;
+  const persistOrder = (orderedItems: ReportItem[]) => {
+    if (!reportId) return;
     const payload = orderedItems
       .filter((i) => i.id !== undefined)
       .map((i) => ({ item_id: i.id as number, order_index: i.order_index }));
     if (payload.length === 0) return;
-    try {
-      await reportApi.reorderItems(report.id, payload);
-    } catch (err: unknown) {
-      message.error(formatError(err, '排序保存失败'));
-      loadReport();
+    reorderItems.mutate(payload, {
+      onError: (err) => message.error(formatError(err, '排序保存失败')),
+    });
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (!buffer) return;
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = itemsView.findIndex((i) => `item-${i.id}` === active.id);
+      const newIndex = itemsView.findIndex((i) => `item-${i.id}` === over.id);
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newItems = arrayMove(itemsView, oldIndex, newIndex);
+        const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
+        setBuffer({ ...buffer, items: updatedItems });
+        persistOrder(updatedItems);
+      }
     }
   };
 
-  if (loading || dsLoading) return <div style={{ padding: 24 }}>加载中...</div>;
-  if (!report) return <div style={{ padding: 24 }}>报表不存在</div>;
+  const handleMoveItem = (index: number, direction: 'up' | 'down') => {
+    if (!buffer) return;
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= itemsView.length) return;
+    const newItems = arrayMove(itemsView, index, newIndex);
+    const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
+    setBuffer({ ...buffer, items: updatedItems });
+    persistOrder(updatedItems);
+  };
+
+  if (reportLoading || dsLoading) return <div style={{ padding: 24 }}>加载中...</div>;
+  if (!report || !buffer) return <div style={{ padding: 24 }}>报表不存在</div>;
 
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <Space>
           <Button onClick={() => navigate('/reports')}>返回</Button>
-          <h2 style={{ margin: 0 }}>{report.name}</h2>
+          <h2 style={{ margin: 0 }}>{buffer.name}</h2>
         </Space>
         <Space>
-          <Button icon={<EyeOutlined />} onClick={() => navigate(`/reports/${report.id}/preview`)}>
+          <Button icon={<EyeOutlined />} onClick={() => navigate(`/reports/${buffer.id}/preview`)}>
             预览
           </Button>
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSaveReport}>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            loading={updateReport.isPending}
+            onClick={handleSaveReport}
+          >
             保存
           </Button>
         </Space>
@@ -618,32 +628,36 @@ export default function ReportEditor() {
                 <Space direction="vertical" style={{ width: '100%' }} size="large">
                   <Space style={{ width: '100%' }}>
                     <Form.Item label="报表名称" style={{ flex: 1, margin: 0 }}>
-                      <Input value={report.name} onChange={(e) => setReport({ ...report, name: e.target.value })} />
+                      <Input
+                        value={buffer.name}
+                        onChange={(e) => setBuffer({ ...buffer, name: e.target.value })}
+                      />
                     </Form.Item>
                     <Form.Item label="数据源" style={{ width: 200, margin: 0 }}>
                       <Select
-                        value={report.data_source_id}
-                        onChange={(v) => setReport({ ...report, data_source_id: v })}
-                      >
-                        {dataSources.map((ds) => (
-                          <Select.Option key={ds.id} value={ds.id}>{ds.name}</Select.Option>
-                        ))}
-                      </Select>
+                        value={buffer.data_source_id}
+                        onChange={(v) => setBuffer({ ...buffer, data_source_id: v })}
+                        options={dataSources.map((ds) => ({
+                          value: ds.id,
+                          label: ds.name,
+                        }))}
+                      />
                     </Form.Item>
                     <Form.Item label="状态" style={{ width: 100, margin: 0 }}>
                       <Select
-                        value={report.is_active}
-                        onChange={(v) => setReport({ ...report, is_active: v })}
-                      >
-                        <Select.Option value={true}>启用</Select.Option>
-                        <Select.Option value={false}>禁用</Select.Option>
-                      </Select>
+                        value={buffer.is_active}
+                        onChange={(v) => setBuffer({ ...buffer, is_active: v })}
+                        options={[
+                          { value: true, label: '启用' },
+                          { value: false, label: '禁用' },
+                        ]}
+                      />
                     </Form.Item>
                   </Space>
                   <Form.Item label="描述" style={{ margin: 0 }}>
                     <Input.TextArea
-                      value={report.description || ''}
-                      onChange={(e) => setReport({ ...report, description: e.target.value })}
+                      value={buffer.description || ''}
+                      onChange={(e) => setBuffer({ ...buffer, description: e.target.value })}
                       rows={2}
                     />
                   </Form.Item>
@@ -653,7 +667,7 @@ export default function ReportEditor() {
           },
           {
             key: 'items',
-            label: `报表项 (${report.items?.length || 0})`,
+            label: `报表项 (${buffer.items?.length || 0})`,
             children: (
               <Card
                 title="报表项列表"
@@ -667,13 +681,13 @@ export default function ReportEditor() {
                   拖拽排序，点击编辑按钮配置报表项详情
                 </p>
 
-                {report.items && report.items.length > 0 ? (
+                {itemsView.length > 0 ? (
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext
-                      items={report.items.map((i) => `item-${i.id}`)}
+                      items={itemsView.map((i) => `item-${i.id}`)}
                       strategy={verticalListSortingStrategy}
                     >
-                      {report.items.map((item, index) => (
+                      {itemsView.map((item, index) => (
                         <SortableItem
                           key={`item-${item.id}`}
                           id={`item-${item.id}`}
@@ -684,7 +698,7 @@ export default function ReportEditor() {
                           onMoveUp={() => handleMoveItem(index, 'up')}
                           onMoveDown={() => handleMoveItem(index, 'down')}
                           isFirst={index === 0}
-                          isLast={index === report.items.length - 1}
+                          isLast={index === itemsView.length - 1}
                         />
                       ))}
                     </SortableContext>
@@ -706,6 +720,7 @@ export default function ReportEditor() {
         onSave={handleSaveItem}
         onCancel={() => setItemModalVisible(false)}
         isNew={!editingItem}
+        saving={createItem.isPending || updateItem.isPending}
       />
     </div>
   );

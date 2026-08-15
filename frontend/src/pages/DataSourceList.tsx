@@ -1,59 +1,48 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, DataSourceCreate } from '../types';
-import { dataSourceApi } from '../api';
 import { formatError } from '../utils/error';
+import {
+  useCreateDataSource,
+  useDataSources,
+  useDeleteDataSource,
+  useTestDataSource,
+  useUpdateDataSource,
+} from '../queries/useDataSources';
 
 const { TextArea } = Input;
 
 export default function DataSourceList() {
-  const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data: dataSources = [], isPending } = useDataSources();
+  const createDs = useCreateDataSource();
+  const updateDs = useUpdateDataSource();
+  const deleteDs = useDeleteDataSource();
+  const testDs = useTestDataSource();
+
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
   const [form] = Form.useForm<DataSourceCreate>();
-  const [testingId, setTestingId] = useState<number | null>(null);
   const [dbType, setDbType] = useState<string>('postgresql');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
-
-  const loadDataSources = async () => {
-    setLoading(true);
-    try {
-      const data = await dataSourceApi.list();
-      setDataSources(data);
-      setPagination((prev) => ({ ...prev, total: data.length }));
-    } catch (err: unknown) {
-      message.error(formatError(err, '加载数据源失败'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadDataSources();
-     
-  }, []);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
 
   const handleCreate = () => {
     setEditingSource(null);
     form.resetFields();
+    setDbType('postgresql');
     setModalVisible(true);
   };
 
   const handleEdit = (source: DataSource) => {
     setEditingSource(source);
     setDbType(source.db_type);
-    form.setFieldsValue({
-      ...source,
-      password: '',
-    });
+    form.setFieldsValue({ ...source, password: '' });
     setModalVisible(true);
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要删除的数据源');
       return;
@@ -72,84 +61,76 @@ export default function DataSourceList() {
       okType: 'danger',
       cancelText: '取消',
       onOk: async () => {
-        try {
-          await Promise.all(
-            selectedRowKeys.map(id => dataSourceApi.delete(id as number))
-          );
-          message.success(`成功删除 ${selectedRowKeys.length} 个数据源`);
-          setSelectedRowKeys([]);
-          loadDataSources();
-        } catch (err: unknown) {
-          message.error(formatError(err, '删除失败'));
+        // Iterate rather than Promise.all so each delete surfaces its own
+        // error message via the mutation's onError; partial failures are
+        // visible instead of one rejected promise swallowing the rest.
+        const ids = selectedRowKeys as number[];
+        let succeeded = 0;
+        for (const id of ids) {
+          try {
+            await deleteDs.mutateAsync(id);
+            succeeded += 1;
+          } catch {
+            // Individual error already surfaced via onError; keep going.
+          }
         }
+        setSelectedRowKeys([]);
+        if (succeeded > 0) message.success(`成功删除 ${succeeded} 个数据源`);
       },
     });
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await dataSourceApi.delete(id);
-      message.success('删除成功');
-      loadDataSources();
-    } catch (err: unknown) {
-      message.error(formatError(err, '删除失败'));
-    }
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       if (editingSource) {
-        await dataSourceApi.update(editingSource.id, values);
+        await updateDs.mutateAsync({ id: editingSource.id, payload: values });
         message.success('更新成功');
       } else {
-        await dataSourceApi.create(values);
+        await createDs.mutateAsync(values);
         message.success('创建成功');
       }
       setModalVisible(false);
-      loadDataSources();
     } catch (err) {
       if (err instanceof Error) message.error(err.message);
     }
   };
 
-  const handleTest = async (id: number) => {
-    setTestingId(id);
-    try {
-      const result = await dataSourceApi.test(id);
-      if (result.success) {
-        message.success({ content: `连接成功: ${result.version}`, duration: 5 });
-      }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      message.error(error.response?.data?.detail || '连接失败');
-    } finally {
-      setTestingId(null);
-    }
+  const handleTest = (id: number) => {
+    testDs.mutate(id, {
+      onSuccess: (result) => {
+        if (result.success) {
+          message.success({ content: `连接成功: ${result.version}`, duration: 5 });
+        }
+      },
+      onError: (err) => {
+        const error = err as { response?: { data?: { detail?: string } } };
+        message.error(error.response?.data?.detail || '连接失败');
+      },
+    });
+  };
+
+  const handleDelete = (id: number) => {
+    deleteDs.mutate(id, {
+      onSuccess: () => message.success('删除成功'),
+      onError: (err) => message.error(formatError(err, '删除失败')),
+    });
   };
 
   const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
-    setPagination(prev => ({
-      ...prev,
+    setPagination({
       current: pag.current || 1,
       pageSize: pag.pageSize || 10,
-    }));
+    });
   };
 
   const rowSelection = {
     selectedRowKeys,
-    onChange: (keys: React.Key[]) => {
-      setSelectedRowKeys(keys);
-    },
+    onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
   };
 
   const columns: ColumnsType<DataSource> = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      width: 150,
-    },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
     {
       title: '类型',
       dataIndex: 'db_type',
@@ -157,33 +138,10 @@ export default function DataSourceList() {
       width: 100,
       render: (type) => <Tag color="blue">{type}</Tag>,
     },
-    {
-      title: '主机',
-      dataIndex: 'host',
-      key: 'host',
-      width: 120,
-      render: (v) => v || '-',
-    },
-    {
-      title: '端口',
-      dataIndex: 'port',
-      key: 'port',
-      width: 80,
-      render: (v) => v || '-',
-    },
-    {
-      title: '数据库',
-      dataIndex: 'database',
-      key: 'database',
-      width: 120,
-      ellipsis: true,
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
+    { title: '主机', dataIndex: 'host', key: 'host', width: 120, render: (v) => v || '-' },
+    { title: '端口', dataIndex: 'port', key: 'port', width: 80, render: (v) => v || '-' },
+    { title: '数据库', dataIndex: 'database', key: 'database', width: 120, ellipsis: true },
+    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     {
       title: '操作',
       key: 'action',
@@ -193,9 +151,9 @@ export default function DataSourceList() {
           <Button
             type="link"
             size="small"
-            icon={<SyncOutlined spin={testingId === record.id} />}
+            icon={<SyncOutlined spin={testDs.isPending && testDs.variables === record.id} />}
             onClick={() => handleTest(record.id)}
-            loading={testingId === record.id}
+            loading={testDs.isPending && testDs.variables === record.id}
           >
             测试
           </Button>
@@ -235,11 +193,12 @@ export default function DataSourceList() {
         columns={columns}
         dataSource={dataSources}
         rowKey="id"
-        loading={loading}
+        loading={isPending}
         rowSelection={rowSelection}
         scroll={{ x: 'max-content' }}
         pagination={{
           ...pagination,
+          total: dataSources.length,
           showSizeChanger: true,
           showQuickJumper: true,
           showTotal: (total) => `共 ${total} 条`,
@@ -252,14 +211,11 @@ export default function DataSourceList() {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
+        confirmLoading={createDs.isPending || updateDs.isPending}
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label="名称"
-            rules={[{ required: true, message: '请输入名称' }]}
-          >
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="例如: 生产数据库" />
           </Form.Item>
 
@@ -268,12 +224,15 @@ export default function DataSourceList() {
             label="数据库类型"
             rules={[{ required: true, message: '请选择类型' }]}
           >
-            <Select onChange={(v) => setDbType(v)}>
-              <Select.Option value="sqlite">SQLite (本地文件)</Select.Option>
-              <Select.Option value="postgresql">PostgreSQL</Select.Option>
-              <Select.Option value="opengauss">OpenGauss</Select.Option>
-              <Select.Option value="dws">DWS</Select.Option>
-            </Select>
+            <Select
+              onChange={(v) => setDbType(v)}
+              options={[
+                { value: 'sqlite', label: 'SQLite (本地文件)' },
+                { value: 'postgresql', label: 'PostgreSQL' },
+                { value: 'opengauss', label: 'OpenGauss' },
+                { value: 'dws', label: 'DWS' },
+              ]}
+            />
           </Form.Item>
 
           {dbType !== 'sqlite' && (
@@ -281,7 +240,7 @@ export default function DataSourceList() {
               <Form.Item
                 name="host"
                 label="主机"
-                rules={[{ required: dbType !== 'sqlite', message: '请输入主机' }]}
+                rules={[{ required: true, message: '请输入主机' }]}
                 style={{ flex: 1 }}
               >
                 <Input placeholder="localhost 或 IP 地址" />
@@ -290,7 +249,7 @@ export default function DataSourceList() {
               <Form.Item
                 name="port"
                 label="端口"
-                rules={[{ required: dbType !== 'sqlite', message: '请输入端口' }]}
+                rules={[{ required: true, message: '请输入端口' }]}
                 style={{ width: 100 }}
               >
                 <Input type="number" placeholder="5432" />
@@ -318,7 +277,7 @@ export default function DataSourceList() {
               <Form.Item
                 name="username"
                 label="用户名"
-                rules={[{ required: dbType !== 'sqlite', message: '请输入用户名' }]}
+                rules={[{ required: true, message: '请输入用户名' }]}
                 style={{ flex: 1 }}
               >
                 <Input placeholder="username" />

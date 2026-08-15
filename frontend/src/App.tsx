@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { Layout, Menu, Button, Spin } from 'antd';
 import {
@@ -18,7 +18,7 @@ import {
   DataExplorer,
   Login,
 } from './pages';
-import { authApi } from './api';
+import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const { Header, Content } = Layout;
@@ -63,47 +63,36 @@ function AppMenu() {
 /** Gate: verifies session on mount, redirects to /login if 401. */
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const [checking, setChecking] = useState(true);
-  const [authed, setAuthed] = useState(false);
+  const me = useMe();
 
-  useEffect(() => {
-    let cancelled = false;
-    authApi
-      .me()
-      .then(() => {
-        if (!cancelled) setAuthed(true);
-      })
-      .catch(() => {
-        // 401 already triggered a global redirect to /login; nothing to do.
-      })
-      .finally(() => {
-        if (!cancelled) setChecking(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (checking) {
+  if (me.isPending) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Spin size="large" />
       </div>
     );
   }
-  if (!authed) {
+  if (me.isError) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
   return <>{children}</>;
 }
 
 function AppShell() {
-  const handleLogout = async () => {
-    try {
-      await authApi.logout();
-    } finally {
-      window.location.href = '/login';
-    }
+  const logout = useLogout();
+  const [, setNav] = useState(0); // trigger re-render after logout redirect
+
+  const handleLogout = () => {
+    logout.mutate(undefined, {
+      onSuccess: () => {
+        window.location.href = '/login';
+      },
+      onError: () => {
+        // Even on logout failure, bounce to login to clear local state.
+        window.location.href = '/login';
+        setNav((n) => n + 1);
+      },
+    });
   };
 
   return (

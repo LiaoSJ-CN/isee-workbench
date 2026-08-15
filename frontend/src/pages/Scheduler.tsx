@@ -1,15 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Alert } from 'antd';
-import { SyncOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, ClockCircleOutlined, PauseCircleOutlined, PlayCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { Report, SchedulerStatus, SchedulerJob } from '../types';
-import { reportApi, schedulerApi } from '../api';
+import type { Report, SchedulerJob } from '../types';
 import { formatError } from '../utils/error';
+import {
+  useCreateSchedulerJob,
+  useDeleteSchedulerJob,
+  useSchedulerStatus,
+  useSyncScheduler,
+} from '../queries/useScheduler';
+import { useReports } from '../queries/useReports';
 
 type NotificationType = 'none' | 'webhook' | 'email';
 
 function buildNotificationConfig(
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const t = values.notification_type as NotificationType | undefined;
   if (t === 'webhook') {
@@ -22,56 +28,30 @@ function buildNotificationConfig(
 }
 
 export default function SchedulerPage() {
-  const [status, setStatus] = useState<SchedulerStatus | null>(null);
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data: status } = useSchedulerStatus();
+  // `is_active: true` filter is part of the cache key; the Scheduler page
+  // shows the active-reports table — the active filter matches the table.
+  const { data: reports = [], isPending } = useReports({ is_active: true });
+  const syncScheduler = useSyncScheduler();
+  const createJob = useCreateSchedulerJob();
+  const deleteJob = useDeleteSchedulerJob();
+
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [form] = Form.useForm();
-  const [submitting, setSubmitting] = useState(false);
 
-  const loadStatus = async () => {
-    try {
-      const data = await schedulerApi.getStatus();
-      setStatus(data);
-    } catch (err: unknown) {
-      message.error(formatError(err, '加载调度器状态失败'));
-    }
-  };
-
-  const loadReports = async () => {
-    setLoading(true);
-    try {
-      const data = await reportApi.list({ is_active: true });
-      setReports(data);
-    } catch (err: unknown) {
-      message.error(formatError(err, '加载报表失败'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadStatus();
-    loadReports();
-     
-  }, []);
-
-  const handleSync = async () => {
-    try {
-      const result = await schedulerApi.sync();
-      message.success(result.message);
-      loadStatus();
-    } catch (err: unknown) {
-      message.error(formatError(err, '同步失败'));
-    }
+  const handleSync = () => {
+    syncScheduler.mutate(undefined, {
+      onSuccess: (result) => message.success(result.message),
+      onError: (err) => message.error(formatError(err, '同步失败')),
+    });
   };
 
   const handleAddSchedule = (report: Report) => {
     setSelectedReport(report);
     form.setFieldsValue({
       report_id: report.id,
-      cron_expression: '0 9 * * * *',  // Default: 9:00 AM daily
+      cron_expression: '0 9 * * * *', // Default: 9:00 AM daily
       schedule_description: `定时生成 ${report.name}`,
       notification_type: 'none',
       webhook_url: '',
@@ -82,66 +62,48 @@ export default function SchedulerPage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      setSubmitting(true);
       const notificationConfig = buildNotificationConfig(values);
-      await schedulerApi.createJob(
-        values.report_id,
-        values.cron_expression,
-        values.schedule_description,
+      await createJob.mutateAsync({
+        reportId: values.report_id,
+        cronExpression: values.cron_expression,
+        scheduleDescription: values.schedule_description,
         notificationConfig,
-      );
+      });
       message.success('定时任务创建成功');
       setModalVisible(false);
-      loadStatus();
-      // Update report's is_scheduled flag
-      setReports(prev => prev.map(r =>
-        r.id === values.report_id ? { ...r, is_scheduled: true, cron_expression: values.cron_expression } : r
-      ));
-    } catch (err: unknown) {
+    } catch (err) {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error(error.response?.data?.detail || '创建失败');
-    } finally {
-      setSubmitting(false);
     }
   };
 
-  const handleDeleteSchedule = async (reportId: number) => {
-    try {
-      await schedulerApi.deleteJob(reportId);
-      message.success('定时任务已删除');
-      loadStatus();
-      // Update report's is_scheduled flag
-      setReports(prev => prev.map(r =>
-        r.id === reportId ? { ...r, is_scheduled: false } : r
-      ));
-    } catch (err: unknown) {
-      message.error(formatError(err, '删除失败'));
-    }
+  const handleDeleteSchedule = (reportId: number) => {
+    deleteJob.mutate(reportId, {
+      onSuccess: () => message.success('定时任务已删除'),
+      onError: (err) => message.error(formatError(err, '删除失败')),
+    });
   };
 
-  // Pause/resume a scheduled report by re-POSTing the same cron + notif config
-  // with is_active flipped. Backend drops the APScheduler job on the next sync
-  // when is_active=False (verified by test_create_job_with_is_active_false_
-  // excluded_from_sync), and re-adds it when is_active=True. The cron and
-  // notification_config are preserved on the Report row.
-  const handleToggleActive = async (record: Report) => {
+  // Pause/resume a scheduled report by re-POSTing the same cron + notif
+  // config with is_active flipped. Backend drops the APScheduler job on
+  // the next sync when is_active=False, and re-adds it when is_active=True.
+  // The cron and notification_config are preserved on the Report row.
+  const handleToggleActive = (record: Report) => {
     const nextActive = !record.is_active;
-    try {
-      await schedulerApi.createJob(
-        record.id,
-        record.cron_expression ?? '',
-        record.schedule_description,
-        record.notification_config ?? null,
-        nextActive,
-      );
-      message.success(nextActive ? '已启用' : '已暂停');
-      setReports(prev => prev.map(r =>
-        r.id === record.id ? { ...r, is_active: nextActive } : r
-      ));
-      loadStatus();
-    } catch (err: unknown) {
-      message.error(formatError(err, nextActive ? '启用失败' : '暂停失败'));
-    }
+    createJob.mutate(
+      {
+        reportId: record.id,
+        cronExpression: record.cron_expression ?? '',
+        scheduleDescription: record.schedule_description,
+        notificationConfig: record.notification_config ?? null,
+        isActive: nextActive,
+      },
+      {
+        onSuccess: () => message.success(nextActive ? '已启用' : '已暂停'),
+        onError: (err) =>
+          message.error(formatError(err, nextActive ? '启用失败' : '暂停失败')),
+      },
+    );
   };
 
   const jobColumns: ColumnsType<SchedulerJob> = [
@@ -155,11 +117,8 @@ export default function SchedulerPage() {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>定时任务管理</h2>
         <Space>
-          <Button icon={<SyncOutlined />} onClick={handleSync}>
+          <Button icon={<SyncOutlined />} onClick={handleSync} loading={syncScheduler.isPending}>
             同步调度器
-          </Button>
-          <Button icon={<ClockCircleOutlined />} onClick={loadStatus}>
-            刷新状态
           </Button>
         </Space>
       </div>
@@ -192,44 +151,53 @@ export default function SchedulerPage() {
           columns={[
             { title: '报表名称', dataIndex: 'name', key: 'name' },
             { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
-            { title: '定时任务', key: 'schedule', render: (_, record) => (
-              record.is_scheduled ? (
-                <Tag
-                  icon={record.is_active ? <ClockCircleOutlined /> : <PauseCircleOutlined />}
-                  color={record.is_active ? 'green' : 'orange'}
-                >
-                  {record.is_active ? record.cron_expression || '运行中' : '已暂停'}
-                </Tag>
-              ) : (
-                <Tag>未配置</Tag>
-              )
-            )},
-            { title: '操作', key: 'action', render: (_, record) => (
-              record.is_scheduled ? (
-                <Space>
-                  <Button
-                    type="link"
-                    icon={record.is_active ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                    onClick={() => handleToggleActive(record)}
+            {
+              title: '定时任务',
+              key: 'schedule',
+              render: (_, record) =>
+                record.is_scheduled ? (
+                  <Tag
+                    icon={record.is_active ? <ClockCircleOutlined /> : <PauseCircleOutlined />}
+                    color={record.is_active ? 'green' : 'orange'}
                   >
-                    {record.is_active ? '暂停' : '启用'}
-                  </Button>
-                  <Popconfirm title="确定删除定时任务?" onConfirm={() => handleDeleteSchedule(record.id)}>
-                    <Button type="link" danger icon={<DeleteOutlined />}>
-                      删除
+                    {record.is_active ? record.cron_expression || '运行中' : '已暂停'}
+                  </Tag>
+                ) : (
+                  <Tag>未配置</Tag>
+                ),
+            },
+            {
+              title: '操作',
+              key: 'action',
+              render: (_, record) =>
+                record.is_scheduled ? (
+                  <Space>
+                    <Button
+                      type="link"
+                      icon={record.is_active ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                      onClick={() => handleToggleActive(record)}
+                    >
+                      {record.is_active ? '暂停' : '启用'}
                     </Button>
-                  </Popconfirm>
-                </Space>
-              ) : (
-                <Button type="link" icon={<PlusOutlined />} onClick={() => handleAddSchedule(record)}>
-                  添加定时任务
-                </Button>
-              )
-            )},
+                    <Popconfirm
+                      title="确定删除定时任务?"
+                      onConfirm={() => handleDeleteSchedule(record.id)}
+                    >
+                      <Button type="link" danger icon={<DeleteOutlined />}>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  </Space>
+                ) : (
+                  <Button type="link" icon={<PlusOutlined />} onClick={() => handleAddSchedule(record)}>
+                    添加定时任务
+                  </Button>
+                ),
+            },
           ]}
           dataSource={reports}
           rowKey="id"
-          loading={loading}
+          loading={isPending}
           pagination={{ pageSize: 10 }}
         />
       </Card>
@@ -239,7 +207,7 @@ export default function SchedulerPage() {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
-        confirmLoading={submitting}
+        confirmLoading={createJob.isPending}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="report_id" label="报表" rules={[{ required: true }]}>
@@ -256,7 +224,13 @@ export default function SchedulerPage() {
                   if (!value) return Promise.resolve();
                   const parts = String(value).trim().split(/\s+/);
                   if (parts.length !== 6) {
-                    return Promise.reject(new Error('Cron 表达式需要6个字段（分 时 日 月 周 年），当前仅有 ' + parts.length + ' 个'));
+                    return Promise.reject(
+                      new Error(
+                        'Cron 表达式需要6个字段（分 时 日 月 周 年），当前仅有 ' +
+                          parts.length +
+                          ' 个',
+                      ),
+                    );
                   }
                   return Promise.resolve();
                 },
@@ -292,12 +266,14 @@ export default function SchedulerPage() {
                 <Form.Item
                   name="webhook_url"
                   label="Webhook URL"
-                  rules={[{
-                    validator: (_, v) =>
-                      !v || String(v).startsWith('http')
-                        ? Promise.resolve()
-                        : Promise.reject(new Error('URL 必须以 http 开头')),
-                  }]}
+                  rules={[
+                    {
+                      validator: (_, v) =>
+                        !v || String(v).startsWith('http')
+                          ? Promise.resolve()
+                          : Promise.reject(new Error('URL 必须以 http 开头')),
+                    },
+                  ]}
                 >
                   <Input placeholder="https://example.com/webhook" />
                 </Form.Item>

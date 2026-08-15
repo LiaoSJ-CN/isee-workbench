@@ -1,44 +1,45 @@
-import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, Button, Typography, message } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import { authApi } from '../api';
+import { useLogin } from '../queries/useAuth';
 
 const { Title } = Typography;
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [submitting, setSubmitting] = useState(false);
+  const login = useLogin();
 
   // Where to go after a successful login. The router state can carry a
   // `from` location so deep links survive a login redirect.
   const from = (location.state as { from?: string } | null)?.from ?? '/';
 
-  const onFinish = async (values: { username: string; password: string }) => {
-    setSubmitting(true);
-    try {
-      await authApi.login(values.username, values.password);
-      message.success('登录成功');
-      navigate(from, { replace: true });
-    } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        message.error('用户名或密码错误');
-      } else if (axios.isAxiosError(err)) {
-        // CORS preflight failure, network error, 5xx, etc — surface details.
-        message.error(
-          `登录失败 (${err.response?.status ?? 'network'}): ${err.message}`
-        );
-        // Debug-only: full axios error includes request URL + headers; never
-        // leak to production browser console.
-        if (import.meta.env.DEV) console.error('login error', err);
-      } else {
-        message.error('登录失败: ' + String(err));
-      }
-    } finally {
-      setSubmitting(false);
-    }
+  const onFinish = (values: { username: string; password: string }) => {
+    login.mutate(
+      { username: values.username, password: values.password },
+      {
+        onSuccess: () => {
+          message.success('登录成功');
+          navigate(from, { replace: true });
+        },
+        onError: (err) => {
+          if (axios.isAxiosError(err) && err.response?.status === 401) {
+            message.error('用户名或密码错误');
+          } else if (axios.isAxiosError(err)) {
+            // CORS preflight failure, network error, 5xx, etc — surface details.
+            message.error(
+              `登录失败 (${err.response?.status ?? 'network'}): ${err.message}`
+            );
+            // Debug-only: full axios error includes request URL + headers; never
+            // leak to production browser console.
+            if (import.meta.env.DEV) console.error('login error', err);
+          } else {
+            message.error('登录失败: ' + String(err));
+          }
+        },
+      },
+    );
   };
 
   return (
@@ -74,7 +75,7 @@ export default function Login() {
             <Input.Password prefix={<LockOutlined />} placeholder="admin" />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
-            <Button type="primary" htmlType="submit" loading={submitting} block>
+            <Button type="primary" htmlType="submit" loading={login.isPending} block>
               登录
             </Button>
           </Form.Item>

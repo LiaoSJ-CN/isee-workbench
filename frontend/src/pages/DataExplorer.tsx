@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Table, Select, Button, Space, Card, message, Alert, Spin, Popconfirm, Input, Tag } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { DataSource, HistoryEntry } from '../types';
-import { dataSourceApi, explorerApi } from '../api';
+import type { HistoryEntry } from '../types';
 import { formatError } from '../utils/error';
 import SqlEditor from '../components/SqlEditor';
+import { useDataSources } from '../queries/useDataSources';
+import { useExploreQuery } from '../queries/useExplorer';
 
 const { Option } = Select;
 
@@ -144,39 +145,35 @@ function resultRowKey(record: Record<string, unknown>, columns: string[], index?
 }
 
 export default function DataExplorer() {
-  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const { data: dataSources = [] } = useDataSources();
+  const execute = useExploreQuery();
+
   const [selectedDs, setSelectedDs] = useState<number | null>(null);
   // Universal default that runs on every supported backend (sqlite,
   // postgresql, opengauss, dws) — gives new users a friendly placeholder
   // instead of failing because the seed table isn't there.
   const [sql, setSql] = useState("SELECT '请编辑 SQL 后执行查询' AS hint, current_timestamp AS now");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{
-    success: boolean;
-    columns: string[];
-    rows: Record<string, unknown>[];
-    row_count: number;
-    error?: string;
-  } | null>(null);
 
-  // Template state
+  // Template state — localStorage-backed, OUTSIDE React Query.
   const [templates, setTemplates] = useState<SavedTemplate[]>(() => loadTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [isDirty, setIsDirty] = useState(false); // Track if current template has unsaved changes
 
-  // Execution history state
+  // Execution history state — localStorage-backed, OUTSIDE React Query.
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const [historyDsFilter, setHistoryDsFilter] = useState<number | null>(null);
 
+  // Auto-select the first data source once the cache populates. One-shot
+  // guard via the `initialized` flag prevents this from clobbering a
+  // user selection after the first render.
+  const [initialized, setInitialized] = useState(false);
   useEffect(() => {
-    dataSourceApi.list().then((data) => {
-      setDataSources(data);
-      setSelectedDs((prev) => prev ?? (data.length > 0 ? data[0].id : null));
-    }).catch((err: unknown) => {
-      message.error(formatError(err, '加载数据源失败'));
-    });
-  }, []);
+    if (!initialized && dataSources.length > 0 && selectedDs == null) {
+      setSelectedDs(dataSources[0].id);
+      setInitialized(true);
+    }
+  }, [dataSources, selectedDs, initialized]);
 
   // When the selected template changes, load its name/SQL and clear dirty.
   // Only react to selectedTemplateId — reacting to templates would revert
@@ -206,7 +203,7 @@ export default function DataExplorer() {
     }
   };
 
-  const handleExecute = async () => {
+  const handleExecute = () => {
     if (!selectedDs) {
       message.warning('请先选择数据源');
       return;
@@ -215,9 +212,8 @@ export default function DataExplorer() {
       message.warning('请输入 SQL');
       return;
     }
-    if (loading) return;
-    setLoading(true);
-    setResult(null);
+    if (execute.isPending) return;
+
     // Snapshot DS name and timestamp at click-submission time so the 5-second
     // dedup window is measured from when the user triggered execution, not
     // from when the API response arrives.
@@ -225,44 +221,47 @@ export default function DataExplorer() {
     const dsName = ds?.name || `ds#${selectedDs}`;
     const sqlSnapshot = sql.trim();
     const clickedAt = Date.now();
-    try {
-      const data = await explorerApi.query(selectedDs, sql);
-      setResult(data);
-      if (!data.success && data.error) {
-        message.error(data.error);
-      } else {
-        message.success('查询成功，返回 ' + data.row_count + ' 条');
-      }
-      setHistory((h) =>
-        appendHistory(h, {
-          id: newHistoryId(),
-          ts: clickedAt,
-          ds_id: selectedDs,
-          ds_name: dsName,
-          sql: sqlSnapshot,
-          row_count: data.success ? data.row_count : null,
-          success: data.success,
-          error: data.error,
-        })
-      );
-    } catch (err: unknown) {
-      message.error(formatError(err, '查询执行失败'));
-      // Network-level failure — still log so user can see what they tried.
-      setHistory((h) =>
-        appendHistory(h, {
-          id: newHistoryId(),
-          ts: clickedAt,
-          ds_id: selectedDs,
-          ds_name: dsName,
-          sql: sqlSnapshot,
-          row_count: null,
-          success: false,
-          error: '请求失败',
-        })
-      );
-    } finally {
-      setLoading(false);
-    }
+
+    execute.mutate(
+      { dataSourceId: selectedDs, sql },
+      {
+        onSuccess: (data) => {
+          if (!data.success && data.error) {
+            message.error(data.error);
+          } else {
+            message.success('查询成功，返回 ' + data.row_count + ' 条');
+          }
+          setHistory((h) =>
+            appendHistory(h, {
+              id: newHistoryId(),
+              ts: clickedAt,
+              ds_id: selectedDs,
+              ds_name: dsName,
+              sql: sqlSnapshot,
+              row_count: data.success ? data.row_count : null,
+              success: data.success,
+              error: data.error,
+            })
+          );
+        },
+        onError: (err) => {
+          message.error(formatError(err, '查询执行失败'));
+          // Network-level failure — still log so user can see what they tried.
+          setHistory((h) =>
+            appendHistory(h, {
+              id: newHistoryId(),
+              ts: clickedAt,
+              ds_id: selectedDs,
+              ds_name: dsName,
+              sql: sqlSnapshot,
+              row_count: null,
+              success: false,
+              error: '请求失败',
+            })
+          );
+        },
+      },
+    );
   };
 
   // Reload a historical SQL into the editor. Switches the active data source
@@ -391,14 +390,15 @@ export default function DataExplorer() {
   };
 
   const handleExport = () => {
-    if (!result || result.rows.length === 0) return;
-    const headers = result.columns.join(',');
+    const r = execute.data;
+    if (!r || !r.success || r.rows.length === 0) return;
+    const headers = r.columns.join(',');
     // RFC 4180: a field needs quoting if it contains the delimiter, a quote,
     // a CR, or an LF. Quotes inside the field are escaped by doubling.
     const csvEscape = (s: string): string =>
       /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    const csvRows = result.rows.map((row) =>
-      result.columns.map((col) => {
+    const csvRows = r.rows.map((row) =>
+      r.columns.map((col) => {
         const val = row[col];
         if (val === null || val === undefined) return '';
         return csvEscape(String(val));
@@ -417,8 +417,8 @@ export default function DataExplorer() {
     message.success('导出成功');
   };
 
-  const columns: ColumnsType<Record<string, unknown>> = result?.columns
-    ? result.columns.map((col) => ({
+  const columns: ColumnsType<Record<string, unknown>> = execute.data?.columns
+    ? execute.data.columns.map((col) => ({
         title: col,
         dataIndex: col,
         key: col,
@@ -587,7 +587,7 @@ export default function DataExplorer() {
 
         {/* 操作按钮 */}
         <Space>
-          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} loading={loading}>
+          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} loading={execute.isPending}>
             执行查询
           </Button>
           <Button icon={<BranchesOutlined />} onClick={handleFormat}>
@@ -604,7 +604,7 @@ export default function DataExplorer() {
           >
             {selectedTemplateId ? '保存' : '保存为新模板'}
           </Button>
-          {result && result.success && result.rows.length > 0 && (
+          {execute.data?.success && execute.data.rows.length > 0 && (
             <Button icon={<ExportOutlined />} onClick={handleExport}>
               导出 CSV
             </Button>
@@ -674,7 +674,7 @@ export default function DataExplorer() {
       </Card>
 
       {/* 查询结果 */}
-      {loading && (
+      {execute.isPending && (
         <Card>
           <div style={{ textAlign: 'center', padding: 40 }}>
             <Spin />
@@ -683,29 +683,29 @@ export default function DataExplorer() {
         </Card>
       )}
 
-      {result && (
-        <Card title={result.success ? '查询结果 (' + result.row_count + ' 条)' : '查询错误'}>
-          {!result.success && result.error && (
+      {execute.data && !execute.isPending && (
+        <Card title={execute.data.success ? `查询结果 (${execute.data.row_count} 条)` : '查询错误'}>
+          {!execute.data.success && execute.data.error && (
             <Alert
               type="error"
               message="SQL 执行错误"
-              description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{result.error}</pre>}
+              description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{execute.data.error}</pre>}
               style={{ marginBottom: 16 }}
             />
           )}
 
-          {result.success && result.rows.length > 0 && (
+          {execute.data.success && execute.data.rows.length > 0 && (
             <Table
               columns={columns}
-              dataSource={result.rows}
-              rowKey={(record, idx) => resultRowKey(record, result.columns, idx)}
+              dataSource={execute.data.rows}
+              rowKey={(record, idx) => resultRowKey(record, execute.data!.columns, idx)}
               size="small"
-              scroll={{ x: result.columns.length * 150 }}
+              scroll={{ x: execute.data.columns.length * 150 }}
               pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => '共 ' + t + ' 条' }}
             />
           )}
 
-          {result.success && result.rows.length === 0 && (
+          {execute.data.success && execute.data.rows.length === 0 && (
             <Alert type="warning" message="查询成功，但没有返回任何数据" />
           )}
         </Card>

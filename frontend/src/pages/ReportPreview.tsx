@@ -1,80 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Space, Card, message, Spin, Descriptions, Tag, Table } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { Report } from '../types';
-import { reportApi } from '../api';
+import { useReport, useReportPreviewHtml, useDownloadReport } from '../queries/useReports';
 
 export default function ReportPreview() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [report, setReport] = useState<Report | null>(null);
+  const reportId = id ? Number(id) : null;
+
+  const { data: report, isPending: loading } = useReport(reportId);
+  // Lazy preview query: enabled flips to true only after the user clicks
+  // "刷新预览" / "生成预览". Each click re-fires the query and produces
+  // fresh HTML.
+  const [shouldFetch, setShouldFetch] = useState(false);
+  const previewQ = useReportPreviewHtml(reportId, shouldFetch);
+  const downloadReport = useDownloadReport();
+
+  // Blob URL lifecycle: when the preview string arrives, wrap it in a
+  // blob URL; revoke the previous one when the string changes.
   const [previewSrc, setPreviewSrc] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-
   useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
+    if (!previewQ.data) return;
+    const blob = new Blob([previewQ.data], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    setPreviewSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [previewQ.data]);
 
-    setLoading(true);
-    reportApi
-      .get(Number(id))
-      .then((data) => {
-        if (!cancelled) setReport(data);
-      })
-      .catch(() => {
-        if (!cancelled) message.error('加载报表失败');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
+  const handlePreview = () => setShouldFetch(true);
 
-  // Release the blob URL on unmount or before each re-preview, so we don't
-  // leak the in-memory HTML document.
-  useEffect(() => {
-    if (!previewSrc.startsWith('blob:')) return;
-    return () => URL.revokeObjectURL(previewSrc);
-  }, [previewSrc]);
-
-  const handlePreview = async () => {
-    if (!id) return;
-    setGenerating(true);
-    try {
-      // Fetch rendered HTML with the Authorization header (axios attaches
-      // it automatically), then point the iframe at a blob: URL. The
-      // access token never enters the URL — no browser-history or
-      // access-log leakage like the old ?token= pattern.
-      const html = await reportApi.previewHtml(Number(id));
-      const blob = new Blob([html], { type: 'text/html' });
-      setPreviewSrc(URL.createObjectURL(blob));
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      message.error(error.response?.data?.detail || '预览生成失败');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleExport = async (format: 'excel' | 'html') => {
+  const handleExport = (format: 'excel' | 'html') => {
     if (!report) return;
-    try {
-      // Use the axios-backed `download` (with Bearer token attached by the
-      // interceptor) instead of `window.open(getExportUrl(...))` — window.open
-      // does NOT attach the Authorization header, so the auth-gated export
-      // endpoint would 401 and bounce to /login instead of downloading.
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
-      const filename = `${report.name}_${timestamp}.${format}`;
-      await reportApi.download(report.id, format, filename);
-      message.success(`${format.toUpperCase()} 导出成功`);
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      message.error(error.response?.data?.detail || '导出失败');
-    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
+    const filename = `${report.name}_${timestamp}.${format}`;
+    downloadReport.mutate(
+      { reportId: report.id, format, filename },
+      {
+        onSuccess: () => message.success(`${format.toUpperCase()} 导出成功`),
+        onError: (err) => {
+          const error = err as { response?: { data?: { detail?: string } } };
+          message.error(error.response?.data?.detail || '导出失败');
+        },
+      },
+    );
   };
 
   if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Spin size="large" /></div>;
@@ -84,7 +53,7 @@ export default function ReportPreview() {
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(`/reports/${report?.id}`)}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(`/reports/${report.id}`)}>
             返回
           </Button>
           <h2 style={{ margin: 0 }}>{report.name} - 预览</h2>
@@ -92,12 +61,16 @@ export default function ReportPreview() {
         <Space>
           <Button
             icon={<ReloadOutlined />}
-            loading={generating}
+            loading={previewQ.isFetching}
             onClick={handlePreview}
           >
             刷新预览
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={() => handleExport('excel')}>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={downloadReport.isPending}
+            onClick={() => handleExport('excel')}
+          >
             导出 Excel
           </Button>
           <Button icon={<DownloadOutlined />} onClick={() => handleExport('html')}>
@@ -159,7 +132,7 @@ export default function ReportPreview() {
         ) : (
           <div style={{ textAlign: 'center', padding: 60, color: '#999' }}>
             <p>点击「刷新预览」按钮生成预览</p>
-            <Button type="primary" onClick={handlePreview} loading={generating}>
+            <Button type="primary" onClick={handlePreview} loading={previewQ.isFetching}>
               生成预览
             </Button>
           </div>

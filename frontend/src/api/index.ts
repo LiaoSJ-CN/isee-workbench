@@ -2,6 +2,7 @@ import axios from 'axios';
 import type {
   DataSource,
   DataSourceCreate,
+  QueryResult,
   Report,
   ReportCreate,
   ReportUpdate,
@@ -324,16 +325,7 @@ export const schedulerApi = {
 // ============ Data Explorer ============
 
 export const explorerApi = {
-  query: async (
-    dataSourceId: number,
-    sql: string
-  ): Promise<{
-    success: boolean;
-    columns: string[];
-    rows: Record<string, unknown>[];
-    row_count: number;
-    error?: string;
-  }> => {
+  query: async (dataSourceId: number, sql: string): Promise<QueryResult> => {
     const { data } = await api.post('/explorer/query', {
       data_source_id: dataSourceId,
       sql: sql,

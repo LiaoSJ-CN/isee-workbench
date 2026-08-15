@@ -216,3 +216,14 @@ export interface HistoryEntry {
   success: boolean;
   error?: string;
 }
+
+// Response shape for `POST /explorer/query`. `success: false` is a
+// *result*, not a thrown error — the SQL ran but returned an error
+// message. Callers read `error` directly off the response.
+export interface QueryResult {
+  success: boolean;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  error?: string;
+}
