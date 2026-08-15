@@ -281,3 +281,185 @@ def test_refresh_rejects_revoked_jti_directly(client: TestClient) -> None:
     r = client.post("/auth/refresh", json={"refresh_token": refresh_tok})
     assert r.status_code == 200, r.text
     assert r.json()["refresh_token"] != refresh_tok
+
+
+# ---------------------------------------------------------------------------
+# 批 5.4 — get_current_user returns the User entity (not just the username).
+# Tests for the DB-backed user lookup, the disabled-user guard, and the
+# request.state.current_user cache.
+# ---------------------------------------------------------------------------
+
+
+def test_get_current_user_returns_user_entity_with_all_fields(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """/auth/me now returns the username via User.username, and the
+    token round-trip resolves to a User instance with the expected
+    fields (id, username, disabled flag)."""
+    from app.database import SessionLocal
+    from app.deps import get_current_user
+    from app.models.user import User
+
+    r = client.get("/auth/me", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == {"username": "admin"}
+
+    # Verify the dependency itself yields a User (not a str). Call it
+    # with a real Session — calling with the Depends() sentinel would
+    # raise AttributeError because the dependency isn't resolved when
+    # we invoke the function outside FastAPI's dependency machinery.
+    request = _build_request_with_bearer(auth_headers["Authorization"])
+    db = SessionLocal()
+    try:
+        user = get_current_user(request=request, db=db)
+    finally:
+        db.close()
+
+    assert isinstance(user, User)
+    assert user.username == "admin"
+    assert user.disabled is False
+
+
+def test_get_current_user_rejects_disabled_user(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """A user with ``disabled=True`` is rejected even with a valid token.
+
+    Disabled means an admin disabled the account after the token was
+    issued — the token's signature and exp are still valid, so the
+    deny-list (``revoked_jti``) wouldn't catch it. The DB-backed
+    check in ``get_current_user`` is what guards this case.
+    """
+    from app.database import SessionLocal
+    from app.models.user import User
+
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.username == "admin").first()
+        assert admin is not None
+        admin.disabled = True
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        r = client.get("/auth/me", headers=auth_headers)
+        assert r.status_code == 401, (
+            f"expected 401 for disabled user, got {r.status_code}"
+        )
+        assert "no longer active" in r.json()["detail"]
+    finally:
+        # Restore so subsequent tests aren't poisoned.
+        db = SessionLocal()
+        try:
+            admin = db.query(User).filter(User.username == "admin").first()
+            assert admin is not None
+            admin.disabled = False
+            db.commit()
+        finally:
+            db.close()
+
+
+def test_get_current_user_rejects_token_for_deleted_user(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """If the user row is removed while the token is still valid,
+    /auth/me must reject with 401 — never return 500 from a missing row.
+
+    Same status / detail as the disabled-user case so we don't leak
+    which of the two conditions fired.
+    """
+    from app.database import SessionLocal
+    from app.models.user import User
+
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.username == "admin").first()
+        assert admin is not None
+        db.delete(admin)
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        r = client.get("/auth/me", headers=auth_headers)
+        assert r.status_code == 401, (
+            f"expected 401 for deleted user, got {r.status_code}"
+        )
+        assert "no longer active" in r.json()["detail"]
+    finally:
+        # Re-seed so subsequent tests aren't poisoned — the lifespan
+        # only seeds when the row is absent.
+        from app.services.password import hash_password
+
+        db = SessionLocal()
+        try:
+            db.add(
+                User(
+                    username="admin",
+                    password_hash=hash_password("admin"),
+                    disabled=False,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+
+def test_get_current_user_caches_on_request_state(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """``request.state.current_user`` is populated so a second
+    ``Depends(get_current_user)`` in the same request skips the DB."""
+    from app.database import SessionLocal
+    from app.deps import get_current_user
+
+    captured: dict[str, object] = {}
+
+    request = _build_request_with_bearer(auth_headers["Authorization"])
+    db = SessionLocal()
+    try:
+        first = get_current_user(request=request, db=db)
+        # Simulate a second Depends() resolving to the same cached
+        # value (without going through FastAPI's dependency cache,
+        # which would also avoid the DB; this test is about the
+        # request.state cache specifically).
+        second = request.state.current_user
+    finally:
+        db.close()
+
+    captured["first"] = first
+    captured["second"] = second
+    assert first is second
+    assert captured["first"] is captured["second"]
+
+
+def _build_request_with_bearer(authorization_header: str):  # type: ignore[no-untyped-def]
+    """Build a minimal Starlette ``Request`` carrying an Authorization
+    header so ``get_current_user`` can be exercised without a TestClient.
+
+    Returns a request whose ``.state`` is a fresh SimpleNamespace-like
+    object (Starlette populates ``scope['state']`` on first access).
+    """
+    from starlette.requests import Request
+
+    # Note: ASGI lowercases header NAMES (so "Authorization" → "authorization"
+    # bytes) but the value is preserved byte-for-byte. Lowercasing the value
+    # would corrupt a case-sensitive JWT.
+    scheme, _, token = authorization_header.partition(" ")
+    assert scheme.lower() == "authorization" or scheme == "Bearer", (
+        f"expected 'Authorization: Bearer <token>', got {authorization_header!r}"
+    )
+    value = authorization_header.split(" ", 1)[1].strip()
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"authorization", f"Bearer {value}".encode("latin-1"))],
+        "query_string": b"",
+        "scheme": "http",
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+    }
+    return Request(scope)

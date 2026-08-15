@@ -229,6 +229,10 @@ def logout(
 
 
 @router.get("/me")
-def me(user: Annotated[str, Depends(get_current_user)]) -> dict[str, str]:
+def me(user: Annotated[User, Depends(get_current_user)]) -> dict[str, str]:
     """Return the currently logged-in user."""
-    return {"username": user}
+    # ``user.username`` is ``str | None`` per SQLAlchemy's column typing
+    # even though the column is ``NOT NULL`` in the schema; cast to
+    # match the endpoint's ``dict[str, str]`` contract. The DB lookup
+    # in ``get_current_user`` already verified the row exists.
+    return {"username": cast(str, user.username)}

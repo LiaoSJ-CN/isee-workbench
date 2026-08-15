@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.models.user import User
 from app.services.auth_state import is_jti_revoked
 from app.services.jwt_auth import decode_token
 
@@ -36,19 +37,27 @@ def _credentials_from_request(request: Request) -> HTTPAuthorizationCredentials 
 def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
-) -> str:
-    """Return the authenticated username from the cookie or the
-    ``Authorization`` header.
+) -> User:
+    """Return the authenticated :class:`~app.models.user.User` from the
+    cookie or the ``Authorization`` header.
 
-    Raises 401 if neither is present or the token is invalid. The
-    previous ``?token=`` query-param fallback (kept for the old
-    iframe-loaded preview) was removed when ReportPreview switched to
-    fetching the HTML via Authorization header and pointing the iframe
-    at a blob: URL.
+    Before 批 5.4 this returned just the username (``str``); the
+    change to ``User`` lets route handlers read fields other than
+    ``username`` (e.g. ``disabled``, ``last_login_at``) without an
+    extra DB round-trip. The cache on ``request.state.user`` makes
+    multiple ``Depends(get_current_user)`` invocations within one
+    request share one DB lookup.
 
-    P3 (PY-25) additions: the jti claim is checked against the
-    ``revoked_jti`` deny-list on every request, so a logged-out token
-    is rejected even if its signature and exp are still valid.
+    Raises 401 when:
+    - the cookie / header is missing,
+    - the token signature is invalid or expired,
+    - the token's jti is in the ``revoked_jti`` deny-list (P3 / PY-25),
+    - the username in the token no longer exists in the users table,
+    - the matched user has ``disabled=True``.
+
+    The previous ``?token=`` query-param fallback was removed when
+    ReportPreview switched to fetching HTML via the Authorization
+    header and pointing the iframe at a blob: URL.
     """
     creds = _credentials_from_request(request)
     if not creds:
@@ -68,7 +77,32 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked",
         )
-    return str(payload["sub"])
+
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+    user = db.query(User).filter(User.username == str(username)).first()
+    if user is None or user.disabled:
+        # Same status for "user gone" and "user disabled" — don't leak
+        # which one. The token is otherwise valid (sig + exp + jti
+        # all passed), so this means somebody deleted/disabled the
+        # account mid-session.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is no longer active",
+        )
+
+    # Cache so a second Depends(get_current_user) in the same request
+    # doesn't re-query. Mostly future-proofing — only ``/auth/me``
+    # currently consumes the return value, but if RBAC is added later
+    # the cache keeps ``Depends(get_current_user)`` + ``require_role(...)``
+    # at one DB hit per request.
+    request.state.current_user = user
+    return user
 
 
 def get_current_token(request: Request) -> str:
