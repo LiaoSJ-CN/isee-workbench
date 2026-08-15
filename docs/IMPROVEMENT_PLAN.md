@@ -20,14 +20,15 @@
 | 批 4a 参数 schema 后端 | ✅ 完成 — commit `61a8359`（model + 4 CRUD + 5-variant discriminated union + 运行时校验） |
 | 批 2a TanStack Query 基础 | ✅ 完成 — commit `9e12e56`（queries/ + 6 page 迁移 + RequireAuth useMe） |
 | 批 2b 乐观更新 + 虚拟滚动 + Skeleton | ✅ 完成 — commit `ed10570`（useDelete*/useUpdateDataSource 乐观更新 + DataExplorer 虚拟滚动 + Skeleton 组件替换 3 处 Spin/loading） |
-| 下一批：批 3a Job 模型 + Excel 异步化 | ⏳ **下次会话从这里开始**（按已重排顺序：3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
+| 批 3a Job 模型 + Excel 异步化 | ✅ 完成 — commit `af48835`（ReportJob + Alembic 迁移 + ThreadPoolExecutor + 3 router endpoint + 18 测试） |
+| 下一批：批 3b 前端轮询 / SSE 进度 | ⏳ **下次会话从这里开始**（按已重排顺序：3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
 2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 3a」章节
-4. 建 TaskCreate 覆盖批 3a 子项（ReportJob model + enqueue 队列 + 状态机 + 3 router endpoint + 测试），开始干
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 3b」章节
+4. 建 TaskCreate 覆盖批 3b 子项（useJobStatus 轮询 hook + jobsApi + ReportPreview 「导出 Excel」改成 enqueue→轮询→下载三段式 + 进度显示），开始干
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
@@ -97,7 +98,7 @@
 | 批 4a | ✅ 已完成 (2026-08-15) | `61a8359` | ReportParameter model + 4 CRUD endpoints + Pydantic discriminated union (5 variants) + 运行时校验（缺失/类型/enum/未知 key） |
 | 批 2a | ✅ 已完成 (2026-08-15) | `9e12e56` | TanStack Query v5 + `queries/` 目录 + 6 page 迁移（DataSourceList/ReportList/Scheduler/ReportEditor/ReportPreview/DataExplorer）+ RequireAuth 用 useMe；移除 725 行手写 useEffect/setState；净 +467 行（含 7 个新 hook 文件 + QueryClient 接线） |
 | 批 2b | ✅ 已完成 (2026-08-15) | `ed10570` | 乐观更新（useDeleteDataSource/useDeleteReport/useUpdateDataSource/useReorderReportItems/useCreateReportItem/useDeleteReportItem 全部加 snapshot/rollback）+ DataExplorer Table virtual+scroll.y:500（10k+ 行场景）+ 新 components/Skeleton.tsx（TableSkeleton/CardSkeleton/InlineSkeleton）替换 ReportPreview/DataExplorer/ReportEditor 三处 Spin/loading 文本；跳过 useToggleDataSourceActive/Report（无 UI 消费者）+ ReportPreview 虚拟滚动（React 表 ≤10 行，真正大表在 iframe 内） |
-| 批 3a | 未开始 | — | Job 队列 |
+| 批 3a | ✅ 已完成 (2026-08-15) | `af48835` | ReportJob model（11 字段 + status/output_format 字符串常量）+ Alembic 迁移 `222001adeb57`（含 composite (report_id, created_at) 索引）+ services/job_queue.py 模块级 ThreadPoolExecutor(4) + enqueue 写 pending row + submit + _run_job 状态机 + HTML preview 保持同步（拒绝 enqueue）+ routers/jobs.py 3 endpoint（POST 201, GET 200/404, history list 带 status filter + pagination）+ lifespan teardown `shutdown_executor(wait=False)`；18 新测试覆盖 enqueue 错误/成功路径、_run_job 状态转换、HTTP auth/404/pagination、真实 executor 集成（关键 fix：polling 必须 `db.expire_all()` 因为 `db.get()` 缓存 identity map） |
 | 批 3b | 未开始 | — | |
 | 批 4b | 未开始 | — | |
 | 批 6b | 未开始 | — | |
@@ -292,3 +293,31 @@ npx playwright test                     # smoke 全过
 - `ReportEditor` 的 buffer + cache 双轨：delete/create item 时只更新 query cache，不更新本地 `buffer` state（因为 `bufferHydrated` flag）。乐观 cache 更新对 ReportEditor **当前**无视觉影响（buffer 派生 `itemsView`），但对未来其他 consumer 已是正确基础设施。修这个 bug 属于改动行为，留给将来的清理批。
 
 下一个批次：批 3a Job 模型 + Excel 异步化（`ReportJob` model + APScheduler ThreadPoolExecutor + enqueue 队列 + 3 router endpoint + 测试）。
+-->
+
+### 批 3a：Job 模型 + Excel 异步化 — 2026-08-15 — `af48835` — ~2 hr
+
+子项落地：
+- **Model**（`app/models/report_job.py`）：11 字段（id / report_id FK / status / output_format / priority / parameters JSON / created_by / created_at / started_at / finished_at / file_path / error）+ 字符串常量 `JOB_STATUS_PENDING/RUNNING/DONE/FAILED` 避免 magic string + composite index `(report_id, created_at)` 覆盖 history 列表排序。
+- **Migration**（`alembic/versions/222001adeb57_add_report_jobs_table.py`）：autogenerate 干净落地，FK ondelete=CASCADE 跟 `ReportItem` 对齐。
+- **Service**（`app/services/job_queue.py`）：模块级 `ThreadPoolExecutor(max_workers=4)` 单例 + `_futures: dict[int, Future]` 字典（done_callback 弹出，避免内存泄漏）；`enqueue_report_job(db, report_id, output_format, user, parameters, priority)` 写 pending row + commit + submit；`_run_job(job_id)` 在 worker 线程开自己的 `SessionLocal`，驱动 pending → running → done/failed，捕获 `ReportGeneratorError` 写 error 字段、捕获通用 `Exception` 防止 worker pool 看到未处理异常。HTML preview 走 `ValueError` 拒绝入队（保持同步）。
+- **Schemas**（`app/schemas/job.py`）：`JobOutputFormat` enum（只暴露 `excel`）+ `JobStatus` enum + `ReportJobCreate` + `ReportJobResponse.from_orm_with_url()`（从 `file_path` basename 派生 `file_url` 复用 `/reports/{id}/export/{format}` 端点）。
+- **Router**（`app/routers/jobs.py`）：拆两个 router（`/jobs/{id}` 和 `/reports/{id}/jobs`）— 因为前缀不同，每个都独立 `Depends(get_current_user)`。3 endpoint：`POST /reports/{id}/jobs` (201 + `ReportJobResponse`) / `GET /jobs/{id}` (200/404) / `GET /reports/{id}/jobs?status=&limit=&offset=` (200/404)。LookupError → 404、ValueError → 400。
+- **Lifespan teardown**（`app/main.py`）：`shutdown_executor(wait=False)` — `wait=False` 让进程退出不被 in-flight 渲染拖住（同样风险与 sidecar scheduler 重启时一样）。
+
+测试与验证（`tests/test_job_queue.py`，18 新）：
+- `enqueue_report_job` 写 pending row + 注册 Future（happy path）
+- 拒绝未知 report_id（`LookupError`）
+- 拒绝 `output_format='html'`（`ValueError`）
+- 真实 `ThreadPoolExecutor` 集成测试：submit 后轮询 row 直到 terminal（**关键 fix**：必须用 `db.expire_all()` + `query().filter()` 而不是 `db.get()`，否则 session identity map 缓存 stale `pending` 状态导致 polling 永不退出）
+- `_run_job` 直接调用（同步）：missing report → failed；空 items → done（Summary-only xlsx）；带 text item → done + file_path 设置
+- HTTP：401（无 auth）、201/200 happy、404（缺 report / 缺 job）、422（`output_format='html'` 被 enum 拦截）、history status filter、pagination
+
+**395/395 pytest**（基线 377 + 18 新）、`ruff check .` 0、`mypy app` 0。
+
+已知 / 边界：
+- `shutdown_executor(wait=False)`：进程退出时 in-flight 渲染被遗弃 → row 留在 `running`。这与 sidecar scheduler 重启场景同质，需要操作侧 reconcile 兜底（批 3a 不做；后续 celery beat / 外部 leader 选举才是根解）。
+- 批 2b 提到的 ReportEditor buffer/cache dual-track bug 未触碰，仍 pre-existing。
+- `_futures` 字典用 done_callback 弹出；不需要额外的清理任务。
+
+下一个批次：批 3b 前端轮询 / SSE 进度（`useJobStatus` polling hook + `jobsApi` + ReportPreview 「导出 Excel」改 enqueue→轮询→下载三段式 + 进度显示；后续 SSE 用 `sse-starlette` 替换轮询）。
