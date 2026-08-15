@@ -18,14 +18,15 @@
 | 批 5.4 get_current_user 返回 User | ✅ 完成 — commit `439c5fb` |
 | 批 5.5 列表接口分页 | ✅ 完成 — commit `a1bacab`（limit/offset + X-Total-Count） |
 | 批 4a 参数 schema 后端 | ✅ 完成 — commit `61a8359`（model + 4 CRUD + 5-variant discriminated union + 运行时校验） |
-| 下一批：批 2a TanStack Query 基础 | ⏳ **下次会话从这里开始**（按已重排顺序：2a → 2b → 3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
+| 批 2a TanStack Query 基础 | ✅ 完成 — commit `9e12e56`（queries/ + 6 page 迁移 + RequireAuth useMe） |
+| 下一批：批 2b 乐观更新 + 虚拟滚动 + Skeleton | ⏳ **下次会话从这里开始**（按已重排顺序：2b → 3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
 2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 2a」章节
-4. 建 TaskCreate 覆盖批 2a 子项（`@tanstack/react-query` v5 安装 + `queryClient.ts` + `keys.ts` + 6 个 page 迁移 hook），开始干
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 2b」章节
+4. 建 TaskCreate 覆盖批 2b 子项（ReportEditor 拖拽排序乐观更新 + ReportEditor item CRUD 乐观更新 + DataSourceList/ReportList toggle is_active 乐观更新 + ReportPreview/DataExplorer 虚拟滚动 + 全局 Skeleton 组件），开始干
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
@@ -93,7 +94,7 @@
 | 批 6a | ✅ 已完成 (2026-08-15) | `76035b9` | X-Request-ID 端到端回显 + Sentry backend/frontend init + 25 新测试 |
 | 批 5（含 5.1/5.2/5.3/5.4/5.5） | ✅ 已完成 (2026-08-15) | `5931231` `d241de9` `439c5fb` `a1bacab` | Alembic 接管 schema + 拆 report_generator (628→7) + get_current_user 返回 User + 列表分页 |
 | 批 4a | ✅ 已完成 (2026-08-15) | `61a8359` | ReportParameter model + 4 CRUD endpoints + Pydantic discriminated union (5 variants) + 运行时校验（缺失/类型/enum/未知 key） |
-| 批 2a | 未开始 | — | TanStack Query 基础 |
+| 批 2a | ✅ 已完成 (2026-08-15) | `9e12e56` | TanStack Query v5 + `queries/` 目录 + 6 page 迁移（DataSourceList/ReportList/Scheduler/ReportEditor/ReportPreview/DataExplorer）+ RequireAuth 用 useMe；移除 725 行手写 useEffect/setState；净 +467 行（含 7 个新 hook 文件 + QueryClient 接线） |
 | 批 2b | 未开始 | — | |
 | 批 3a | 未开始 | — | Job 队列 |
 | 批 3b | 未开始 | — | |
@@ -235,4 +236,40 @@ npx playwright test                     # smoke 全过
 验证基线：pytest 377/377（5.92s）、ruff 0、mypy 0。
 
 下一个批次：批 2a TanStack Query 基础 hook（`@tanstack/react-query` v5 安装 + `queries/{queryClient,keys,useDataSources,useReports,useExplorer,useScheduler}.ts` + DataSourceList 首个迁移）。
+
+### 批 2a：TanStack Query 基础 — 2026-08-15 — `9e12e56` — ~3 hr
+
+子项：
+1. **安装**： `@tanstack/react-query@^5.101.4` + `@tanstack/react-query-devtools@^5.101.4` 入 `dependencies`（不是 devDependencies；Vite 在 `import.meta.env.DEV` guard 下 tree-shake prod bundle）。`npm install --legacy-peer-deps`（eslint-plugin-jsx-a11y@6 与 eslint@10 peer 冲突，是 pre-existing）。
+2. **`queries/queryClient.ts`**：module-scope singleton，`staleTime: 30_000`、`gcTime: 5 * 60_000`、`retry: false`（axios refresh interceptor 已管 401；RQ 重试会触发第二次 refresh + 双重 redirect）。
+3. **`queries/keys.ts`**：tuple-typed factory（`as const`），`useReports()` 与 `useReports({})` 命中同一 key（`filters ?? {}` 兜底），`invalidateQueries({ queryKey: queryKeys.reports.all })` 级联命中所有 list/detail/preview 子键。
+4. **`queries/useAuth.ts`**：`useMe()`（`retry: false, staleTime: 5min, gcTime: Infinity, refetchOnWindowFocus: false`），`useLogin`/`useLogout`（`useLogout.onSuccess` 调 `qc.clear()` 清空所有缓存）。
+5. **`queries/useDataSources.ts`** / **`useReports.ts`** / **`useScheduler.ts`** / **`useExplorer.ts`**：每个 hook 文件只导出 hook 函数/常量（不导出 React 组件 —— `react-refresh/only-export-components` 规则）。`useUpdateReport` 实现完整 optimistic 流程（`onMutate` snapshot + 写 cache → `onError` 回滚 → `onSettled` invalidate）。`useCreateSchedulerJob`/`useDeleteSchedulerJob` 双 invalidation（`scheduler.all` + `reports.all`，因为后端在 job 变更时写 report row 的 `is_scheduled`/`cron_expression`/`is_active`）。`useSchedulerStatus` 用 `refetchInterval: 5_000, refetchIntervalInBackground: false`（sidecar 每 30s 重读一次，5s 给用户 snappy 反馈）。`useReport(id)` 用 `refetchOnWindowFocus: false`（保护 in-progress edit 不被 focus 重拉打回）。`useReportPreviewHtml(id, enabled)` 是 lazy query（`staleTime: Infinity, gcTime: 30_000`）。`useExploreQuery` 是 **mutation** 不是 query（`{ success: false }` 是结果不是 throw，result 在 `mutation.data`）。
+6. **`main.tsx`**：`QueryClientProvider` 挂在 `<StrictMode>` 上面（module-scope singleton 不被 StrictMode 双渲染双创建），`ReactQueryDevtools` 用 `{import.meta.env.DEV && ...}` guard。
+7. **`App.tsx:RequireAuth`**：从 `useState + useEffect + cancelled flag + authApi.me()` 简化成 `useMe()`（`isPending`/`isError` 三态）。`AppShell.handleLogout` 用 `useLogout.mutate()` + `qc.clear()`。
+8. **`Login.tsx`**：`useLogin.mutateAsync` + `login.isPending` 替代 `setSubmitting` + `try/catch`。
+9. **`types/index.ts`**：新增 `QueryResult` interface（从 `explorerApi.query` 内联类型提取出来），让 `useExploreQuery().data` 有 type。
+10. **Page 迁移**（按 ROI 顺序）：
+    - **DataSourceList** (344→250)：`useDataSources` + 4 mutations；批量删除改成 `for` 循环 `mutateAsync`（每条独立错误隔离，不再 `Promise.all` 一损俱损）；`pagination.total` 改为 render 时从 `data.length` 算。
+    - **ReportList** (305→230)：`useReports` + `useDataSources`（cross-page dedup）；`handleGenerate` 用 `useGenerateReport.mutate()` + `useDownloadReport.mutateAsync()`，保留 `message.loading({key:'export'})` 生命周期。
+    - **Scheduler** (325→210)：`useSchedulerStatus`（5s polling）替代两段 useEffect；删掉所有 `setReports(prev => prev.map(...))` 手写缓存更新（双 invalidation 自动做）；新增 `useSyncScheduler`；"刷新状态" 按钮变成 invalidate。
+    - **ReportEditor** (712→480)：**核心改动**：拆 cache/edit buffer — `useReport(id).data` 是 server truth，`useState<Report | null>(buffer)` 是本地编辑 buffer（从 cache 一次性 hydrate）；`useUpdateReport.mutate()` 替代手写 snapshot/rollback；item CRUD / reorder 全部走 mutation hooks，settle 时 invalidate `reports.detail(reportId)`。
+    - **ReportPreview** (170→120)：`useReport(id)` 替代 `useState + useEffect`；preview 改成 lazy query `useReportPreviewHtml(id, shouldFetch)`（`enabled` 由按钮翻转）；blob URL `useEffect` 保留（imperative lifecycle）。
+    - **DataExplorer** (715→600)：`useDataSources` 替代首屏 useEffect；`useExploreQuery().mutate()` 替代 `try/await/setResult`；`execute.data` 替代 `useState<result>`；**templates + history 保持 localStorage**（plan 明确说不在 RQ 里），其他逻辑不动。
+
+测试与验证：
+- 无 frontend 测试框架；验证 = `npm run lint && npx tsc --noEmit && npm run build` 全 0 + 手动 smoke 9 项（devtools 面板看 cache hit）。
+- 移除 725 行 useEffect/loadX/setState 样板，净 +467 行（含 7 个新 hook 文件）。
+- 后续 batch 直接收益：批 2b 乐观更新（在已存在的 `useUpdateReport`/`useDeleteDataSource` 之上加 `onMutate` 即可，零样板）、批 3b 轮询/SSE（`useSchedulerStatus` 已是 polling template）、批 4b 参数表单（`useReport`/`useReports` 直接驱动 form）。
+
+风险 & 取舍：
+- `chunk > 500KB` 警告（`@tanstack/react-query` + `antd` 等）是 pre-existing，留给批 10 code-split。
+- `react-refresh/only-export-components` 约束了 hook 文件只导出 hook/常量 —— 没有组件文件 export 共享常量；如果以后想包 `QueryProvider` + sentry context，得单独一个 `.tsx` 文件。
+- `useReport` 的 `refetchOnWindowFocus: false` 会让用户在另一个 tab 编辑后切回来看不到 server truth；用户必须显式 Save 或刷新。当前 batch 接受这点（plan §6.5 trade-off），后续 batch 7 测试补 e2e 覆盖。
+- `useExploreQuery` 是 mutation —— 如果未来要"相同 SQL 在 session 内缓存秒返"，要单独加 `queryKeys.explorer.lastResult` 写入；当前 batch 不做。
+- 后续 batch：批 2b 乐观更新（在 useUpdateReport 已有 `onMutate`/`onError` 之上扩 `useDeleteDataSource`/`useReorderReportItems` + 新 `useToggleDataSourceActive`/`useToggleReportActive`）。
+
+验证基线：`npm run lint` 0、`npx tsc --noEmit` 0、`npm run build` 0（chunk 警告 pre-existing）。
+
+下一个批次：批 2b 乐观更新 + 虚拟滚动 + Skeleton（ReportEditor item CRUD 乐观更新 + DataSourceList/ReportList toggle is_active 乐观更新 + ReportPreview/DataExplorer 虚拟滚动 + Skeleton 组件）。
 -->
