@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path as FilePath
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -136,17 +136,29 @@ def reorder_report_items(
 
 @router.get("", response_model=list[ReportDetailResponse])
 def list_reports(
+    response: Response,
     is_active: bool | None = Query(default=None),
     data_source_id: int | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[Report]:
-    """List all reports with optional filtering."""
+    """List reports with optional filtering and pagination.
+
+    ``limit`` is capped at 500 to keep response payloads bounded; the
+    total number of rows matching the filter is returned in the
+    ``X-Total-Count`` response header so the caller can drive a pager.
+    """
     query = db.query(Report)
     if is_active is not None:
         query = query.filter(Report.is_active == is_active)
     if data_source_id is not None:
         query = query.filter(Report.data_source_id == data_source_id)
-    return query.all()
+
+    total = query.count()
+    response.headers["X-Total-Count"] = str(total)
+    # Stable order so offset+limit produces consistent pages.
+    return query.order_by(Report.id).offset(offset).limit(limit).all()
 
 
 @router.post("", response_model=ReportDetailResponse, status_code=status.HTTP_201_CREATED)

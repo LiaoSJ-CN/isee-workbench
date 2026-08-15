@@ -1,6 +1,6 @@
 """API routes for data source management."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.crypto import encrypt as crypto_encrypt
@@ -19,9 +19,22 @@ router = APIRouter(
 
 
 @router.get("", response_model=list[DataSourceResponse])
-def list_data_sources(db: Session = Depends(get_db)) -> list[DataSource]:
-    """List all configured data sources."""
-    return db.query(DataSource).all()
+def list_data_sources(
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[DataSource]:
+    """List configured data sources with pagination.
+
+    Total matching row count is returned in the ``X-Total-Count``
+    response header so the caller can drive a pager.
+    """
+    query = db.query(DataSource)
+    total = query.count()
+    response.headers["X-Total-Count"] = str(total)
+    # Stable order so offset+limit produces consistent pages.
+    return query.order_by(DataSource.id).offset(offset).limit(limit).all()
 
 
 @router.post("", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
