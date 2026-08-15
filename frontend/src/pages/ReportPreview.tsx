@@ -9,7 +9,9 @@ import {
 } from '@ant-design/icons';
 import { useReport, useReportPreviewHtml, useDownloadReport } from '../queries/useReports';
 import { useEnqueueReportJob, useJobStatus } from '../queries/useJobs';
+import { useReportParameters } from '../queries/useParameters';
 import { TableSkeleton } from '../components/Skeleton';
+import { ReportParameterForm } from '../components/ReportParameterForm';
 import { formatError } from '../utils/error';
 
 export default function ReportPreview() {
@@ -18,6 +20,7 @@ export default function ReportPreview() {
   const reportId = id ? Number(id) : null;
 
   const { data: report, isPending: loading } = useReport(reportId);
+  const { data: parameters = [] } = useReportParameters(reportId);
   // Lazy preview query: enabled flips to true only after the user clicks
   // "刷新预览" / "生成预览". Each click re-fires the query and produces
   // fresh HTML.
@@ -62,10 +65,10 @@ export default function ReportPreview() {
     );
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = (paramValues?: Record<string, unknown>) => {
     if (!report) return;
     enqueueExcel.mutate(
-      {},
+      { parameters: paramValues ?? {} },
       {
         onSuccess: (job) => setExcelJobId(job.id),
         onError: (err) => message.error(formatError(err, '导出任务提交失败')),
@@ -113,19 +116,34 @@ export default function ReportPreview() {
           >
             刷新预览
           </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            loading={enqueueExcel.isPending}
-            disabled={excelInFlight}
-            onClick={handleExportExcel}
-          >
-            导出 Excel
-          </Button>
+          {/* Toolbar shortcut only when there are no parameters — otherwise
+              the form (rendered below) owns the submit button. */}
+          {parameters.length === 0 && (
+            <Button
+              icon={<DownloadOutlined />}
+              loading={enqueueExcel.isPending}
+              disabled={excelInFlight}
+              onClick={() => handleExportExcel()}
+            >
+              导出 Excel
+            </Button>
+          )}
           <Button icon={<DownloadOutlined />} onClick={() => handleExportHtml('html')}>
             导出 HTML
           </Button>
         </Space>
       </div>
+
+      {parameters.length > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }} title="运行参数">
+          <ReportParameterForm
+            parameters={parameters}
+            onSubmit={handleExportExcel}
+            loading={enqueueExcel.isPending}
+            submitLabel="导出 Excel"
+          />
+        </Card>
+      )}
 
       {excelJobId !== null && (
         <Card size="small" style={{ marginBottom: 16 }} title="Excel 导出任务">

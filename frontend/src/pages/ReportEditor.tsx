@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Form, Input, Button, Space, Select, message, Modal,
+  Card, Form, Input, Button, Space, Select, Switch, DatePicker, Tag,
+  Table, message, Modal,
   Tabs, InputNumber, Divider, Popconfirm
 } from 'antd';
 import {
-  SaveOutlined, PlusOutlined, DeleteOutlined, DragOutlined,
+  SaveOutlined, PlusOutlined, DeleteOutlined, DragOutlined, EditOutlined,
   TableOutlined, BarChartOutlined, FontSizeOutlined,
   ArrowUpOutlined, ArrowDownOutlined, EyeOutlined, NumberOutlined
 } from '@ant-design/icons';
@@ -26,7 +27,10 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { Report, ReportItem, ReportItemCreate, ReportItemUpdate } from '../types';
+import type {
+  Report, ReportItem, ReportItemCreate, ReportItemUpdate,
+  ReportParameter, ParameterType, ReportParameterCreate, ReportParameterUpdate,
+} from '../types';
 import { formatError } from '../utils/error';
 import {
   useCreateReportItem,
@@ -36,8 +40,15 @@ import {
   useUpdateReport,
   useUpdateReportItem,
 } from '../queries/useReports';
+import {
+  useCreateReportParameter,
+  useDeleteReportParameter,
+  useReportParameters,
+  useUpdateReportParameter,
+} from '../queries/useParameters';
 import { useDataSources } from '../queries/useDataSources';
 import { CardSkeleton } from '../components/Skeleton';
+import dayjs from 'dayjs';
 
 // ============ Sortable Item Component ============
 
@@ -472,6 +483,57 @@ export default function ReportEditor() {
   const deleteItem = useDeleteReportItem(reportId ?? -1);
   const reorderItems = useReorderReportItems(reportId ?? -1);
 
+  // ---- Parameters (批 4b) -----------------------------------------------
+  const parametersQ = useReportParameters(reportId);
+  const createParam = useCreateReportParameter(reportId ?? -1);
+  const updateParam = useUpdateReportParameter(reportId ?? -1);
+  const deleteParam = useDeleteReportParameter(reportId ?? -1);
+  const parameters = parametersQ.data ?? [];
+
+  const [paramModalVisible, setParamModalVisible] = useState(false);
+  const [editingParam, setEditingParam] = useState<ReportParameter | null>(null);
+
+  const handleAddParam = () => {
+    setEditingParam(null);
+    setParamModalVisible(true);
+  };
+
+  const handleEditParam = (p: ReportParameter) => {
+    setEditingParam(p);
+    setParamModalVisible(true);
+  };
+
+  const handleDeleteParam = (paramId: number) => {
+    deleteParam.mutate(paramId, {
+      onSuccess: () => message.success('参数已删除'),
+      onError: (err) => message.error(formatError(err, '删除失败')),
+    });
+  };
+
+  const handleSaveParam = (payload: ReportParameterCreate | ReportParameterUpdate) => {
+    if (!reportId) return;
+    if (editingParam) {
+      updateParam.mutate(
+        { paramId: editingParam.id, payload: payload as ReportParameterUpdate },
+        {
+          onSuccess: () => {
+            message.success('参数已更新');
+            setParamModalVisible(false);
+          },
+          onError: (err) => message.error(formatError(err, '保存失败')),
+        },
+      );
+    } else {
+      createParam.mutate(payload as ReportParameterCreate, {
+        onSuccess: () => {
+          message.success('参数已创建');
+          setParamModalVisible(false);
+        },
+        onError: (err) => message.error(formatError(err, '创建失败')),
+      });
+    }
+  };
+
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<ReportItem | null>(null);
   const [activeTab, setActiveTab] = useState('config');
@@ -712,6 +774,95 @@ export default function ReportEditor() {
               </Card>
             ),
           },
+          {
+            key: 'parameters',
+            label: `参数 (${parameters.length})`,
+            children: (
+              <Card
+                title="运行参数"
+                extra={
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleAddParam}>
+                    添加参数
+                  </Button>
+                }
+              >
+                <p style={{ color: '#999', marginBottom: 16 }}>
+                  报表运行参数，用户在预览页可填写。例如：<code>{'{region}'}</code> / <code>{'{start_date}'}</code>。
+                </p>
+                {parameters.length > 0 ? (
+                  <Table<ReportParameter>
+                    dataSource={parameters}
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    columns={[
+                      { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
+                      { title: '标签', dataIndex: 'label', key: 'label', width: 160 },
+                      {
+                        title: '类型',
+                        dataIndex: 'type',
+                        key: 'type',
+                        width: 100,
+                        render: (t: ParameterType) => <Tag color="blue">{t}</Tag>,
+                      },
+                      {
+                        title: '必填',
+                        dataIndex: 'required',
+                        key: 'required',
+                        width: 80,
+                        render: (r: boolean) => (r ? '是' : '否'),
+                      },
+                      {
+                        title: '默认值',
+                        dataIndex: 'default',
+                        key: 'default',
+                        render: (d: unknown) =>
+                          d === null || d === undefined ? <span style={{ color: '#999' }}>-</span> : String(d),
+                      },
+                      {
+                        title: '选项',
+                        dataIndex: 'options',
+                        key: 'options',
+                        render: (opts: string[] | null) =>
+                          opts && opts.length > 0
+                            ? opts.map((o) => <Tag key={o}>{o}</Tag>)
+                            : <span style={{ color: '#999' }}>-</span>,
+                      },
+                      {
+                        title: '操作',
+                        key: 'action',
+                        width: 160,
+                        render: (_: unknown, record: ReportParameter) => (
+                          <Space size="small">
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<EditOutlined />}
+                              onClick={() => handleEditParam(record)}
+                            >
+                              编辑
+                            </Button>
+                            <Popconfirm
+                              title="确定删除该参数？"
+                              onConfirm={() => handleDeleteParam(record.id)}
+                            >
+                              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                    暂无参数，点击上方按钮添加
+                  </div>
+                )}
+              </Card>
+            ),
+          },
         ]}
       />
 
@@ -723,6 +874,170 @@ export default function ReportEditor() {
         isNew={!editingItem}
         saving={createItem.isPending || updateItem.isPending}
       />
+
+      <ParameterEditorModal
+        visible={paramModalVisible}
+        parameter={editingParam}
+        onSave={handleSaveParam}
+        onCancel={() => setParamModalVisible(false)}
+        saving={createParam.isPending || updateParam.isPending}
+      />
     </div>
+  );
+}
+
+// ============ Parameter Editor Modal ============
+
+interface ParameterEditorModalProps {
+  visible: boolean;
+  parameter: ReportParameter | null;
+  onSave: (payload: ReportParameterCreate | ReportParameterUpdate) => void;
+  onCancel: () => void;
+  saving?: boolean;
+}
+
+function ParameterEditorModal({
+  visible, parameter, onSave, onCancel, saving,
+}: ParameterEditorModalProps) {
+  const [form] = Form.useForm();
+  const [paramType, setParamType] = useState<ParameterType>('string');
+
+  // Sync the form with the current `parameter` whenever the modal opens.
+  // `destroyOnClose` would re-mount the Form, but using `useEffect` on
+  // `visible` keeps the input field state stable when the user toggles
+  // between create/edit without closing.
+  useEffect(() => {
+    if (!visible) return;
+    if (parameter) {
+      form.setFieldsValue({
+        name: parameter.name,
+        label: parameter.label,
+        type: parameter.type,
+        required: parameter.required,
+        options: parameter.options ?? [],
+        default: parameter.type === 'date' && parameter.default
+          ? dayjs(parameter.default as string)
+          : (parameter.default ?? null),
+      });
+      setParamType(parameter.type);
+    } else {
+      form.resetFields();
+      form.setFieldsValue({ type: 'string', required: true });
+      setParamType('string');
+    }
+  }, [visible, parameter, form]);
+
+  const handleTypeChange = (t: ParameterType) => {
+    setParamType(t);
+    // Wipe `default` because its runtime type changes with the variant.
+    form.setFieldValue('default', null);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      const payload: Record<string, unknown> = {
+        name: values.name,
+        label: values.label,
+        type: values.type,
+        required: values.required,
+      };
+      const rawDefault = values.default;
+      if (rawDefault !== undefined && rawDefault !== null && rawDefault !== '') {
+        if (values.type === 'date') {
+          payload.default = (rawDefault as dayjs.Dayjs).format('YYYY-MM-DD');
+        } else if (values.type === 'number') {
+          payload.default = Number(rawDefault);
+        } else {
+          payload.default = rawDefault;
+        }
+      } else {
+        payload.default = null;
+      }
+      if (values.type === 'enum') {
+        payload.options = (values.options ?? []) as string[];
+      }
+      onSave(payload as unknown as ReportParameterCreate);
+    } catch {
+      // Antd already surfaces the field-level error message; no global toast needed.
+    }
+  };
+
+  return (
+    <Modal
+      title={parameter ? '编辑参数' : '添加参数'}
+      open={visible}
+      onOk={handleSubmit}
+      onCancel={onCancel}
+      confirmLoading={saving}
+      width={520}
+      destroyOnHidden
+    >
+      <Form form={form} layout="vertical">
+        <Form.Item
+          name="name"
+          label="名称 (标识符)"
+          rules={[
+            { required: true, message: '请输入参数名' },
+            { pattern: /^[A-Za-z_][A-Za-z0-9_]*$/, message: '只能以字母/下划线开头，后跟字母/数字/下划线' },
+          ]}
+        >
+          <Input placeholder="例如: region" disabled={!!parameter} />
+        </Form.Item>
+        <Form.Item name="label" label="标签" rules={[{ required: true, message: '请输入标签' }]}>
+          <Input placeholder="例如: 区域" />
+        </Form.Item>
+        <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+          <Select
+            options={[
+              { value: 'string', label: '字符串' },
+              { value: 'number', label: '数字' },
+              { value: 'date', label: '日期' },
+              { value: 'enum', label: '枚举' },
+              { value: 'bool', label: '布尔' },
+            ]}
+            onChange={handleTypeChange}
+            disabled={!!parameter}
+          />
+        </Form.Item>
+        <Form.Item name="required" label="必填" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        {paramType === 'enum' && (
+          <Form.Item
+            name="options"
+            label="选项 (按回车添加)"
+            rules={[{ required: true, message: '请至少添加一个选项' }]}
+          >
+            <Select mode="tags" placeholder="例如: east, west, north, south" />
+          </Form.Item>
+        )}
+        <Form.Item name="default" label="默认值 (可选)">
+          {paramType === 'string' && <Input allowClear placeholder="例如: hello" />}
+          {paramType === 'number' && <InputNumber style={{ width: '100%' }} placeholder="例如: 100" />}
+          {paramType === 'date' && <DatePicker style={{ width: '100%' }} />}
+          {paramType === 'enum' && (
+            <Select
+              placeholder="从上方选项中选择"
+              options={((form.getFieldValue('options') ?? []) as string[]).map((o) => ({
+                value: o,
+                label: o,
+              }))}
+              allowClear
+            />
+          )}
+          {paramType === 'bool' && (
+            <Select
+              placeholder="默认状态"
+              options={[
+                { value: true, label: 'true' },
+                { value: false, label: 'false' },
+              ]}
+              allowClear
+            />
+          )}
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }

@@ -47,4 +47,9 @@ export const queryKeys = {
     forReport: (reportId: number) =>
       [...queryKeys.jobs.all, 'report', reportId] as const,
   },
+  parameters: {
+    all: ['parameters'] as const,
+    list: (reportId: number) =>
+      [...queryKeys.parameters.all, 'list', reportId] as const,
+  },
 } as const;

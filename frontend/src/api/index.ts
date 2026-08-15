@@ -12,6 +12,9 @@ import type {
   ReportGenerateResponse,
   ReportJob,
   ReportJobCreate,
+  ReportParameter,
+  ReportParameterCreate,
+  ReportParameterUpdate,
   SchedulerStatus,
   SchedulerJob,
 } from '../types';
@@ -354,5 +357,41 @@ export const jobsApi = {
   get: async (jobId: number): Promise<ReportJob> => {
     const { data } = await api.get(`/jobs/${jobId}`);
     return data;
+  },
+};
+
+// ============ Report parameters (批 4b) ============
+
+/**
+ * Per-report typed parameter declarations used by `ReportParameterForm`
+ * to render the input form and by `useEnqueueReportJob({ parameters })`
+ * to feed the worker thread. CRUD endpoints exposed by the backend in
+ * 批 4a — frontend surface landed here.
+ */
+export const parametersApi = {
+  list: async (reportId: number): Promise<ReportParameter[]> => {
+    const { data } = await api.get(`/reports/${reportId}/parameters`);
+    return data;
+  },
+
+  create: async (reportId: number, payload: ReportParameterCreate): Promise<ReportParameter> => {
+    const { data } = await api.post(`/reports/${reportId}/parameters`, payload);
+    return data;
+  },
+
+  update: async (
+    reportId: number,
+    paramId: number,
+    payload: ReportParameterUpdate,
+  ): Promise<ReportParameter> => {
+    const { data } = await api.put(
+      `/reports/${reportId}/parameters/${paramId}`,
+      payload,
+    );
+    return data;
+  },
+
+  delete: async (reportId: number, paramId: number): Promise<void> => {
+    await api.delete(`/reports/${reportId}/parameters/${paramId}`);
   },
 };

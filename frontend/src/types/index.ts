@@ -230,6 +230,55 @@ export interface SchedulerStatus {
   jobs: SchedulerJob[];
 }
 
+// ---- Report parameters (批 4a backend, 批 4b frontend) ----
+// Mirrors the Pydantic discriminated union (`type` discriminator, 5 variants).
+
+export type ParameterType = 'string' | 'number' | 'date' | 'enum' | 'bool';
+
+interface ReportParameterBase {
+  name: string;
+  label: string;
+  required?: boolean;
+  order_index?: number;
+}
+
+export type ReportParameterCreate =
+  | (ReportParameterBase & { type: 'string'; default?: string | null })
+  | (ReportParameterBase & { type: 'number'; default?: number | null })
+  | (ReportParameterBase & { type: 'date'; default?: string | null })
+  | (ReportParameterBase & { type: 'enum'; options: string[]; default?: string | null })
+  | (ReportParameterBase & { type: 'bool'; default?: boolean | null });
+
+// Flat response shape — the backend serialises the discriminated union
+// into one record with `type: ParameterType` and optional type-specific
+// fields (`options` only for `enum`, `default` per variant).
+export interface ReportParameter {
+  id: number;
+  report_id: number;
+  name: string;
+  label: string;
+  type: ParameterType;
+  required: boolean;
+  default: unknown;
+  options: string[] | null;
+  order_index: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// All fields optional — `exclude_unset=True` on the backend means
+// missing keys are not applied, so this drives both "partial update"
+// and "re-type" flows.
+export type ReportParameterUpdate = Partial<{
+  name: string;
+  label: string;
+  required: boolean;
+  default: unknown;
+  options: string[];
+  order_index: number;
+  type: ParameterType;
+}>;
+
 // One row in the DataExplorer execution history (localStorage-backed).
 // `ds_name` is a snapshot, not a live reference — survives the source
 // being renamed or deleted.
