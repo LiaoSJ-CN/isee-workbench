@@ -37,6 +37,7 @@ import {
   useUpdateReportItem,
 } from '../queries/useReports';
 import { useDataSources } from '../queries/useDataSources';
+import { CardSkeleton } from '../components/Skeleton';
 
 // ============ Sortable Item Component ============
 
@@ -591,7 +592,7 @@ export default function ReportEditor() {
     persistOrder(updatedItems);
   };
 
-  if (reportLoading || dsLoading) return <div style={{ padding: 24 }}>加载中...</div>;
+  if (reportLoading || dsLoading) return <div style={{ padding: 24 }}><CardSkeleton rows={6} /></div>;
   if (!report || !buffer) return <div style={{ padding: 24 }}>报表不存在</div>;
 
   return (

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Space, Card, message, Spin, Descriptions, Tag, Table } from 'antd';
+import { Button, Space, Card, message, Descriptions, Tag, Table } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useReport, useReportPreviewHtml, useDownloadReport } from '../queries/useReports';
+import { TableSkeleton } from '../components/Skeleton';
 
 export default function ReportPreview() {
   const { id } = useParams<{ id: string }>();
@@ -46,7 +47,7 @@ export default function ReportPreview() {
     );
   };
 
-  if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Spin size="large" /></div>;
+  if (loading) return <div style={{ padding: 24 }}><TableSkeleton rows={8} columns={4} /></div>;
   if (!report) return <div style={{ padding: 24 }}>报表不存在</div>;
 
   return (

@@ -4,6 +4,7 @@ import { reportApi } from '../api';
 import type {
   Report,
   ReportCreate,
+  ReportItem,
   ReportItemCreate,
   ReportItemUpdate,
   ReportUpdate,
@@ -73,11 +74,37 @@ export function useCreateReport() {
   });
 }
 
+/**
+ * Optimistic `useDeleteReport` — row vanishes from every list cache
+ * (including filter-specific ones) immediately. Restored from snapshot
+ * on error.
+ */
 export function useDeleteReport() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => reportApi.delete(id),
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: queryKeys.reports.all });
+      const snapshots: { key: readonly unknown[]; data: unknown }[] = [];
+      // Capture and patch every cached list (covers filter variants).
+      qc.getQueryCache().findAll({ queryKey: queryKeys.reports.lists() }).forEach((q) => {
+        const prev = q.state.data as Report[] | undefined;
+        if (prev) {
+          snapshots.push({ key: q.queryKey, data: prev });
+          qc.setQueryData<Report[]>(
+            q.queryKey,
+            prev.filter((r) => r.id !== id),
+          );
+        }
+      });
+      return { snapshots };
+    },
+    onError: (_err, _vars, ctx) => {
+      ctx?.snapshots.forEach(({ key, data }) => {
+        qc.setQueryData(key, data);
+      });
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.reports.all });
     },
   });
@@ -121,11 +148,39 @@ export function useUpdateReport() {
 
 // ----- Report items -----
 
+/**
+ * Optimistic `useCreateReportItem` — new item appended to the detail's
+ * `items` array with a temporary negative id so the user sees it instantly.
+ * The temp id is replaced when the server response lands and the cache
+ * is invalidated by `onSettled`.
+ */
 export function useCreateReportItem(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: ReportItemCreate) => reportApi.createItem(reportId, payload),
-    onSuccess: () => {
+    onMutate: async (payload) => {
+      const key = queryKeys.reports.detail(reportId);
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<Report>(key);
+      if (prev) {
+        const tempItem = {
+          ...payload,
+          id: -Date.now(),
+          order_index: (prev.items?.length ?? 0) + 1,
+        } as unknown as ReportItem;
+        qc.setQueryData<Report>(key, {
+          ...prev,
+          items: [...(prev.items ?? []), tempItem],
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(queryKeys.reports.detail(reportId), ctx.prev);
+      }
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.reports.detail(reportId) });
     },
   });
@@ -142,22 +197,72 @@ export function useUpdateReportItem(reportId: number) {
   });
 }
 
+/**
+ * Optimistic `useDeleteReportItem` — the item vanishes from the detail's
+ * `items` array immediately. Restored from snapshot on error.
+ */
 export function useDeleteReportItem(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (itemId: number) => reportApi.deleteItem(reportId, itemId),
-    onSuccess: () => {
+    onMutate: async (itemId) => {
+      const key = queryKeys.reports.detail(reportId);
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<Report>(key);
+      if (prev) {
+        qc.setQueryData<Report>(key, {
+          ...prev,
+          items: (prev.items ?? []).filter((it) => it.id !== itemId),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(queryKeys.reports.detail(reportId), ctx.prev);
+      }
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.reports.detail(reportId) });
     },
   });
 }
 
+/**
+ * Optimistic `useReorderReportItems` — reorders items in the detail cache
+ * immediately using the caller-supplied payload. Note: `ReportEditor` keeps
+ * its own edit buffer in sync separately via `setBuffer`, but any other
+ * consumer of `reports.detail(reportId)` (currently none) would see the
+ * new order instantly.
+ */
 export function useReorderReportItems(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (items: { item_id: number; order_index: number }[]) =>
       reportApi.reorderItems(reportId, items),
-    onSuccess: () => {
+    onMutate: async (items) => {
+      const key = queryKeys.reports.detail(reportId);
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<Report>(key);
+      if (prev) {
+        const orderMap = new Map(items.map((i) => [i.item_id, i.order_index]));
+        qc.setQueryData<Report>(key, {
+          ...prev,
+          items: (prev.items ?? [])
+            .map((it) =>
+              orderMap.has(it.id) ? { ...it, order_index: orderMap.get(it.id) as number } : it,
+            )
+            .sort((a, b) => a.order_index - b.order_index),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(queryKeys.reports.detail(reportId), ctx.prev);
+      }
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.reports.detail(reportId) });
     },
   });

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Table, Select, Button, Space, Card, message, Alert, Spin, Popconfirm, Input, Tag } from 'antd';
+import { Table, Select, Button, Space, Card, message, Alert, Popconfirm, Input, Tag } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { HistoryEntry } from '../types';
 import { formatError } from '../utils/error';
 import SqlEditor from '../components/SqlEditor';
+import { CardSkeleton } from '../components/Skeleton';
 import { useDataSources } from '../queries/useDataSources';
 import { useExploreQuery } from '../queries/useExplorer';
 
@@ -676,10 +677,7 @@ export default function DataExplorer() {
       {/* 查询结果 */}
       {execute.isPending && (
         <Card>
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Spin />
-            <p>执行查询中...</p>
-          </div>
+          <CardSkeleton rows={6} />
         </Card>
       )}
 
@@ -700,7 +698,8 @@ export default function DataExplorer() {
               dataSource={execute.data.rows}
               rowKey={(record, idx) => resultRowKey(record, execute.data!.columns, idx)}
               size="small"
-              scroll={{ x: execute.data.columns.length * 150 }}
+              virtual
+              scroll={{ x: execute.data.columns.length * 150, y: 500 }}
               pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => '共 ' + t + ' 条' }}
             />
           )}
