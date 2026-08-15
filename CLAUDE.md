@@ -112,6 +112,8 @@ docker compose down
 
 ### 数据库迁移（Alembic）
 
+批 5 起改用 Alembic 正式管理 schema。Web 进程启动时 lifespan 自动跑 `alembic upgrade head`，**不要再手动 `create_all`**。`ensure_columns()` 已废弃。
+
 ```bash
 cd backend
 source .venv/bin/activate
@@ -124,7 +126,18 @@ python -m alembic upgrade head
 
 # 查看当前版本
 python -m alembic current
+
+# 回滚一个版本（罕见）
+python -m alembic downgrade -1
 ```
+
+迁移工作流：
+1. 改 `app/models/*.py` 后跑 `python -m alembic revision --autogenerate -m "..."`
+2. 检查生成的 `alembic/versions/*.py`，autogenerate 有时会漏 server_default / CHECK 约束
+3. `python -m alembic upgrade head` 本地验证（开发时），或直接重启 web 进程让 lifespan 跑
+4. 提交 migration + model 改动一起
+
+**注意**：`alembic/env.py` 不再 `fileConfig()` —— 那会清空 root logger handler，覆盖 lifespan 装的 request-id 格式和 pytest 的 caplog。
 
 ### 运行测试
 
@@ -174,7 +187,7 @@ mypy app
 
 - `main.py` — FastAPI 入口。注册路由、配置 CORS、统一日志配置（`RotatingFileHandler` → `logs/app.log`）。启动时创建 SQLAlchemy 表 + 补齐缺失列。默认 `SCHEDULER_DISABLED=true` 不启动调度器。
 - `crypto.py` — Fernet 对称加密工具，用于数据源密码的静态加密存储。解密时自动识别存量明文（向后兼容）。
-- `db_migrations.py` — `ensure_columns(engine)` 启动期补齐 SQLAlchemy MetaData 中已声明、但 DB 中尚未存在的列（`create_all` 只建表不补列）。
+- `db_migrations.py` — `ensure_columns(engine)` 仍保留为可复用 library 函数（有单测覆盖），但 **web 进程 lifespan 不再调用它**——Alembic 接管 schema 演进。
 - `scheduler_runner.py` — Sidecar 进程入口（`python -m app.scheduler_runner`）。独占 APScheduler tick 循环，配合 web 进程的 `SCHEDULER_DISABLED=true` 解决 `gunicorn -w N` 下 job 跑 N 次的问题。
 - `config.py` — 基于 Pydantic-settings 的配置，从 `backend/.env` 加载。
 - `database.py` — 元数据库的 SQLAlchemy engine/session 设置。对非 SQLite 数据库启用 `pool_pre_ping`。

@@ -1,5 +1,3 @@
-from logging.config import fileConfig
-
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
@@ -19,8 +17,13 @@ from app.models import user  # noqa: F401
 # Alembic Config object
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Note: we intentionally do NOT call ``logging.config.fileConfig`` here.
+# The alembic.ini [loggers] section replaces root-logger handlers on
+# load, which clobbers the FastAPI lifespan's request-id log factory
+# and pytest's ``caplog`` handler. The web process configures its own
+# logging in ``app.main._configure_logging`` (called from lifespan);
+# CLI runs (``alembic upgrade head``) inherit the user's shell
+# logging config, which is fine for one-off DB work.
 
 # Set the database URL dynamically from our app config
 config.set_main_option("sqlalchemy.url", settings.database_url)

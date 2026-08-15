@@ -6,14 +6,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+from alembic import command as alembic_command
 from app.config import settings
-from app.database import Base, SessionLocal, engine
-from app.db_migrations import ensure_columns
+from app.database import SessionLocal
 from app.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.middleware.request_id import RequestIDMiddleware, install_request_id_log_factory
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -33,6 +34,7 @@ from app.services.scheduler import get_scheduler
 # ---------------------------------------------------------------------------
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 
 def _configure_logging() -> None:
@@ -61,15 +63,10 @@ def _configure_logging() -> None:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Database bootstrap
+# Static assets
 # ---------------------------------------------------------------------------
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-
-Base.metadata.create_all(bind=engine)
-# Backfill any columns added to models after the table was first created;
-# create_all only creates missing tables, never missing columns.
-ensure_columns(engine)
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +103,27 @@ def _seed_admin_user() -> None:
         db.close()
 
 
+def _run_migrations() -> None:
+    """Apply Alembic migrations to ``settings.database_url``.
+
+    Replaces the old module-level ``Base.metadata.create_all`` +
+    ``ensure_columns`` dance. Running through Alembic gives us a real
+    migration history (so future schema changes have upgrade/downgrade
+    scripts) and removes the silent "create tables but not columns"
+    footgun of ``create_all``.
+
+    Idempotent — calling against a database already at head is a no-op
+    (Alembic short-circuits on the version table match).
+    """
+    cfg = AlembicConfig(str(ALEMBIC_INI))
+    # env.py reads settings.database_url itself, but be explicit so
+    # future test fixtures that swap the URL via monkeypatch keep
+    # working without re-importing alembic internals.
+    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    alembic_command.upgrade(cfg, "head")
+    logger.info("Alembic migrations applied")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
@@ -121,6 +139,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.sentry_environment or "unset",
             settings.sentry_traces_sample_rate,
         )
+    # Schema migrations first — admin seed and scheduler sync both
+    # query tables that must exist.
+    _run_migrations()
     _seed_admin_user()
     if settings.scheduler_disabled:
         logger.info(

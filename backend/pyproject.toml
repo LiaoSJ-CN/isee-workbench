@@ -19,6 +19,7 @@ dependencies = [
     "sqlglot>=25.0.0",
     "bcrypt>=4.1.0",
     "sentry-sdk[fastapi]>=2.0.0",
+    "alembic>=1.13.0",
 ]
 
 [project.optional-dependencies]
