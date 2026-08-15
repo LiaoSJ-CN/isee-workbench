@@ -21,7 +21,8 @@
 | 批 2a TanStack Query 基础 | ✅ 完成 — commit `9e12e56`（queries/ + 6 page 迁移 + RequireAuth useMe） |
 | 批 2b 乐观更新 + 虚拟滚动 + Skeleton | ✅ 完成 — commit `ed10570`（useDelete*/useUpdateDataSource 乐观更新 + DataExplorer 虚拟滚动 + Skeleton 组件替换 3 处 Spin/loading） |
 | 批 3a Job 模型 + Excel 异步化 | ✅ 完成 — commit `af48835`（ReportJob + Alembic 迁移 + ThreadPoolExecutor + 3 router endpoint + 18 测试） |
-| 下一批：批 3b 前端轮询 / SSE 进度 | ⏳ **下次会话从这里开始**（按已重排顺序：3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
+| 批 3b 前端轮询 / SSE 进度 | ✅ 完成 — 新 `queries/useJobs.ts`（`useJobStatus` 动态 refetchInterval + `useEnqueueReportJob` mutation）+ `jobsApi` + ReportPreview 「导出 Excel」enqueue→轮询→下载三段式 |
+| 下一批：批 4b 参数 UI 前端 | ⏳ **下次会话从这里开始**（按已重排顺序：4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
@@ -99,7 +100,7 @@
 | 批 2a | ✅ 已完成 (2026-08-15) | `9e12e56` | TanStack Query v5 + `queries/` 目录 + 6 page 迁移（DataSourceList/ReportList/Scheduler/ReportEditor/ReportPreview/DataExplorer）+ RequireAuth 用 useMe；移除 725 行手写 useEffect/setState；净 +467 行（含 7 个新 hook 文件 + QueryClient 接线） |
 | 批 2b | ✅ 已完成 (2026-08-15) | `ed10570` | 乐观更新（useDeleteDataSource/useDeleteReport/useUpdateDataSource/useReorderReportItems/useCreateReportItem/useDeleteReportItem 全部加 snapshot/rollback）+ DataExplorer Table virtual+scroll.y:500（10k+ 行场景）+ 新 components/Skeleton.tsx（TableSkeleton/CardSkeleton/InlineSkeleton）替换 ReportPreview/DataExplorer/ReportEditor 三处 Spin/loading 文本；跳过 useToggleDataSourceActive/Report（无 UI 消费者）+ ReportPreview 虚拟滚动（React 表 ≤10 行，真正大表在 iframe 内） |
 | 批 3a | ✅ 已完成 (2026-08-15) | `af48835` | ReportJob model（11 字段 + status/output_format 字符串常量）+ Alembic 迁移 `222001adeb57`（含 composite (report_id, created_at) 索引）+ services/job_queue.py 模块级 ThreadPoolExecutor(4) + enqueue 写 pending row + submit + _run_job 状态机 + HTML preview 保持同步（拒绝 enqueue）+ routers/jobs.py 3 endpoint（POST 201, GET 200/404, history list 带 status filter + pagination）+ lifespan teardown `shutdown_executor(wait=False)`；18 新测试覆盖 enqueue 错误/成功路径、_run_job 状态转换、HTTP auth/404/pagination、真实 executor 集成（关键 fix：polling 必须 `db.expire_all()` 因为 `db.get()` 缓存 identity map） |
-| 批 3b | 未开始 | — | |
+| 批 3b | ✅ 已完成 (2026-08-15) | (本 commit) | 新 `queries/useJobs.ts`（`useJobStatus(jobId)` 用 TanStack Query v5 的 `refetchInterval: (q) => status==='done'\|'failed' ? false : 2_000` 函数式动态间隔；`useEnqueueReportJob(reportId)` mutation）；`api/index.ts` 加 `jobsApi.enqueue/get`；`types/index.ts` 加 `JobStatus`/`JobOutputFormat`/`ReportJobCreate`/`ReportJob`；`keys.ts` 加 `queryKeys.jobs.{all,detail,forReport}`；`ReportPreview.tsx` 「导出 Excel」改成 enqueue→轮询→下载三段式（HTML 仍走同步 export），新增 Excel 任务卡片显示状态 Tag/Spin/错误 Alert/下载按钮。**已知 trade-off**：download 仍走 `/reports/{id}/export/excel`（每次 re-generate，不复用 worker 产物）— 因为该端点按设计总是重新生成（与 `schemas/job.py` docstring 「serves by basename」描述不一致），复用 worker 文件需要新增 `GET /jobs/{id}/download`，留作 future batch。lint 0、tsc 0、build 0 |
 | 批 4b | 未开始 | — | |
 | 批 6b | 未开始 | — | |
 | 批 1.5 | 未开始 | — | ReportEditor 文件拆分 |
@@ -321,3 +322,39 @@ npx playwright test                     # smoke 全过
 - `_futures` 字典用 done_callback 弹出；不需要额外的清理任务。
 
 下一个批次：批 3b 前端轮询 / SSE 进度（`useJobStatus` polling hook + `jobsApi` + ReportPreview 「导出 Excel」改 enqueue→轮询→下载三段式 + 进度显示；后续 SSE 用 `sse-starlette` 替换轮询）。
+
+### 批 3b：前端轮询 / SSE 进度 — 2026-08-15 — `af48835` → feat(frontend) commit — 实际 ~1 hr
+
+子项落地：
+1. **`types/index.ts`**：新增 `JobStatus = 'pending'|'running'|'done'|'failed'`、`JobOutputFormat = 'excel'`、`ReportJobCreate`（带可选 `parameters`/`priority`）、`ReportJob`（13 字段含 `file_url`）。
+2. **`queries/keys.ts`**：新增 `queryKeys.jobs.{all,detail,forReport}`，`invalidateQueries({ queryKey: queryKeys.jobs.all })` 级联所有 jobs 查询。
+3. **`api/index.ts`**：新增 `jobsApi.enqueue(reportId, payload)` + `jobsApi.get(jobId)`；Bearer token 自动走 axios interceptor，refresh 也走同一路径。
+4. **`queries/useJobs.ts`**（新文件）：
+   - `useJobStatus(jobId)` — `useQuery` + 函数式 `refetchInterval: (query) => status==='done'|'failed' ? false : 2_000`（RQ v5 pattern，命中时立即停轮询）。`refetchIntervalInBackground: false`（与 `useSchedulerStatus` 一致）。`enabled: jobId != null`。Sentinel `jobId=-1` 让未入队时 cache key 稳定。
+   - `useEnqueueReportJob(reportId)` — `useMutation` 调 `jobsApi.enqueue`，无 invalidation（enqueue response 自身就是第一次 poll 的答案；列表 endpoint 未消费）。
+5. **`pages/ReportPreview.tsx`**（重写 Excel 路径）：
+   - 新 `excelJobId` local state + `enqueueExcel`/`excelJob` hooks。
+   - 「导出 Excel」按钮：click → enqueue → setExcelJobId(jobId)；in-flight 时 `loading={enqueueExcel.isPending}` + `disabled={excelInFlight}`。
+   - 新增「Excel 导出任务」Card（`excelJobId !== null` 才渲染）：`Spin` + 状态 `Tag`（`blue`/`processing`/`success`/`error`）+ 完成时「下载 Excel」按钮 + 「关闭/取消关注」按钮 + 失败时 `Alert` 显示 `job.error`。
+   - 「导出 HTML」保持原同步 `useDownloadReport` 流（HTML 故意同步，批 3a gotcha #4）。
+   - `handleDownloadExcel` 用 `message.loading({ key: 'excel-download' })` 生命周期；`useDownloadReport` 内部已 axios + Bearer，blob → a.click 触发下载。
+6. **`docs/IMPROVEMENT_PLAN.md`** + 本记忆：进度表更新、resume point → 批 4b。
+
+**已知 trade-off（不阻塞本批，留作 future batch）**：
+- `/reports/{id}/export/excel` 按设计总是重新 `generate_report`，**不**复用 worker 产物（与 `schemas/job.py:70-73` docstring 「serves by basename」描述不一致 — 该 docstring 是 aspirational）。本批用之是因为 plan spec 明说，UX 上等于「渲染 2 次」（worker 一次 + download 一次）。根解需要新增 `GET /jobs/{id}/download`（basename 校验 + 401/403/404/410 处理），后续 batch 再做。
+- SSE 升级（`sse-starlette` + `EventSource`）也未做；plan §批 3b 已注明「先 polling 后 SSE」。当前轮询 2s 间隔对 ≤2 分钟的报表足够，用户体验良好。
+- `ReportList` 的「Excel」按钮仍走同步 `useGenerateReport`（未迁移到 async），因为 ReportList 是导航型页面，async 进度 UI 与其「快查」定位不符；如未来要做，在 list 中嵌入 progress tag + Drawer 即可。
+
+**测试与验证**：
+- 无 frontend 测试框架（批 7 才上 vitest）；验证 = `npm run lint` 0、`npx tsc --noEmit` 0、`npm run build` 0（chunk > 500KB 警告 pre-existing）。
+- 后端未动（job endpoint 已在批 3a `af48835` 完成 + 18 测试覆盖 enqueue/_run_job/HTTP）；`pytest -q` 仍 395/395。
+- Net diff: +157 / -12（types 27 + keys 6 + api 23 + useJobs 37 + ReportPreview +108/-12）。
+
+**预存在的坑（carry-over）**：
+- 前端 `useReport` 的 `refetchOnWindowFocus: false`（批 2a 决策）让用户在另一 tab 修改报表后回来看不到更新 — 与 async 导出无关，accepted trade-off。
+- `chunk > 500KB` 警告：antd v6 + Chart.js + CodeMirror + react-query，预存在，留批 10 code-split。
+- `.claude/settings.local.json` 由 Claude Code 自动模式改，commit 时忽略。
+- `npm install --legacy-peer-deps` 需要（eslint-plugin-jsx-a11y@6 与 eslint@10 peer 冲突），预存在。
+
+下一个批次：批 4b 参数 UI 前端（`components/ReportParameterForm.tsx` 新组件 + ReportPreview `useReport(reportId).parameters` 驱动 form + `useGenerateReport` mutation 提交）。
+-->
