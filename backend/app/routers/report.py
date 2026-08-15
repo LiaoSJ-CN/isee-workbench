@@ -6,12 +6,15 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
+from app.models.report_parameter import ReportParameter
 from app.schemas.report import (
     ReportCreate,
     ReportDetailResponse,
@@ -23,6 +26,12 @@ from app.schemas.report import (
     ReportItemUpdate,
     ReportUpdate,
 )
+from app.schemas.report_parameter import (
+    ReportParameterCreate,
+    ReportParameterResponse,
+    ReportParameterUpdate,
+)
+from app.services.parameter_validator import ParameterValidationError, validate_parameters
 from app.services.report_generator import ReportGeneratorError, generate_report
 
 router = APIRouter(
@@ -257,11 +266,26 @@ def generate_report_endpoint(
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
+    # Validate caller-supplied parameters against the report's declared
+    # parameter spec before kicking off the SQL pipeline. Unknown keys,
+    # missing required values, type mismatches, and out-of-range enums all
+    # surface here as a 400 with a precise message — cheaper than letting
+    # them reach the SQL validator and fail in an opaque way.
+    try:
+        validated_params = validate_parameters(
+            spec=list(report.parameters), values=request.parameters
+        )
+    except ParameterValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
     try:
         result = generate_report(
             report=report,
             output_format=request.output_format,
-            parameters=request.parameters,
+            parameters=validated_params,
             db=db,
         )
         # result may include an `errors` dict; pull it out so it goes into
@@ -356,3 +380,140 @@ def export_report(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+# ---- Report Parameter Endpoints ----
+
+
+@router.post(
+    "/{report_id}/parameters",
+    response_model=ReportParameterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_report_parameter(
+    report_id: int,
+    payload: ReportParameterCreate,
+    db: Session = Depends(get_db),
+) -> ReportParameter:
+    """Add a typed parameter declaration to a report.
+
+    ``order_index`` is auto-assigned to ``last + 1`` if omitted, so the
+    common "append a parameter" UI flow doesn't have to know about
+    existing positions.
+    """
+    if not db.query(Report).filter(Report.id == report_id).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    data = payload.model_dump()
+    if data.get("order_index", 0) == 0:
+        last = (
+            db.query(func.max(ReportParameter.order_index))
+            .filter(ReportParameter.report_id == report_id)
+            .scalar()
+        )
+        data["order_index"] = (last or 0) + 1
+
+    param = ReportParameter(report_id=report_id, **data)
+    db.add(param)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Parameter {data['name']!r} already exists for this report",
+        ) from exc
+    db.refresh(param)
+    return param
+
+
+@router.get(
+    "/{report_id}/parameters",
+    response_model=list[ReportParameterResponse],
+)
+def list_report_parameters(
+    report_id: int, db: Session = Depends(get_db)
+) -> list[ReportParameter]:
+    """List a report's parameter declarations, ordered by ``order_index``.
+
+    Used by the frontend (batch 4b) to render the parameter input form
+    before calling ``POST /reports/generate``.
+    """
+    if not db.query(Report).filter(Report.id == report_id).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    return (
+        db.query(ReportParameter)
+        .filter(ReportParameter.report_id == report_id)
+        .order_by(ReportParameter.order_index)
+        .all()
+    )
+
+
+@router.put(
+    "/{report_id}/parameters/{param_id}",
+    response_model=ReportParameterResponse,
+)
+def update_report_parameter(
+    report_id: int,
+    param_id: int,
+    payload: ReportParameterUpdate,
+    db: Session = Depends(get_db),
+) -> ReportParameter:
+    """Update a report parameter. All fields are optional; the existing
+    ``type`` is preserved unless explicitly changed."""
+    param = (
+        db.query(ReportParameter)
+        .filter(
+            ReportParameter.id == param_id,
+            ReportParameter.report_id == report_id,
+        )
+        .first()
+    )
+    if not param:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report parameter not found"
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(param, field, value)
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Parameter name conflicts with an existing parameter on this report",
+        ) from exc
+    db.refresh(param)
+    return param
+
+
+@router.delete(
+    "/{report_id}/parameters/{param_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_report_parameter(
+    report_id: int,
+    param_id: int,
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete a report parameter declaration."""
+    param = (
+        db.query(ReportParameter)
+        .filter(
+            ReportParameter.id == param_id,
+            ReportParameter.report_id == report_id,
+        )
+        .first()
+    )
+    if not param:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report parameter not found"
+        )
+
+    db.delete(param)
+    db.commit()
+    return None

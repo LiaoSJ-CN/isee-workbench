@@ -10,6 +10,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.data_source import DataSource
+    from app.models.report_parameter import ReportParameter
 
 
 class Report(Base):
@@ -47,6 +48,12 @@ class Report(Base):
         back_populates="report",
         cascade="all, delete-orphan",
         order_by="ReportItem.order_index",
+    )
+    parameters: Mapped[list["ReportParameter"]] = relationship(
+        "ReportParameter",
+        back_populates="report",
+        cascade="all, delete-orphan",
+        order_by="ReportParameter.order_index",
     )
 
     def __repr__(self) -> str:
