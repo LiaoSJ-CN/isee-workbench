@@ -12,7 +12,7 @@
 |---|---|
 | 批 0 重验证 | ✅ 完成 — pytest 315/315、ruff 0、mypy 0、eslint 0、tsc 0、vite build 0 |
 | 批 1 Quick wins | ✅ 完成 — commit `d55955a` |
-| 批 6a request-id + Sentry | ✅ 完成 — commit `<即将填入>`（X-Request-ID 端到端回显 + 25 新测试） |
+| 批 6a request-id + Sentry | ✅ 完成 — commit `76035b9`（X-Request-ID 端到端回显 + 25 新测试） |
 | 下一批：批 5 后端重构 | ⏳ **下次会话从这里开始**（按已重排顺序：5 → 4a → 2a → 2b → 3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
