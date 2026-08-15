@@ -266,9 +266,14 @@ mypy app
 | `ENCRYPTION_KEY` | (自动生成) | 数据源密码加密密钥（**生产必设，否则重启后已存密码不可读**） |
 | `LOGIN_RATE_LIMIT` | `10` | 每 IP 每分钟最大登录尝试次数 |
 | `LOG_LEVEL` | `INFO` | 日志级别（DEBUG/INFO/WARNING/ERROR） |
+| `SENTRY_DSN` | (空) | 后端 Sentry DSN。空 = 禁用。设置后自动 init，自动给每个事件打 `request_id` tag |
+| `SENTRY_ENVIRONMENT` | (空) | Sentry 环境标签，如 `production`/`staging`。空 = Sentry 默认 `development` |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | 性能追踪采样率（0.0-1.0）。0 = 禁用 |
 | `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
 | `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
 | `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
+
+前端 Sentry 通过 `VITE_SENTRY_DSN` / `VITE_SENTRY_ENVIRONMENT` / `VITE_SENTRY_TRACES_SAMPLE_RATE`（`frontend/.env` 或构建时变量）配置；空 DSN = 禁用，bundle 零开销。
 
 示例 `backend/.env`：
 

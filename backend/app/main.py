@@ -15,7 +15,9 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.db_migrations import ensure_columns
 from app.middleware.proxy_headers import ProxyHeadersMiddleware
+from app.middleware.request_id import RequestIDMiddleware, install_request_id_log_factory
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.middleware.sentry import init_sentry
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
@@ -42,7 +44,7 @@ def _configure_logging() -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s [%(request_id)s]: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
         handlers=[
             logging.StreamHandler(),
@@ -108,6 +110,17 @@ def _seed_admin_user() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
     _configure_logging()
+    # Inject ``request_id`` onto every LogRecord so log lines emitted
+    # during request handling can be correlated with the response's
+    # ``X-Request-ID`` header. Must run after ``_configure_logging``
+    # (which installs its own factory) so we wrap it.
+    install_request_id_log_factory()
+    if init_sentry():
+        logger.info(
+            "Sentry initialized (environment=%s, traces_sample_rate=%s)",
+            settings.sentry_environment or "unset",
+            settings.sentry_traces_sample_rate,
+        )
     _seed_admin_user()
     if settings.scheduler_disabled:
         logger.info(
@@ -140,6 +153,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+
+# Outermost middleware: stamp every request with X-Request-ID and
+# expose it via the request_id contextvar so downstream middleware,
+# route handlers, and the logging factory all see it.
+app.add_middleware(RequestIDMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

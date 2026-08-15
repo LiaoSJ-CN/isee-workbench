@@ -115,6 +115,21 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = "INFO"
 
+    # --- Sentry (批 6a) ---
+    # Empty by default (local dev). Set to a DSN like
+    # ``https://<key>@o<org>.ingest.sentry.io/<project>`` to enable.
+    # When set, ``init_sentry()`` runs at lifespan startup and the
+    # ``RequestIDMiddleware`` propagates ``X-Request-ID`` onto every
+    # Sentry event as a tag.
+    sentry_dsn: str = ""
+    # Sentry environment tag — e.g. "production", "staging". Empty
+    # defaults to "development" inside the SDK.
+    sentry_environment: str = ""
+    # Fraction of requests to capture as performance transactions.
+    # 0.0 (default) disables tracing; 1.0 captures all. 0.1 is a typical
+    # production sample rate.
+    sentry_traces_sample_rate: float = 0.0
+
 
 class ConfigurationError(RuntimeError):
     """Fatal configuration error — app cannot start safely."""

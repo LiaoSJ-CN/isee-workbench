@@ -6,21 +6,21 @@
 
 ## 🔖 会话断点 / Resume Point
 
-**最后会话（2026-08-13）：**
+**最后会话（2026-08-15）：**
 
 | 项 | 状态 |
 |---|---|
 | 批 0 重验证 | ✅ 完成 — pytest 315/315、ruff 0、mypy 0、eslint 0、tsc 0、vite build 0 |
 | 批 1 Quick wins | ✅ 完成 — commit `d55955a` |
-| 批 6a request-id + Sentry | ⏳ **下次会话从这里开始** |
-| 其余批次 | ⏸ 未开始 |
+| 批 6a request-id + Sentry | ✅ 完成 — commit `<即将填入>`（X-Request-ID 端到端回显 + 25 新测试） |
+| 下一批：批 5 后端重构 | ⏳ **下次会话从这里开始**（按已重排顺序：5 → 4a → 2a → 2b → 3a → 3b → 4b → 6b → 1.5 → 7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
 2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 6a」章节
-4. 建 TaskCreate 覆盖批 6a 子项，开始干
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 5」章节
+4. 建 TaskCreate 覆盖批 5 子项（Alembic 正式启用 + 拆 report_generator + lifespan 改写 + get_current_user 返回 User + 分页），开始干
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
