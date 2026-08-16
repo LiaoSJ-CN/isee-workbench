@@ -1,5 +1,23 @@
 // API Types matching backend Pydantic schemas
 
+/** Schema-browser response shape — GET /data-sources/{id}/schema. */
+export interface ColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  description?: string | null;
+}
+
+export interface TableInfo {
+  name: string;
+  schema_name?: string | null;
+  columns: ColumnInfo[];
+}
+
+export interface DataSourceSchema {
+  tables: TableInfo[];
+}
+
 export interface DataSource {
   id: number;
   name: string;

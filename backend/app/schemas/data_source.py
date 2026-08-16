@@ -65,3 +65,28 @@ class DataSourceResponse(DataSourceBase):
     id: int
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class ColumnInfo(BaseModel):
+    """One column of a database table — returned by the schema browser endpoint."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    type: str = Field(..., min_length=1, max_length=255)
+    nullable: bool
+    description: str | None = None
+
+
+class TableInfo(BaseModel):
+    """One table (or view) — groups its columns for the schema browser."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    name: str = Field(..., min_length=1, max_length=255)
+    schema_name: str | None = None
+    columns: list[ColumnInfo] = Field(default_factory=list)
+
+
+class DataSourceSchemaResponse(BaseModel):
+    """Top-level schema response — list of tables in the data source."""
+
+    tables: list[TableInfo]

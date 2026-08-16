@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { sql, SQLDialect } from '@codemirror/lang-sql';
@@ -45,7 +45,7 @@ function injectStyles() {
     .ͼ3 .ͼd { color: #f78c6c !important; }
     /* 注释 */
     .ͼ1 .ͼe { color: #6a737d !important; font-style: italic !important; }
-    .ͼ2 .ͼe { color: #6a737d !important; font-style: italic !important; }
+    .ͼ2 .ͼe { color: #676e95 !important; font-style: italic !important; }
     .ͼ3 .ͼe { color: #676e95 !important; font-style: italic !important; }
     /* 操作符 */
     .ͼ1 .ͼf { color: #d73a49 !important; }
@@ -55,6 +55,12 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
+/** Imperative handle exposed via ``ref`` — lets parents insert text at
+ * the cursor (used by the schema-browser sidebar). */
+export interface SqlEditorHandle {
+  insertAtCursor: (text: string) => void;
+}
+
 interface SqlEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -62,12 +68,10 @@ interface SqlEditorProps {
   height?: string;
 }
 
-export default function SqlEditor({
-  value,
-  onChange,
-  placeholder: placeholderText,
-  height = '200px',
-}: SqlEditorProps) {
+const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor(
+  { value, onChange, placeholder: placeholderText, height = '200px' },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
@@ -134,6 +138,24 @@ export default function SqlEditor({
     }
   }, [value]);
 
+  // Expose imperative API for parents (schema-browser insertion).
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertAtCursor: (text: string) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const sel = view.state.selection.main;
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: { anchor: sel.from + text.length },
+        });
+        view.focus();
+      },
+    }),
+    [],
+  );
+
   return (
     <div
       ref={containerRef}
@@ -144,4 +166,6 @@ export default function SqlEditor({
       }}
     />
   );
-}
+});
+
+export default SqlEditor;

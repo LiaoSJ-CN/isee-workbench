@@ -7,9 +7,18 @@ from app.crypto import encrypt as crypto_encrypt
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
-from app.schemas.data_source import DataSourceCreate, DataSourceResponse, DataSourceUpdate
+from app.schemas.data_source import (
+    DataSourceCreate,
+    DataSourceResponse,
+    DataSourceSchemaResponse,
+    DataSourceUpdate,
+)
 from app.services.connection import ConnectionError, test_connection
 from app.services.report_generator import evict_engine
+from app.services.schema_introspection import (
+    SchemaIntrospectionError,
+    introspect_schema,
+)
 
 router = APIRouter(
     prefix="/data-sources",
@@ -118,3 +127,34 @@ def test_data_source(source_id: int, db: Session = Depends(get_db)) -> dict[str,
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.get("/{source_id}/schema", response_model=DataSourceSchemaResponse)
+def get_data_source_schema(
+    source_id: int,
+    schema: str | None = Query(default=None, max_length=255),
+    db: Session = Depends(get_db),
+) -> DataSourceSchemaResponse:
+    """Introspect the data source's schema and return its tables + columns.
+
+    The frontend schema tree calls this when the user picks a data
+    source. Pass ``?schema=foo`` to override the configured schema;
+    otherwise the data source's ``schema_name`` is used (``"public"``
+    for Postgres-family, ``"main"`` for SQLite by default).
+    """
+    source = db.query(DataSource).filter(DataSource.id == source_id).first()
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found"
+        )
+
+    try:
+        tables = introspect_schema(source, schema_name=schema)
+    except SchemaIntrospectionError as exc:
+        # Upstream DB unreachable / permission denied / schema missing —
+        # surface as 502 because we're a proxy to it.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    return DataSourceSchemaResponse(tables=tables)

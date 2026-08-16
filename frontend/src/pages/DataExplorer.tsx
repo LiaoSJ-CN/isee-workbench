@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Table, Select, Button, Space, Card, message, Alert, Popconfirm, Input, Tag } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { Table, Select, Button, Space, Card, message, Alert, Popconfirm, Input, Tag, Layout } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { HistoryEntry } from '../types';
 import { formatError } from '../utils/error';
 import { csvEscape } from '../utils/csv';
-import SqlEditor from '../components/SqlEditor';
+import SqlEditor, { type SqlEditorHandle } from '../components/SqlEditor';
 import { CardSkeleton } from '../components/Skeleton';
+import { SchemaTree } from '../components/SchemaTree';
 import { useDataSources } from '../queries/useDataSources';
+import { useDataSourceSchema } from '../queries/useDataSourceSchema';
 import { useExploreQuery } from '../queries/useExplorer';
 
 const { Option } = Select;
+const { Sider, Content } = Layout;
 
 // SQL keyword list, longest-first so multi-word keywords (LEFT JOIN) match
 // before their prefixes (JOIN). Module-level: built once, not per call.
@@ -155,6 +158,12 @@ export default function DataExplorer() {
   // postgresql, opengauss, dws) — gives new users a friendly placeholder
   // instead of failing because the seed table isn't there.
   const [sql, setSql] = useState("SELECT '请编辑 SQL 后执行查询' AS hint, current_timestamp AS now");
+  // Schema-browser data: only fetched once a data source is picked.
+  // The hook internally disables itself when ``selectedDs`` is null.
+  const schemaQuery = useDataSourceSchema(selectedDs);
+  // SqlEditor imperative handle — lets the SchemaTree's double-click
+  // handler insert ``table.column`` at the current cursor position.
+  const sqlEditorRef = useRef<SqlEditorHandle>(null);
 
   // Template state — localStorage-backed, OUTSIDE React Query.
   const [templates, setTemplates] = useState<SavedTemplate[]>(() => loadTemplates());
@@ -489,8 +498,29 @@ export default function DataExplorer() {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
-      <h2 style={{ marginBottom: 16 }}>数据探索</h2>
+    <Layout style={{ minHeight: 'calc(100vh - 64px)', background: 'transparent' }}>
+      {/* Left rail: schema browser. 280px is wide enough for column
+          names + type strings (e.g. "timestamp NOT NULL") without
+          scrolling on a standard 1440px screen. */}
+      <Sider
+        width={280}
+        theme="light"
+        style={{ borderRight: '1px solid #f0f0f0', marginRight: 16 }}
+        aria-label="数据源 Schema"
+      >
+        <div style={{ padding: '12px 16px', fontWeight: 500, borderBottom: '1px solid #f0f0f0' }}>
+          Schema 浏览器
+        </div>
+        <SchemaTree
+          tables={schemaQuery.data?.tables ?? []}
+          loading={schemaQuery.isPending}
+          error={schemaQuery.error as Error | null}
+          onInsertColumn={(qualified) => sqlEditorRef.current?.insertAtCursor(qualified)}
+        />
+      </Sider>
+
+      <Content style={{ padding: '0 24px 24px 0' }}>
+        <h2 style={{ marginBottom: 16 }}>数据探索</h2>
 
       <Card style={{ marginBottom: 16 }}>
         {/* 数据源选择 */}
@@ -575,6 +605,7 @@ export default function DataExplorer() {
           </span>
           <div aria-label="SQL 编辑器">
             <SqlEditor
+              ref={sqlEditorRef}
               value={sql}
               onChange={handleSqlChange}
               height="180px"
@@ -706,6 +737,7 @@ export default function DataExplorer() {
           )}
         </Card>
       )}
-    </div>
+      </Content>
+    </Layout>
   );
 }

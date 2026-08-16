@@ -15,6 +15,11 @@ export const queryKeys = {
     list: () => [...queryKeys.dataSources.lists()] as const,
     detail: (id: number) =>
       [...queryKeys.dataSources.all, 'detail', id] as const,
+    // Schema-browser key: keyed by (id, schema) so different schema
+    // names don't collide in the cache. Schema is the user-supplied
+    // override or the data source's default ("public" / "main").
+    schema: (id: number, schema: string | undefined) =>
+      [...queryKeys.dataSources.all, 'schema', id, schema ?? '__default__'] as const,
   },
   reports: {
     all: ['reports'] as const,

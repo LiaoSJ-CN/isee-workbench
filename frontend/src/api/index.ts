@@ -2,6 +2,7 @@ import axios from 'axios';
 import type {
   DataSource,
   DataSourceCreate,
+  DataSourceSchema,
   QueryResult,
   Report,
   ReportCreate,
@@ -140,6 +141,18 @@ export const dataSourceApi = {
 
   test: async (id: number): Promise<{ success: boolean; version: string }> => {
     const { data } = await api.post(`/data-sources/${id}/test`);
+    return data;
+  },
+
+  /**
+   * Schema-browser endpoint — returns the list of user tables and
+   * their columns. Optional ``schema`` override targets a specific
+   * schema name (e.g. ``public`` for Postgres, ``main`` for SQLite).
+   */
+  schema: async (id: number, schema?: string): Promise<DataSourceSchema> => {
+    const { data } = await api.get(`/data-sources/${id}/schema`, {
+      params: schema ? { schema } : {},
+    });
     return data;
   },
 };
