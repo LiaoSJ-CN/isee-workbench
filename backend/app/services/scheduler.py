@@ -1,5 +1,6 @@
 """Scheduled task service for automatic report generation."""
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -18,8 +19,10 @@ from app.models.report import Report
 from app.schemas.notification import (
     DingTalkConfig,
     EmailConfig,
+    FeishuConfig,
     NotificationConfig,
     WebhookConfig,
+    WeChatWorkConfig,
 )
 from app.services.report_generator import generate_report
 from app.services.ssrf_guard import SSRFBlocked, create_webhook_client, validate_webhook_url
@@ -314,14 +317,20 @@ def _send_notification(
     pipeline — only the URL field name differs (``url`` vs
     ``webhook_url``). Email is logged-but-not-sent (sender TBD).
 
-    P4 hardening (SEC-4, SEC-8, SEC-14, PY-4) applies to both webhook
-    variants:
+    Feishu (批 8.4) and WeChat Work (批 8.4) go through their own
+    senders because each provider's signing protocol differs:
 
-    * Payload is HMAC-SHA256 signed (``X-Webhook-Signature``).
-    * Timestamp (``X-Webhook-Timestamp``) enables replay detection.
-    * ``files`` carries basenames only — no absolute paths.
+    * Feishu signs inside the JSON body (``timestamp`` + ``sign``)
+      using a string-as-key HMAC pattern.
+    * WeChat Work bot URLs authenticate via a ``key=`` query
+      parameter and don't sign at all.
+
+    P4 hardening (SEC-4, SEC-8, SEC-14, PY-4) applies to all
+    outbound variants:
+
+    * Payload carries basenames only — no absolute paths.
     * HTTPS-only in production (``webhook_https_only``).
-    * Connection is IP-pinned to the SSRF-validated address.
+    * SSRF guard resolves + IP-pins the destination.
     """
     if notification_config is None:
         return
@@ -338,15 +347,170 @@ def _send_notification(
             report=report,
             file_paths=file_paths,
         )
+    elif isinstance(notification_config, FeishuConfig):
+        _send_feishu(
+            webhook_url=str(notification_config.webhook_url),
+            secret=notification_config.secret,
+            report=report,
+            file_paths=file_paths,
+        )
+    elif isinstance(notification_config, WeChatWorkConfig):
+        _send_wechatwork(
+            webhook_url=str(notification_config.webhook_url),
+            report=report,
+            file_paths=file_paths,
+        )
     elif isinstance(notification_config, EmailConfig):
         logger.info(f"Email notification for report {report.id} (not implemented)")
     else:
         # Pydantic should make this unreachable — the union only has
-        # three variants. Log and bail rather than silently swallow.
+        # the documented variants. Log and bail rather than silently
+        # swallow.
         logger.error(
             "Unknown notification_config type for report %s: %r",
             report.id, notification_config,
         )
+
+
+def _feishu_signature(timestamp: str, secret: str) -> str:
+    """Compute Feishu's base64-encoded HMAC-SHA256 signature (批 8.4).
+
+    Feishu's protocol is unusual: it folds the timestamp + secret
+    into a single ``"\n"``-joined key, takes the digest of an empty
+    message, and base64-encodes the result. This shape doesn't fit
+    :func:`_sign_payload` (which signs ``timestamp.payload`` over
+    the JSON body), so it stays a separate helper.
+    """
+    string_to_sign = f"{timestamp}\n{secret}"
+    digest = hmac.new(
+        string_to_sign.encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).digest()
+    return base64.b64encode(digest).decode("utf-8")
+
+
+def _send_feishu(
+    webhook_url: str,
+    secret: str | None,
+    report: Report,
+    file_paths: list[str],
+) -> None:
+    """Feishu bot webhook delivery (批 8.4).
+
+    Same SSRF + HTTPS + IP-pinning guard as :func:`_send_webhook`,
+    but signing semantics differ: when ``secret`` is configured,
+    the signature lands *inside* the JSON body as ``timestamp`` /
+    ``sign`` keys. Feishu's protocol is documented at
+    https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot
+    — sign algorithm there has been stable since the feature's GA.
+
+    Payload shape (``msg_type: "text"`` keeps it dependency-free —
+    no rich-card rendering needed for a "report ready" notice).
+    """
+    if settings.webhook_https_only and not webhook_url.startswith("https://"):
+        scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
+        logger.error(
+            f"Refusing Feishu webhook for report {report.id}: "
+            f"HTTPS required but URL uses {scheme} scheme"
+        )
+        webhook_delivery_attempts_total.labels(outcome="https_required").inc()
+        return
+
+    try:
+        validate_webhook_url(webhook_url)
+    except SSRFBlocked as exc:
+        logger.error(
+            f"Refusing Feishu webhook for report {report.id}: "
+            f"URL blocked by SSRF guard: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
+        return
+
+    safe_files = [os.path.basename(p) for p in file_paths]
+    file_list = "\n".join(safe_files) if safe_files else "(no files)"
+    text = (
+        f"报表「{report.name}」已生成\n"
+        f"生成时间: {datetime.now(timezone.utc).isoformat()}\n"
+        f"文件:\n{file_list}"
+    )
+    payload: dict[str, Any] = {
+        "msg_type": "text",
+        "content": {"text": text},
+    }
+
+    if secret:
+        timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+        payload["timestamp"] = timestamp
+        payload["sign"] = _feishu_signature(timestamp, secret)
+
+    try:
+        client = create_webhook_client(webhook_url)
+        resp = client.post(webhook_url, json=payload)
+        resp.raise_for_status()
+        logger.info(f"Sent Feishu notification for report {report.id}")
+        webhook_delivery_attempts_total.labels(outcome="success").inc()
+    except Exception as exc:
+        logger.error(
+            f"Failed to send Feishu notification for report {report.id}: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="http_error").inc()
+
+
+def _send_wechatwork(
+    webhook_url: str,
+    report: Report,
+    file_paths: list[str],
+) -> None:
+    """WeChat Work bot webhook delivery (批 8.4).
+
+    Posts a plain ``msgtype: "markdown"`` envelope. WeChat Work
+    bots authenticate via the ``key=...`` query parameter set at
+    bot-creation time — we don't add any signing header or body
+    key. The receiver must accept that the URL itself is the
+    shared secret; this matches the documented behaviour for
+    legacy / non-encrypted bots.
+
+    Same SSRF + HTTPS + IP-pinning gates as the other senders.
+    """
+    if settings.webhook_https_only and not webhook_url.startswith("https://"):
+        scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
+        logger.error(
+            f"Refusing WeChat Work webhook for report {report.id}: "
+            f"HTTPS required but URL uses {scheme} scheme"
+        )
+        webhook_delivery_attempts_total.labels(outcome="https_required").inc()
+        return
+
+    try:
+        validate_webhook_url(webhook_url)
+    except SSRFBlocked as exc:
+        logger.error(
+            f"Refusing WeChat Work webhook for report {report.id}: "
+            f"URL blocked by SSRF guard: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
+        return
+
+    safe_files = [os.path.basename(p) for p in file_paths]
+    file_lines = "\n".join(f"- `{f}`" for f in safe_files) if safe_files else "_no files_"
+    content = (
+        f"**报表「{report.name}」已生成**\n"
+        f"> 生成时间: {datetime.now(timezone.utc).isoformat()}\n\n"
+        f"{file_lines}"
+    )
+    payload: dict[str, Any] = {"msgtype": "markdown", "markdown": {"content": content}}
+
+    try:
+        client = create_webhook_client(webhook_url)
+        resp = client.post(webhook_url, json=payload)
+        resp.raise_for_status()
+        logger.info(f"Sent WeChat Work notification for report {report.id}")
+        webhook_delivery_attempts_total.labels(outcome="success").inc()
+    except Exception as exc:
+        logger.error(
+            f"Failed to send WeChat Work notification for report {report.id}: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="http_error").inc()
 
 
 def _send_webhook(webhook_url: str, report: Report, file_paths: list[str]) -> None:
