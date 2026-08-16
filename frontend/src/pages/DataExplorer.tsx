@@ -4,6 +4,7 @@ import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, Delete
 import type { ColumnsType } from 'antd/es/table';
 import type { HistoryEntry } from '../types';
 import { formatError } from '../utils/error';
+import { csvEscape } from '../utils/csv';
 import SqlEditor from '../components/SqlEditor';
 import { CardSkeleton } from '../components/Skeleton';
 import { useDataSources } from '../queries/useDataSources';
@@ -394,10 +395,6 @@ export default function DataExplorer() {
     const r = execute.data;
     if (!r || !r.success || r.rows.length === 0) return;
     const headers = r.columns.join(',');
-    // RFC 4180: a field needs quoting if it contains the delimiter, a quote,
-    // a CR, or an LF. Quotes inside the field are escaped by doubling.
-    const csvEscape = (s: string): string =>
-      /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     const csvRows = r.rows.map((row) =>
       r.columns.map((col) => {
         const val = row[col];

@@ -98,3 +98,18 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm run build
+
+  frontend-test:
+    # vitest unit tests (happy-dom + RTL). Runs on the lint node matrix
+    # so it shares the npm ci cache; tests are ~1.6s on a warm cache.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
