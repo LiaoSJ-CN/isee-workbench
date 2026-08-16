@@ -1,32 +1,60 @@
 import { useState } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, EyeOutlined, ClockCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert, Card, Spin } from 'antd';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlayCircleOutlined,
+  EyeOutlined,
+  ClockCircleOutlined,
+  ExclamationCircleOutlined,
+  DownloadOutlined,
+  CloseCircleOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, ReportCreate } from '../types';
+import { jobsApi } from '../api';
 import { formatError } from '../utils/error';
 import {
   useCreateReport,
   useDeleteReport,
-  useDownloadReport,
-  useGenerateReport,
   useReports,
 } from '../queries/useReports';
 import { useDataSources } from '../queries/useDataSources';
+import { useJobStatus } from '../queries/useJobs';
+// We don't use `useEnqueueReportJob` here — see handleGenerateExcel.
 
 export default function ReportList() {
   const { data: reports = [], isPending } = useReports();
   const { data: dataSources = [] } = useDataSources();
   const createReport = useCreateReport();
   const deleteReport = useDeleteReport();
-  const generateReport = useGenerateReport();
-  const downloadReport = useDownloadReport();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm<ReportCreate>();
   const navigate = useNavigate();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+
+  // ---- Excel async export (批 8.5 / TODO-5) -----------------------------
+  // ReportList is a navigation page — the user clicks Excel and usually
+  // leaves. Following ReportPreview's pattern (批 3b + 批 8.5): enqueue →
+  // poll → on done, hit /jobs/{id}/download to fetch the worker's file
+  // without re-rendering. The in-flight job is surfaced as a card at the
+  // top so the user sees progress and can pick up the download when
+  // they come back.
+  //
+  // Single-slot state: if the user clicks Excel on row B while A is
+  // still in flight, A's card disappears (worker keeps running, but the
+  // UI loses the reference). That's the right trade-off for a list page
+  // — ReportPreview owns "I want to wait for this one", ReportList owns
+  // "fire-and-forget". The next batch can introduce a job-history
+  // drawer if real users hit this race.
+  const [excelJob, setExcelJob] = useState<{ jobId: number; report: Report } | null>(null);
+  const excelStatus = useJobStatus(excelJob?.jobId ?? null);
+  const [enqueuing, setEnqueuing] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
 
   const handleCreate = () => {
     form.resetFields();
@@ -87,26 +115,43 @@ export default function ReportList() {
     });
   };
 
-  const handleGenerate = (report: Report, format: 'excel' | 'html') => {
-    message.loading({ content: '正在生成报表...', key: 'export' });
-    generateReport.mutate(
-      { reportId: report.id, outputFormat: format },
-      {
-        onSuccess: async () => {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
-          const filename = `${report.name}_${timestamp}.${format}`;
-          try {
-            await downloadReport.mutateAsync({ reportId: report.id, format, filename });
-            message.success({ content: `${format.toUpperCase()} 下载成功`, key: 'export' });
-          } catch (err) {
-            message.error({ content: formatError(err, '下载失败'), key: 'export' });
-          }
-        },
-        onError: (err) => {
-          message.error({ content: formatError(err, '生成失败'), key: 'export' });
-        },
-      },
-    );
+  const handleGenerateExcel = async (report: Report) => {
+    message.loading({ content: '正在提交导出任务…', key: 'export' });
+    setEnqueuing(true);
+    try {
+      // Direct API call rather than `useEnqueueReportJob`: that hook
+      // captures `reportId` in its mutationFn closure, which would be
+      // null on the first click (we don't know the id until the server
+      // returns it). Calling `jobsApi.enqueue` with the explicit
+      // `report.id` sidesteps the closure problem and keeps the
+      // loading flag local to this component.
+      const job = await jobsApi.enqueue(report.id, { parameters: {} });
+      setExcelJob({ jobId: job.id, report });
+      message.success({ content: `「${report.name}」导出任务已提交`, key: 'export' });
+    } catch (err) {
+      message.error({ content: formatError(err, '导出任务提交失败'), key: 'export' });
+    } finally {
+      setEnqueuing(false);
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    if (!excelJob) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
+    const filename = `${excelJob.report.name}_${timestamp}.xlsx`;
+    message.loading({ content: '正在准备下载…', key: 'export' });
+    setDownloadingExcel(true);
+    try {
+      await jobsApi.download(excelJob.jobId, filename);
+      message.success({ content: 'Excel 下载成功', key: 'export' });
+      // Slot is freed; next click starts a new job. Keep the row's
+      // Excel button usable again immediately.
+      setExcelJob(null);
+    } catch (err) {
+      message.error({ content: formatError(err, '下载失败'), key: 'export' });
+    } finally {
+      setDownloadingExcel(false);
+    }
   };
 
   const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
@@ -173,24 +218,40 @@ export default function ReportList() {
       title: '操作',
       key: 'action',
       width: 280,
-      render: (_, record) => (
-        <Space size="small">
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/reports/${record.id}`)}>
-            编辑
-          </Button>
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/reports/${record.id}/preview`)}>
-            预览
-          </Button>
-          <Button type="link" size="small" icon={<PlayCircleOutlined />} onClick={() => handleGenerate(record, 'excel')}>
-            Excel
-          </Button>
-          <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
+      render: (_, record) => {
+        // If this row's report is the one currently in-flight, disable
+        // the button and show a spinner — the user's already waiting on
+        // it (the top card shows status).
+        const inFlight =
+          excelJob?.report.id === record.id &&
+          (excelStatus.data?.status === 'pending' ||
+            excelStatus.data?.status === 'running');
+        return (
+          <Space size="small">
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/reports/${record.id}`)}>
+              编辑
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/reports/${record.id}/preview`)}>
+              预览
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<PlayCircleOutlined />}
+              loading={enqueuing && excelJob?.report.id === record.id}
+              disabled={inFlight}
+              onClick={() => handleGenerateExcel(record)}
+            >
+              Excel
+            </Button>
+            <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -215,6 +276,50 @@ export default function ReportList() {
           </Button>
         </Space>
       </div>
+
+      {excelJob && (
+        <Card size="small" style={{ marginBottom: 16 }} title={`Excel 导出任务 — ${excelJob.report.name}`}>
+          <Space size="middle" align="center">
+            {(excelStatus.data?.status === 'pending' || excelStatus.data?.status === 'running') && (
+              <Spin size="small" />
+            )}
+            {excelStatus.data?.status === 'pending' && <Tag color="blue">排队中</Tag>}
+            {excelStatus.data?.status === 'running' && <Tag color="processing">执行中</Tag>}
+            {excelStatus.data?.status === 'done' && <Tag color="success">已完成</Tag>}
+            {excelStatus.data?.status === 'failed' && <Tag color="error">失败</Tag>}
+            {!excelStatus.data && <Tag>初始化</Tag>}
+            {excelStatus.data?.status === 'done' && (
+              <Button
+                type="primary"
+                size="small"
+                icon={<DownloadOutlined />}
+                loading={downloadingExcel}
+                onClick={handleDownloadExcel}
+              >
+                下载 Excel
+              </Button>
+            )}
+            <Button
+              size="small"
+              icon={<CloseCircleOutlined />}
+              onClick={() => setExcelJob(null)}
+            >
+              {excelStatus.data?.status === 'done' || excelStatus.data?.status === 'failed'
+                ? '关闭'
+                : '取消关注'}
+            </Button>
+          </Space>
+          {excelStatus.data?.status === 'failed' && excelStatus.data?.error && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="导出失败"
+              description={excelStatus.data.error}
+            />
+          )}
+        </Card>
+      )}
 
       <Table
         columns={columns}

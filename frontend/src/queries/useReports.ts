@@ -270,20 +270,6 @@ export function useReorderReportItems(reportId: number) {
 
 // ----- Generation / download -----
 
-export function useGenerateReport() {
-  return useMutation({
-    mutationFn: ({
-      reportId,
-      outputFormat,
-      parameters,
-    }: {
-      reportId: number;
-      outputFormat: 'excel' | 'html';
-      parameters?: Record<string, unknown>;
-    }) => reportApi.generate(reportId, outputFormat, parameters),
-  });
-}
-
 export function useDownloadReport() {
   return useMutation({
     mutationFn: ({
