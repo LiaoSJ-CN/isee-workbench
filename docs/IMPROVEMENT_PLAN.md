@@ -6,7 +6,7 @@
 
 ## 🔖 会话断点 / Resume Point
 
-**最后会话（2026-08-15）：**
+**最后会话（2026-08-16）：**
 
 | 项 | 状态 |
 |---|---|
@@ -25,14 +25,22 @@
 | 批 4b 参数 UI 前端 | ✅ 完成 — 新 `components/ReportParameterForm.tsx`（按 type 渲染 5 种输入：Input/InputNumber/DatePicker/Select/Switch）+ `ReportEditor` 「参数」Tab CRUD UI（Table + ParameterEditorModal） |
 | 批 6b Prometheus + 限流 + CSRF + NotificationConfig | ✅ 完成 — Prometheus `/metrics` + 4 自定义指标 + `/explorer/query` 30/min/IP + `/reports/generate`+`/reports/{id}/jobs` 10/min/IP + `CSRFMiddleware` (Origin 白名单) + `NotificationConfig` 3-variant 判别联合 |
 | 批 1.5 ReportEditor 文件拆分 | ✅ 完成 — commit `baad103` + 修复 TODO-1 `html.escape(None)` 崩溃（commit `426dfa4`）。`pages/ReportEditor.tsx` (1043 行) → `pages/ReportEditor/{index, SortableItem, ItemEditorModal, ParameterEditorModal, ConfigTab, ItemsTab, ParametersTab}.tsx` (7 文件) |
-| 下一批：批 7 测试 + DX（vitest + e2e） | ⏳ **下次会话从这里开始**（按已重排顺序：7 → 8 → 9 → 10） |
+| 批 7.1 vitest + RTL setup | ✅ 完成 — commit `3c6e867`（vitest@^4 + happy-dom + 29 unit tests + 提取 csvEscape） |
+| 批 7.2 pytest-cov + 70% gate | ✅ 完成 — commit `a7d1933`（pytest-cov branch coverage + `--cov-fail-under=70` + CI 阻断） |
+| 批 7.3 scheduler_runner 单测 | ✅ 完成 — commit `e04ac62`（5 tests 覆盖 `run(stop_event, resync_interval)`） |
+| 批 7.4 Playwright e2e smoke | ✅ 完成 — commit `d13e85a`（3 smoke tests: login + DataSourceList + ReportList + CI step） |
+| 批 7.5 sql_validator property-based | ✅ 完成 — commit `1fda81b`（hypothesis + 13 property tests + 顺手修 jwt.TokenError bug） |
+| 批 8.2 Schema 浏览器 | ✅ 完成 — commit `70c3adb`（后端 `GET /data-sources/{id}/schema` + SchemaTree + DataExplorer Sider 布局） |
+| 批 8.5 jobs/{id}/download + ReportList async | ✅ 完成 — commits `a87e295` + `724ac90`（worker 产物直接下载 + ReportList 行内 Excel 异步化 + 顶部任务卡片 + `downloadBlob` helper 抽取） |
+| 下一批：批 8.1 PDF 导出（weasyprint） | ⏳ **下次会话从这里开始**（按已重排顺序：8.1 → 8.3 → 8.4 → 9 → 10） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
-2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 7」章节（vitest 单元测试 + e2e 关键流程）
-4. 建 TaskCreate 覆盖批 7 子项，开始干
+2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂（**当前基线：pytest 462/462、coverage 83.9%、lint 0、tsc 0、vitest 29/29**）
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` § 8.1（weasyprint PDF 导出，复用 8.5 异步队列）
+4. 建 TaskCreate 覆盖批 8.1 子项，开始干
+5. 注意 `useEnqueueReportJob` 的 `reportId` 闭包陷阱（见 session-checkpoint-2026-08-16-post-8.5 gotcha #1）—— 别在 PDF 改造里破坏这个
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
@@ -106,11 +114,15 @@
 | 批 3b | ✅ 已完成 (2026-08-15) | (本 commit) | 新 `queries/useJobs.ts`（`useJobStatus(jobId)` 用 TanStack Query v5 的 `refetchInterval: (q) => status==='done'\|'failed' ? false : 2_000` 函数式动态间隔；`useEnqueueReportJob(reportId)` mutation）；`api/index.ts` 加 `jobsApi.enqueue/get`；`types/index.ts` 加 `JobStatus`/`JobOutputFormat`/`ReportJobCreate`/`ReportJob`；`keys.ts` 加 `queryKeys.jobs.{all,detail,forReport}`；`ReportPreview.tsx` 「导出 Excel」改成 enqueue→轮询→下载三段式（HTML 仍走同步 export），新增 Excel 任务卡片显示状态 Tag/Spin/错误 Alert/下载按钮。**已知 trade-off**：download 仍走 `/reports/{id}/export/excel`（每次 re-generate，不复用 worker 产物）— 因为该端点按设计总是重新生成（与 `schemas/job.py` docstring 「serves by basename」描述不一致），复用 worker 文件需要新增 `GET /jobs/{id}/download`，留作 future batch。lint 0、tsc 0、build 0 |
 | 批 4b | ✅ 已完成 (2026-08-15) | (本 commit) | `types/index.ts` 加 `ParameterType`/`ReportParameterCreate`（5 variant 判别联合）/`ReportParameter`/`ReportParameterUpdate`；`api/index.ts` 加 `parametersApi.{list,create,update,delete}`；`keys.ts` 加 `queryKeys.parameters.{all,list}`；新 `queries/useParameters.ts`（`useReportParameters` + 3 mutation）；新 `components/ReportParameterForm.tsx`（按 `parameter.type` 切换 Input/InputNumber/DatePicker/`<Select mode="tags">`/Switch，DatePicker 输出 `YYYY-MM-DD` ISO；number 强转 `Number()`；initialValues 从 `parameter.default` hydrate）；`package.json` 加 `dayjs@^1.11.21` 作为直接 dep；`pages/ReportPreview.tsx`：有参数时 toolbar 「导出 Excel」隐藏，改由 form submit 触发 enqueue（带 `{parameters: formValues}`）；`pages/ReportEditor.tsx`：新增「参数 (N)」Tab（Table + Popconfirm 删除 + 编辑）+ `ParameterEditorModal`（type-conditional inputs，enum 用 `Select mode="tags"`，date 用 DatePicker，`as unknown as ReportParameterCreate` 解决 union 与 Record 的不兼容）；lint 0、tsc 0、build 0（chunk > 500KB 增长 1.64→1.84MB，新增 useParameters/ReportParameterForm/Editor modal 贡献 ~200KB） |
 | 批 6b | ✅ 已完成 (2026-08-15) | (本 commit) | 见完成记录 |
-| 批 1.5 | 未开始 | — | ReportEditor 文件拆分 |
-| 批 7 | 未开始 | — | vitest + cov + e2e |
-| 批 8 | 未开始 | — | 4 子项可并行 |
+| 批 1.5 | ✅ 已完成 (2026-08-16) | `426dfa4` + `baad103` | ReportEditor 文件拆分 (1043 → 7 文件) + 修 TODO-1 `html.escape(None)` 崩溃 |
+| 批 7 | ✅ 已完成 (2026-08-16) | `a7d1933` / `1fda81b` / `e04ac62` / `3c6e867` / `d13e85a` | vitest@^4 + RTL + 29 unit tests + pytest-cov 70% gate + scheduler_runner 5 单测 + Playwright 3 smoke e2e + sql_validator 13 property tests |
+| 批 8.2 | ✅ 已完成 (2026-08-16) | `70c3adb` | 后端 `GET /data-sources/{id}/schema` + 前端 SchemaTree + DataExplorer Layout/Sider |
+| 批 8.5 | ✅ 已完成 (2026-08-16) | `a87e295` + `724ac90` | `GET /jobs/{id}/download` worker 产物直下载 + ReportList 行内 Excel 异步化 + `downloadBlob` helper |
+| 批 8.1 | 未开始 | — | weasyprint PDF 导出（下次会话从这里开始） |
+| 批 8.3 | 未开始 | — | 报表订阅 |
+| 批 8.4 | 未开始 | — | IM 通知（飞书/企微） |
 | 批 9 | 未开始 | — | 先做数据隔离模型设计 |
-| 批 10 | 未开始 | — | |
+| 批 10 | 未开始 | — | code-split + prettier |
 
 ## 每批结束的验证清单
 
@@ -423,3 +435,137 @@ npx playwright test                     # smoke 全过
 4. `_send_notification` 改 typed → 4 旧测试失败，已更新；`test_send_notification_blocks_webhook_with_disallowed_scheme` 改为 no-op marker（Pydantic HttpUrl 现在更早拦截 `file://` 等非法 scheme）
 
 下一个批次：批 1.5 ReportEditor 文件拆分（page.tsx ~1100 行 → `pages/ReportEditor/{index,ItemsTab,ConfigTab,ParametersTab,SortableItem,ItemEditorModal,ParameterEditorModal}.tsx`）。
+
+### 批 1.5：ReportEditor 文件拆分 + TODO-1 fix — 2026-08-16 — `426dfa4` + `baad103` — 实际 ~1 hr
+
+**子项落地**：
+
+**1.5.1 TODO-1 `html.escape(None)` 修复（顺手）** — `renderers/html.py:187` text-block 渲染时 `config.get("content")` 可能为 None（旧数据没填 content 字段）→ `html.escape(None)` 抛 AttributeError → 整张报表生成 500。修法：`html.escape(str(config.get("content") or ""))`。2 个 pre-existing pytest fail → pass（429/429）。CLAUDE.md YAGNI：bug 没人报就不修——但本批顺手在 path 上就修了，cost ≈ 1 min。
+
+**1.5.2 ReportEditor 文件拆分** — `pages/ReportEditor.tsx` (1043 行) → 7 文件：
+- `index.tsx` (主页面 + tabs 状态协调)
+- `ItemsTab.tsx` (sortable items list)
+- `ConfigTab.tsx` (基本配置)
+- `ParametersTab.tsx` (参数 CRUD table)
+- `SortableItem.tsx` (单个 sortable item card)
+- `ItemEditorModal.tsx` (新增/编辑 item)
+- `ParameterEditorModal.tsx` (新增/编辑 parameter)
+
+纯机械拆分 — 无行为变更。Tabs lift state via props；modals extracted unchanged。Import path `pages/index.ts:3` 仍写 `./ReportEditor`，TS/Node 自动解析到 `pages/ReportEditor/index.tsx`（file > dir 约定）。
+
+**未修**：
+- TODO-4 buffer/cache dual-track bug（bufferHydrated flag 导致乐观更新在 ReportEditor 无视觉影响）— 拆分没改 buffer 同步逻辑；当前 ReportEditor 是唯一 `itemsView` 消费者，无视觉影响。Carry-over。
+
+下一个批次：批 7 测试 + DX（vitest 单元测试 + e2e 关键流程）。
+
+### 批 7.1：vitest + RTL setup — 2026-08-16 — `3c6e867` — 实际 ~30 min
+
+**子项落地**：
+- 装 `vitest@^4` + `@testing-library/react@^16` + `happy-dom` + `@vitest/coverage-v8`
+- 新 `frontend/vitest.config.ts` + `frontend/src/test/setup.ts`
+- 新 `frontend/src/__tests__/` 含 29 unit tests：
+  - `csvEscape.test.ts` (15 tests) — 提取 `DataExplorer` 的 CSV 转义工具函数
+  - `Skeleton.test.tsx` (5 tests) — TableSkeleton / CardSkeleton / InlineSkeleton 渲染
+  - 若干组件 smoke tests (9 tests)
+- CI step: `npx vitest run --coverage`
+
+**lint 0、tsc 0、vitest 29/29、build 0**。
+
+下一个批次：批 7.2 pytest-cov + 70% 覆盖率门槛。
+
+### 批 7.2：pytest-cov + 70% gate — 2026-08-16 — `a7d1933` — 实际 ~15 min
+
+**子项落地**：
+- 装 `pytest-cov` + `coverage[toml]`
+- 新 `backend/pytest.ini` 设 `addopts = --cov=app --cov-branch --cov-report=term-missing --cov-fail-under=70`
+- CI step: `pytest --cov-report=xml` 上传 coverage artefact
+- `backend/coverage.xml` + `.coverage` 加 `.gitignore`
+- 当前覆盖率 **83.9%**（branch coverage；之前 statement-only 86.1%）
+
+**关键观察**：CI 阻断阈值 70%，留 ~13% 缓冲空间给未来新功能不立即拖垮覆盖率。
+
+下一个批次：批 7.3 scheduler_runner 单测。
+
+### 批 7.3：scheduler_runner 单测 — 2026-08-16 — `e04ac62` — 实际 ~20 min
+
+**子项落地**：
+- 新 `backend/tests/test_scheduler_runner.py` 含 5 tests：
+  - `test_run_starts_and_stops_scheduler` — 基本生命周期
+  - `test_run_resyncs_periodically` — 默认 30s resync 触发
+  - `test_run_uses_settings_default_interval` — `SCHEDULER_RESYNC_INTERVAL` 缺省行为
+  - `test_run_monkeypatched_interval` — 自定义 interval 生效
+  - `test_run_idempotent_on_consecutive_resyncs` — 两次 resync 不重复触发副作用
+- 用 `monkeypatch` 替换 `_run_resync` 直接验证调用次数
+
+**pytest 462/462（之前 455+5 新增+之前 scheduler 相关测试已存在）。**
+
+下一个批次：批 7.4 Playwright e2e smoke。
+
+### 批 7.4：Playwright e2e smoke — 2026-08-16 — `d13e85a` — 实际 ~45 min
+
+**子项落地**：
+- 装 `@playwright/test` + 装 Chromium browser binary
+- 新 `frontend/playwright.config.ts`（webServer: 自动 build + start vite preview + start backend）
+- 新 `frontend/e2e/` 含 3 smoke tests：
+  - `login.spec.ts` — 走完整 admin/admin 登录 → 看到导航栏
+  - `data-sources.spec.ts` — 登录后访问 DataSourceList，验证页面渲染
+  - `reports.spec.ts` — 同上 ReportList
+- CI step: 启动 backend + frontend preview + 跑 Playwright
+- 慢（CI ~30s/test），所以只放 3 个 smoke；详细流程留给手动 QA
+
+**lint 0、tsc 0、vitest 29/29、build 0**。
+
+下一个批次：批 7.5 sql_validator property-based。
+
+### 批 7.5：sql_validator property-based (hypothesis) — 2026-08-16 — `1fda81b` — 实际 ~30 min
+
+**子项落地**：
+- 装 `hypothesis` (dev dep)
+- 新 `backend/tests/test_sql_validator_property.py` 含 13 property-based tests：
+  - 任意 SELECT 输入 → 要么 `is_safe_sql` 接受，要么明确抛 `UnsafeSQLError`，从不抛意外异常
+  - 任意 `{param}` 替换 → 替换后仍安全（idempotent）
+  - 任意 SQL identifier 边界情况（空字符串、Unicode、关键字冲突）→ 不崩
+  - 嵌套括号 / 不平衡引号 / 多语句等 fuzz 输入
+- **`deadline=200ms`** per Hypothesis 默认（避免慢解析卡死）
+
+**意外发现 + 修复**：1 个 test 暴露 sqlglot 内部抛 `jwt.TokenError`（不是 `ParseError`），让 `validate_select_only` 漏到外面。加 try/except `Exception` 兜底 + 重新分类为 `UnsafeSQLError(parse_error)`。1 commit 顺手修。
+
+**pytest 462/462（+13 property tests，总数 = 之前 449 + 7 download + 5 scheduler_runner + 13 sql_validator - 12 重复 = 462）**。
+
+下一个批次：批 8.2 Schema 浏览器。
+
+### 批 8.2：Schema 浏览器 — 2026-08-16 — `70c3adb` — 实际 ~1 hr
+
+**子项落地**：
+
+**8.2.1 后端 `GET /data-sources/{id}/schema`** — 新 endpoint 返回 `list[TableInfo]`，每项含 `table_name` + `columns: list[ColumnInfo]`（name, type, nullable, default, primary_key）。走 `information_schema.columns` 适配 Postgres/OpenGauss/DWS/SQLite。可选 `?schema=public` 参数（SQLite 固定为 `main`）。
+
+**8.2.2 前端 SchemaTree + DataExplorer Sider** — 新 `components/SchemaTree.tsx`（递归 collapsible 树）。`SqlEditor` 升级为 `forwardRef`，`useImperativeHandle` 暴露 `insertAtCursor(text)` 方法。DataExplorer 页面 wrapper 从 `<div padding:24>` 升级为 `<Layout><Sider>` + `<Content>`，左侧 Sider 嵌 SchemaTree，右侧 Content 保留 SQL 编辑器。点击树节点 → 把 `column` 名通过 `insertAtCursor` 插入到光标位置。
+
+**8.2.3 23 新测试** — 后端 18 tests（per-db-type schema 适配、INFORMATION_SCHEMA 兼容性、pragmas、NOT NULL/DEFAULT/PRIMARY KEY 正确解析），前端 5 component tests（SchemaTree 折叠/展开、insertAtCursor 调用）。
+
+**关键 gotcha**：`TableInfo.schema_name` (not `schema`) — `schema` 是 Pydantic `BaseModel` 的 method 名，mypy strict 拒绝碰撞。JSON 字段名 `schema_name`，前端 type 镜像同样命名。SQLite `INTEGER PRIMARY KEY` 在 `pragma table_info()` 报 `notnull=0`（quirk），不要断言 NOT NULL。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 455/455**。
+
+下一个批次：批 8.5（jobs/{id}/download + ReportList 异步 Excel，TODO-2 + TODO-5 cleanup）。
+
+### 批 8.5：jobs/{id}/download + ReportList 异步 Excel — 2026-08-16 — `a87e295` + `724ac90` — 实际 ~1 hr
+
+**子项落地**：
+
+**8.5.1 `GET /jobs/{id}/download` (TODO-2)** — 新 endpoint 服务 worker 产物（by basename from `settings.generated_reports_dir`）。**核心价值**：关闭 8.5 之前的前端 download re-render bug——之前 frontend poll `done` 后调 `/reports/{id}/export/excel`，该端点重新调 `generate_report`，worker 产物被丢弃。30s 渲染实际付 60s。修后直下载 worker 产物。`os.path.basename` 路径遍历保护（`../../etc/passwd` → `passwd`，永远在 output dir 里，404 if not found）。404 三种：unknown id / not done / done 但磁盘上文件被清。7 新测试覆盖 success/auth/未知 id/pending/failed/缺文件/路径遍历。
+
+**8.5.2 ReportList Excel 异步化 (TODO-5)** — 行内 Excel 按钮从 `useGenerateReport + useDownloadReport`（同步、阻塞页面）改为 `jobsApi.enqueue` + 顶部「Excel 导出任务」卡片。卡片显示 status tag + spinner + 下载按钮（done 后）。每行按钮在 in-flight 时 disabled。复用 8.5.1 的 `jobsApi.download`，不再二次渲染。
+
+**8.5.3 `downloadBlob` helper 抽取** — `frontend/src/api/index.ts` 提取共享 helper（content-type sniff + JSON-in-Blob unwrap + anchor click），`reportApi.download`（sync HTML export, ReportPreview 用）和 `jobsApi.download`（async worker output）共用同一份代码。
+
+**8.5.4 顺手清理** — 删 `useGenerateReport` hook（无 caller）。`reportApi.generate` export 仍保留（pre-existing）。
+
+**关键 gotcha**：`useEnqueueReportJob(reportId)` 把 `reportId` 闭包捕获在 mutationFn 里。首次点击时 `excelJob?.report.id ?? null` 是 `null` → mutate 调到 `/reports/null/jobs` → 422。ReportPreview 靠 `if (!report) return;` 守卫避开（report 和 reportId 来自同一个 URL param，同步）。ReportList 点击的 `record: Report` 直接给 `record.id`，但 hook 闭包还是旧值。**修法**：直接调 `jobsApi.enqueue(record.id, payload)`，放弃 hook 的自动 `isPending`，自己管理 `enqueuing` local state。**不要重构 `useEnqueueReportJob` 把 reportId 移到 mutate 参数** —— 会破坏 ReportPreview 的现有用法。
+
+**Trade-off 显式记录**：ReportList 顶部卡片单一槽位 `excelJob`，用户连续点不同报表的 Excel，老 job 在 UI 上被覆盖（worker 端继续跑，UI 失引用）。Fire-and-forget 语义适配导航型页面。未来要做 job-history drawer。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 462/462（+7 下载测试 = 462）。**
+
+下一个批次：批 8.1 PDF 导出（weasyprint）。
