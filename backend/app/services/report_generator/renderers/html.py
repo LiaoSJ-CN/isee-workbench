@@ -184,7 +184,7 @@ def render_html(
             html_parts.append(df_to_html_table(item_data))
 
         elif item.item_type == "text":
-            content = config.get("content", "") if config else ""
+            content = (config.get("content") or "") if config else ""
             html_parts.append(f"<div class='text-block'>{h(content)}</div>")
 
         else:
