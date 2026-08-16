@@ -34,7 +34,6 @@ from app.services.sql_validator import (
     validate_select_only,
 )
 
-
 # Strategies reused across tests.
 
 # A "safe" identifier per the validator's regex.
