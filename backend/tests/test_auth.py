@@ -75,7 +75,12 @@ def test_login_wrong_username_is_401(client: TestClient) -> None:
 def test_me_with_valid_token(client: TestClient, auth_headers: dict[str, str]) -> None:
     r = client.get("/auth/me", headers=auth_headers)
     assert r.status_code == 200
-    assert r.json() == {"username": "admin"}
+    body = r.json()
+    assert body["username"] == "admin"
+    # 批 9 added identity claims — admin user is seeded with the default role.
+    assert body["role"] == "admin"
+    assert isinstance(body["user_id"], int)
+    assert body["org_id"] is None
 
 
 def test_me_without_token_is_401(client: TestClient) -> None:
@@ -302,7 +307,12 @@ def test_get_current_user_returns_user_entity_with_all_fields(
 
     r = client.get("/auth/me", headers=auth_headers)
     assert r.status_code == 200
-    assert r.json() == {"username": "admin"}
+    body = r.json()
+    assert body["username"] == "admin"
+    # 批 9: /auth/me now returns identity claims (role, user_id, org_id).
+    assert body["role"] == "admin"
+    assert isinstance(body["user_id"], int)
+    assert body["org_id"] is None
 
     # Verify the dependency itself yields a User (not a str). Call it
     # with a real Session — calling with the Depends() sentinel would

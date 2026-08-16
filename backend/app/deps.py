@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models.user import User
+from app.models.user import ROLE_ADMIN, ROLE_EDITOR, User
 from app.services.auth_state import is_jti_revoked
 from app.services.jwt_auth import decode_token
 
@@ -139,3 +141,59 @@ def get_refresh_token_from_request(
     if body_token:
         return body_token
     return request.cookies.get(settings.refresh_cookie_name)
+
+
+# ---------------------------------------------------------------------------
+# Role gating (批 9.2)
+# ---------------------------------------------------------------------------
+#
+# Coarse-grained role checks for endpoints that are not bound to a
+# specific resource — e.g. scheduler management, audit log access, or
+# future admin-only configuration. Resource-level ACL (DataSource /
+# Report) is enforced inside the corresponding service helpers in
+# 批 9.3 / 9.4, NOT here.
+#
+# Usage:
+#
+#     @router.delete("/foo", dependencies=[Depends(admin_required)])
+#     def delete_foo(...): ...
+#
+#     @router.get("/bar")
+#     def get_bar(user: User = Depends(editor_required)): ...
+#
+# Admin always passes — even if the caller only listed ``"editor"``,
+# an admin user is granted every role (escape hatch for ops). The
+# returned object is the same :class:`User` instance that
+# ``get_current_user`` cached, so a subsequent
+# ``Depends(get_current_user)`` in the same handler hits the cache
+# rather than re-querying the DB.
+
+
+def require_role(*allowed: str) -> Callable[..., User]:
+    """Build a FastAPI dependency that accepts only the listed roles.
+
+    ``admin`` is always permitted (escape hatch). The returned object
+    is the cached :class:`User` so handlers can read additional
+    fields without a second DB lookup.
+    """
+
+    def _dep(user: User = Depends(get_current_user)) -> User:
+        if user.role == ROLE_ADMIN:
+            return user
+        if user.role not in allowed:
+            # Don't echo the user's role back — the client knows who
+            # they are; an error like "Role 'viewer' not allowed" is
+            # both enough for a UI to render a 403 page and silent
+            # enough to not leak which roles exist.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role for this action",
+            )
+        return user
+
+    return _dep
+
+
+# Convenience presets — keep call sites short and consistent.
+admin_required = require_role(ROLE_ADMIN)
+editor_required = require_role(ROLE_ADMIN, ROLE_EDITOR)

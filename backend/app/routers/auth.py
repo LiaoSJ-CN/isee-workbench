@@ -157,7 +157,12 @@ def login(
 
     user.last_login_at = datetime.now(timezone.utc)
     db.commit()
-    access = create_access_token(cast(str, user.username))
+    access = create_access_token(
+        cast(str, user.username),
+        user_id=cast(int, user.id),
+        role=cast(str, user.role),
+        org_id=user.org_id,
+    )
     refresh = create_refresh_token(cast(str, user.username))
     _set_auth_cookies(response, access, refresh)
     return TokenPair(access_token=access, refresh_token=refresh, token_type="bearer")
@@ -205,7 +210,22 @@ def refresh(
         revoke_jti(db, old_jti, cast(int, payload["exp"]))
 
     subject = cast(str, payload["sub"])
-    access = create_access_token(subject)
+    # Re-load the user so the freshly minted access token carries the
+    # current role / org_id, not the (possibly stale) claims from the
+    # refresh token. The refresh token itself doesn't carry identity
+    # claims, so this is the only place to look.
+    user = db.query(User).filter(User.username == subject).first()
+    if user is None or user.disabled:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is no longer active",
+        )
+    access = create_access_token(
+        subject,
+        user_id=cast(int, user.id),
+        role=cast(str, user.role),
+        org_id=user.org_id,
+    )
     new_refresh = create_refresh_token(subject)
     _set_auth_cookies(response, access, new_refresh)
     return TokenPair(access_token=access, refresh_token=new_refresh, token_type="bearer")
@@ -229,10 +249,17 @@ def logout(
 
 
 @router.get("/me")
-def me(user: Annotated[User, Depends(get_current_user)]) -> dict[str, str]:
-    """Return the currently logged-in user."""
-    # ``user.username`` is ``str | None`` per SQLAlchemy's column typing
-    # even though the column is ``NOT NULL`` in the schema; cast to
-    # match the endpoint's ``dict[str, str]`` contract. The DB lookup
-    # in ``get_current_user`` already verified the row exists.
-    return {"username": cast(str, user.username)}
+def me(user: Annotated[User, Depends(get_current_user)]) -> dict[str, Any]:
+    """Return the currently logged-in user plus identity claims (批 9).
+
+    ``user.username`` is ``str | None`` per SQLAlchemy's column typing
+    even though the column is ``NOT NULL`` in the schema; cast to
+    match the endpoint's contract. The DB lookup in
+    ``get_current_user`` already verified the row exists.
+    """
+    return {
+        "username": cast(str, user.username),
+        "user_id": cast(int, user.id),
+        "role": cast(str, user.role),
+        "org_id": user.org_id,
+    }
