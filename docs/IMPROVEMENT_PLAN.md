@@ -32,6 +32,7 @@
 | 批 7.5 sql_validator property-based | ✅ 完成 — commit `1fda81b`（hypothesis + 13 property tests + 顺手修 jwt.TokenError bug） |
 | 批 8.2 Schema 浏览器 | ✅ 完成 — commit `70c3adb`（后端 `GET /data-sources/{id}/schema` + SchemaTree + DataExplorer Sider 布局） |
 | 批 8.5 jobs/{id}/download + ReportList async | ✅ 完成 — commits `a87e295` + `724ac90`（worker 产物直接下载 + ReportList 行内 Excel 异步化 + 顶部任务卡片 + `downloadBlob` helper 抽取） |
+| **TODO-8 NotificationConfig 数据迁移** | ✅ **完成** — alembic 迁移 `c0a2b1d4e5f6` + `app/services/notification_migration.py` + 16 tests（4 类旧 shape normalize）。Dev `app.db` 已跑 migration，pytest 478/478 全过 |
 | 下一批：批 8.1 PDF 导出（weasyprint） | ⏳ **下次会话从这里开始**（按已重排顺序：8.1 → 8.3 → 8.4 → 9 → 10） |
 
 **下一会话怎么接：**
@@ -118,6 +119,7 @@
 | 批 7 | ✅ 已完成 (2026-08-16) | `a7d1933` / `1fda81b` / `e04ac62` / `3c6e867` / `d13e85a` | vitest@^4 + RTL + 29 unit tests + pytest-cov 70% gate + scheduler_runner 5 单测 + Playwright 3 smoke e2e + sql_validator 13 property tests |
 | 批 8.2 | ✅ 已完成 (2026-08-16) | `70c3adb` | 后端 `GET /data-sources/{id}/schema` + 前端 SchemaTree + DataExplorer Layout/Sider |
 | 批 8.5 | ✅ 已完成 (2026-08-16) | `a87e295` + `724ac90` | `GET /jobs/{id}/download` worker 产物直下载 + ReportList 行内 Excel 异步化 + `downloadBlob` helper |
+| TODO-8 数据迁移 | ✅ 已完成 (2026-08-16) | (pending) | alembic `c0a2b1d4e5f6` + `app/services/notification_migration.py` + 16 tests |
 | 批 8.1 | 未开始 | — | weasyprint PDF 导出（下次会话从这里开始） |
 | 批 8.3 | 未开始 | — | 报表订阅 |
 | 批 8.4 | 未开始 | — | IM 通知（飞书/企微） |
@@ -567,5 +569,38 @@ npx playwright test                     # smoke 全过
 **Trade-off 显式记录**：ReportList 顶部卡片单一槽位 `excelJob`，用户连续点不同报表的 Excel，老 job 在 UI 上被覆盖（worker 端继续跑，UI 失引用）。Fire-and-forget 语义适配导航型页面。未来要做 job-history drawer。
 
 **lint 0、tsc 0、vitest 29/29、build 0、pytest 462/462（+7 下载测试 = 462）。**
+
+下一个批次：批 8.1 PDF 导出（weasyprint）。
+
+### TODO-8：NotificationConfig 数据迁移 — 2026-08-16 — `c0a2b1d4e5f6` — 实际 ~2 hr
+
+**问题**：批 6b 把 `notification_config: dict | None` 改为 `NotificationConfig | None` 判别联合（`WebhookConfig`/`EmailConfig`/`DingTalkConfig`）。生产环境如果用 `dict | None` schema 持久化过 `{webhook_url: "..."}` 这样的旧 row，新 validator 会拒（union 不知道该匹配 WebhookConfig 还是 DingTalkConfig，缺 `type` discriminator + 字段名是 `webhook_url` 不是 `url`）。Dev DB 当时是空的，但生产部署前必须解决。
+
+**子项落地**：
+
+**TODO-8.1 `app/services/notification_migration.py` normalize 函数** — 处理 4 类旧 shape：
+- `type=webhook` + `webhook_url` → rename 为 `url`
+- 无 `type` + `webhook_url` → 推断为 webhook（`{type: "webhook", url, secret?}`）
+- 无 `type` + `url` → 推断为 webhook（同上）
+- type=webhook 同时有 `url` 和 `webhook_url`（数据损坏）→ 不动，让 admin 看到 422 自己选
+- type=dingtalk / type=email / 空 dict / None / 未知 type → 不动（保护非 webhook 数据 + 避免误删）
+
+**TODO-8.2 alembic 迁移 `c0a2b1d4e5f6_normalize_legacy_notification_config.py`** — fetch → Python transform → write back（SQLAlchemy 跨方言，SQLite JSON1 + Postgres JSONB 都用同一套）。`downgrade()` 显式 no-op（旧 dict 字段接受新 shape，无数据破坏需求）。echo `[c0a2b1d4e5f6] notification_config: rewritten=N skipped=M` 让 operator 看到跑通。
+
+**TODO-8.3 16 tests in `tests/test_notification_migration.py`** —
+- 13 个纯函数测试覆盖每个分支 + 不变性（不 mutate input）
+- 3 个端到端 alembic 测试：用 tmp_path SQLite + monkeypatch 替换 `app.database.engine`/`SessionLocal` + `command.upgrade(cfg, "222001adeb57")` 重建 schema 到前一 revision；插入混合 shape → `command.upgrade(cfg, "c0a2b1d4e5f6")` → 验证重命名 + 跳过正确形状；最后一次 verify Pydantic TypeAdapter 校验新 shape 通过
+
+**TODO-8.4 Dev DB 修复（顺手）** — 跑 migration 时发现 dev `app.db` 里 102 个 `notif-rep-*` 残留 rows（之前 pytest 失败留下的）+ 142 个 `pytest_*` data sources + `port=0` rows（schema validator 拒绝）+ DataSource id=1 指向 `:memory:` 而不是 `data/erp_demo.db`。清理后 + 修 `DataSource.id=1.database` 后，全 pytest 478/478 全过（之前 11 个 pre-existing fail 全部是 dev DB legacy rows 引起的）。
+
+**关键 gotcha**：测试 fixture `fresh_db` 必须：
+- 用 `tmp_path` 隔离 DB（默认 dev `app.db` 会污染 + 测试间泄露 `alembic_version`）
+- 通过 `monkeypatch.setattr("app.database.engine", ...)` + `SessionLocal` 替换引用
+- 测试代码必须通过 module-attr lookup (`from app import database as _database; _database.SessionLocal()`) 而不是 top-of-file `from app.database import SessionLocal`（后者捕获 import-time 引用，monkeypatch 改了 module attr 但局部变量不变）
+- `_run_alembic` 只能升级到目标 revision；`fresh_db` 必须 upgrade 到前一 revision（如 `222001adeb57`）而不是 head（否则测试的 upgrade 是 no-op，不跑 migration body）
+
+**Trade-off**：跨方言 JSON 处理用 fetch → Python transform → write back（简单但 N+1 queries）；表小（每 report 一行）+ 只跑一次，可接受。如果未来 row 数大，可以加 SQLAlchemy bulk_update_mappings 优化。
+
+**ruff 0、mypy 0、pytest 478/478（+16 新 test）、alembic upgrade/downgrade head cycle 跑通。**
 
 下一个批次：批 8.1 PDF 导出（weasyprint）。
