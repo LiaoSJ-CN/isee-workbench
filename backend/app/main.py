@@ -28,7 +28,15 @@ from app.models import report_job as _report_job_module  # noqa: F401
 from app.models import revoked_token as _revoked_token_module  # noqa: F401
 from app.models import user as _user_module  # noqa: F401
 from app.models.user import User
-from app.routers import auth, data_source, explorer, jobs, report, scheduler
+from app.routers import (
+    auth,
+    data_source,
+    explorer,
+    jobs,
+    report,
+    scheduler,
+    subscription,
+)
 from app.services.job_queue import shutdown_executor
 from app.services.password import hash_password
 from app.services.scheduler import get_scheduler
@@ -219,6 +227,8 @@ app.include_router(explorer.router)
 # mixes /reports/{id}/jobs and /jobs/{id} prefixes.
 app.include_router(jobs.report_jobs_router)
 app.include_router(jobs.jobs_router)
+# Per-user report subscriptions (批 8.3).
+app.include_router(subscription.router)
 
 # Prometheus /metrics + default HTTP histogram. Must come AFTER the
 # routers so Instrumentator sees the final route table. Idempotent for
