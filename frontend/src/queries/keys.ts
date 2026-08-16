@@ -20,6 +20,12 @@ export const queryKeys = {
     // override or the data source's default ("public" / "main").
     schema: (id: number, schema: string | undefined) =>
       [...queryKeys.dataSources.all, 'schema', id, schema ?? '__default__'] as const,
+    // ACL key (批 9.3) — grants list per data source. Owner-or-admin only.
+    acl: (id: number) => [...queryKeys.dataSources.all, 'acl', id] as const,
+  },
+  users: {
+    all: ['users'] as const,
+    list: () => [...queryKeys.users.all, 'list'] as const,
   },
   reports: {
     all: ['reports'] as const,

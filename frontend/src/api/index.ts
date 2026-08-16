@@ -1,7 +1,10 @@
 import axios from 'axios';
 import type {
+  CurrentUser,
   DataSource,
   DataSourceCreate,
+  DataSourceGrant,
+  DataSourceGrantCreate,
   DataSourceSchema,
   QueryResult,
   Report,
@@ -106,7 +109,7 @@ export const authApi = {
       localStorage.removeItem(REFRESH_KEY);
     }
   },
-  me: async (): Promise<{ username: string }> => {
+  me: async (): Promise<CurrentUser> => {
     const { data } = await api.get('/auth/me');
     return data;
   },
@@ -153,6 +156,43 @@ export const dataSourceApi = {
     const { data } = await api.get(`/data-sources/${id}/schema`, {
       params: schema ? { schema } : {},
     });
+    return data;
+  },
+
+  // ---- ACL (批 9.3) ----
+
+  /** List every grant on a data source. Owner-or-admin only — a
+   *  read grant on the source itself does not let the recipient see
+   *  who else has access. Backend enforces the same. */
+  listAcl: async (dsId: number): Promise<DataSourceGrant[]> => {
+    const { data } = await api.get(`/data-sources/${dsId}/grants`);
+    return data;
+  },
+
+  /** Grant (or upsert) a permission. Owner-or-admin only. */
+  createAcl: async (dsId: number, payload: DataSourceGrantCreate): Promise<DataSourceGrant> => {
+    const { data } = await api.post(`/data-sources/${dsId}/grants`, payload);
+    return data;
+  },
+
+  /** Revoke a grant by id. Owner-or-admin only. */
+  revokeAcl: async (grantId: number): Promise<void> => {
+    await api.delete(`/data-sources/grants/${grantId}`);
+  },
+};
+
+/** Minimal user record returned by ``GET /users`` (planned for 批 9.5).
+ *  In 9.3 the route does not yet exist, so the share modal falls back
+ *  to manual user_id entry when this call 404s. */
+export interface UserSummary {
+  id: number;
+  username: string;
+  role: string;
+}
+
+export const usersApi = {
+  list: async (): Promise<UserSummary[]> => {
+    const { data } = await api.get('/users');
     return data;
   },
 };

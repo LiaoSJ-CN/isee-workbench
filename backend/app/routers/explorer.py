@@ -16,8 +16,9 @@ from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.middleware.rate_limit import RateLimiter
-from app.models.data_source import DataSource
+from app.models.user import User
 from app.services.connection import ConnectionError
+from app.services.data_source import get_data_source_for_user
 from app.services.report_generator import _get_or_create_engine
 from app.services.sql_validator import UnsafeSQLError, validate_select_only
 
@@ -65,8 +66,15 @@ def execute_query(
     payload: QueryRequest,
     request: Request,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> QueryResponse:
-    """Execute a SELECT SQL query against a data source."""
+    """Execute a SELECT SQL query against a data source.
+
+    批 9.3: data source is owner/grant-gated via
+    :func:`app.services.data_source.get_data_source_for_user`. A user
+    with no access sees the same 404 as a missing data source — never
+    a permission error that would leak existence.
+    """
     # Rate-limit by IP *before* any DB work — the limit protects against
     # runaway scripts that hammer the endpoint without ever being authed
     # to a meaningful user. Namespace the key so the budget is independent
@@ -82,14 +90,12 @@ def execute_query(
             headers={"Retry-After": "60"},
         )
 
-    # Get data source
-    data_source = (
-        db.query(DataSource).filter(DataSource.id == payload.data_source_id).first()
-    )
-    if not data_source:
+    # Get data source via ACL — None when missing OR no read access.
+    data_source = get_data_source_for_user(db, payload.data_source_id, user)
+    if data_source is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Data source {payload.data_source_id} not found",
+            detail="Data source not found",
         )
 
     # Security check — all validation lives in sql_validator now.

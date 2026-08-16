@@ -14,9 +14,9 @@ from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.middleware.rate_limit import RateLimiter
-from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.models.report_parameter import ReportParameter
+from app.models.user import User
 from app.schemas.report import (
     ReportCreate,
     ReportDetailResponse,
@@ -33,6 +33,7 @@ from app.schemas.report_parameter import (
     ReportParameterResponse,
     ReportParameterUpdate,
 )
+from app.services.data_source import get_data_source_for_user
 from app.services.parameter_validator import ParameterValidationError, validate_parameters
 from app.services.report_generator import ReportGeneratorError, generate_report
 
@@ -186,8 +187,18 @@ def list_reports(
 
 
 @router.post("", response_model=ReportDetailResponse, status_code=status.HTTP_201_CREATED)
-def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Report:
-    """Create a new report with optional initial items."""
+def create_report(
+    payload: ReportCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Report:
+    """Create a new report with optional initial items.
+
+    批 9.3: caller must have read access to the data source the
+    report is bound to — building a report over a source you can't
+    read makes the report unusable (its render would 404). 9.4 will
+    add owner + visibility on the report itself.
+    """
     # Check if report name already exists
     existing = db.query(Report).filter(Report.name == payload.name).first()
     if existing:
@@ -196,12 +207,13 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Repor
             detail=f"Report named '{payload.name}' already exists",
         )
 
-    # Verify data source exists
-    data_source = db.query(DataSource).filter(DataSource.id == payload.data_source_id).first()
-    if not data_source:
+    # 批 9.3: ACL-gate the data source — uniform 404 for "missing"
+    # and "no access" so an unauthorized caller can't probe existence.
+    data_source = get_data_source_for_user(db, payload.data_source_id, user)
+    if data_source is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Data source with id {payload.data_source_id} not found",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Data source not found",
         )
 
     # Extract items before creating report
@@ -277,8 +289,14 @@ def generate_report_endpoint(
     payload: ReportGenerateRequest,
     request: Request,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ReportGenerateResponse:
-    """Generate a report and return the output file or preview data."""
+    """Generate a report and return the output file or preview data.
+
+    批 9.3: requires read access on the report's data source — the
+    generator opens a connection to it during render. 9.4 will layer
+    Report-owner ACL on top.
+    """
     # Rate-limit by IP before any DB / query work. Report renders can
     # take seconds, so this cap protects the worker pool from a single
     # runaway client. Namespace the key so the budget is independent from
@@ -294,7 +312,11 @@ def generate_report_endpoint(
         )
 
     report = db.query(Report).filter(Report.id == payload.report_id).first()
-    if not report:
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    if get_data_source_for_user(db, report.data_source_id, user) is None:
+        # Uniform 404 — don't leak whether the report exists vs.
+        # whether the caller has DS access.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
     # Validate caller-supplied parameters against the report's declared
@@ -343,12 +365,18 @@ def preview_report(
     request: Request,
     format: str = Query(default="html", pattern="^html$"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> HTMLResponse:
     """Preview a report without generating a file. Returns raw HTML so the
     frontend iframe can load it directly via <iframe src=...> and scripts
-    (Chart.js) execute without being stripped by DOMPurify."""
+    (Chart.js) execute without being stripped by DOMPurify.
+
+    批 9.3: read ACL on the report's data source.
+    """
     report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
+    if report is None or get_data_source_for_user(
+        db, report.data_source_id, user
+    ) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
     try:
@@ -373,10 +401,16 @@ def export_report(
     report_id: int,
     format: str = Path(..., pattern="^(excel|html)$"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> FileResponse:
-    """Export a generated report file."""
+    """Export a generated report file.
+
+    批 9.3: read ACL on the report's data source.
+    """
     report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
+    if report is None or get_data_source_for_user(
+        db, report.data_source_id, user
+    ) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

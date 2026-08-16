@@ -63,8 +63,40 @@ class DataSourceResponse(DataSourceBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    owner_user_id: int | None = None
+    org_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Grants (批 9.3)
+# ---------------------------------------------------------------------------
+
+
+class GrantCreate(BaseModel):
+    """Payload for ``POST /data-sources/{id}/grants``.
+
+    Upserts on ``(data_source_id, user_id)`` — sending the same
+    ``user_id`` twice updates the permission level instead of failing
+    the unique constraint.
+    """
+
+    user_id: int
+    permission: str = Field(..., pattern="^(read|write)$")
+
+
+class GrantResponse(BaseModel):
+    """One :class:`app.models.data_source_access.DataSourceAccess` row."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    data_source_id: int
+    user_id: int
+    permission: str
+    granted_by: int | None = None
+    created_at: datetime | None = None
 
 
 class ColumnInfo(BaseModel):

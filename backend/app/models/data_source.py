@@ -1,13 +1,28 @@
 """SQLAlchemy models for application metadata."""
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
 
+if TYPE_CHECKING:
+    from app.models.data_source_access import DataSourceAccess
+
 
 class DataSource(Base):
-    """Configured external database source."""
+    """Configured external database source.
+
+    批 9.3 adds owner + org_id (reserved for future multi-tenant) and a
+    many-to-many grants table so non-owner users can be explicitly
+    granted ``read`` or ``write`` access. Owner = full control; admin
+    role bypasses ACL entirely. Existing rows backfilled to admin
+    ownership by the 9.3 Alembic migration.
+    """
 
     __tablename__ = "data_sources"
 
@@ -21,5 +36,27 @@ class DataSource(Base):
     password = Column(String(255), nullable=True)
     schema_name = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
+
+    # 批 9.3 RBAC. ``owner_user_id`` is nullable so the column can be
+    # added before every row is migrated; ON DELETE SET NULL keeps a
+    # deleted user from cascading into production data-source deletion.
+    owner_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Reserved for a future multi-tenant deployment; NULL today
+    # (single-org). Mirrors ``users.org_id`` (added in 批 9.1).
+    org_id = Column(Integer, nullable=True, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # backref from DataSourceAccess rows. cascade="all, delete-orphan"
+    # so revoking / deleting a data-source cleans up its grants.
+    grants: Mapped[list["DataSourceAccess"]] = relationship(
+        "DataSourceAccess",
+        back_populates="data_source",
+        cascade="all, delete-orphan",
+    )

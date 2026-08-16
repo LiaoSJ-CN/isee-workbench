@@ -35,6 +35,7 @@ from app.schemas.job import (
     ReportJobCreate,
     ReportJobResponse,
 )
+from app.services.data_source import get_data_source_for_user
 from app.services.job_queue import enqueue_report_job
 
 # Pulled out of /reports router so future batch 3b (SSE stream on
@@ -111,7 +112,19 @@ def create_report_job(
             headers={"Retry-After": "60"},
         )
 
-    if not db.query(Report).filter(Report.id == report_id).first():
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Report not found",
+        )
+
+    # 批 9.3: enqueueing a render requires read access on the report's
+    # data source (the render opens a connection to it). Same 404
+    # message — no leak between "report gone", "data source gone",
+    # and "no DS access".
+    ds = get_data_source_for_user(db, report.data_source_id, user)
+    if ds is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report not found",
@@ -147,11 +160,25 @@ def create_report_job(
 def get_report_job(
     id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ReportJobResponse:
     """Single-job lookup. 404 if the id was never issued (or has been
-    purged — we don't currently prune, but the contract stays stable)."""
+    purged — we don't currently prune, but the contract stays stable).
+
+    批 9.3: gated on read ACL of the report's data source — same
+    404 message whether the job is missing or the caller can't see
+    the underlying report.
+    """
     job = db.get(ReportJob, id)
     if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    report = db.get(Report, job.report_id)
+    if report is None or get_data_source_for_user(
+        db, report.data_source_id, user
+    ) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -163,6 +190,7 @@ def get_report_job(
 def download_report_job_output(
     id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> FileResponse:
     """Serve the worker-produced file for a completed job (批 8.5).
 
@@ -181,6 +209,12 @@ def download_report_job_output(
     * status == ``done`` but the on-disk file is gone (manual cleanup,
       ``generated_reports_dir`` rotated).
 
+    批 9.3: also 404 when the caller no longer has read access to
+    the report's data source — the worker output is a snapshot of
+    the data, but the ACL decision is made on the resource the
+    snapshot was derived from. If the data source was deleted after
+    the job completed the lookup naturally fails.
+
     Path-traversal protection: ``file_path`` may carry whatever the
     worker wrote, so we route through :func:`os.path.basename` and
     resolve relative to ``settings.generated_reports_dir``. A worker
@@ -189,6 +223,14 @@ def download_report_job_output(
     """
     job = db.get(ReportJob, id)
     if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    report = db.get(Report, job.report_id)
+    if report is None or get_data_source_for_user(
+        db, report.data_source_id, user
+    ) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -247,14 +289,21 @@ def list_report_jobs(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[ReportJobResponse]:
     """Most-recent-first job history for a single report.
 
     Supports ``?status=done`` etc. for "show me only failures" filters;
     no separate endpoint because the typical use case is the recent
     pane in the report preview UI.
+
+    批 9.3: gated on DS read ACL — same 404 for "report gone" and
+    "no DS access".
     """
-    if not db.query(Report).filter(Report.id == report_id).first():
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if report is None or get_data_source_for_user(
+        db, report.data_source_id, user
+    ) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report not found",

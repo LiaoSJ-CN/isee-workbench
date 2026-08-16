@@ -9,6 +9,7 @@ from app.config import settings
 # Import all models so Base.metadata is fully populated for autogenerate.
 from app.database import Base
 from app.models import data_source  # noqa: F401
+from app.models import data_source_access  # noqa: F401  # 批 9.3
 from app.models import rate_limit  # noqa: F401
 from app.models import report  # noqa: F401
 from app.models import report_job  # noqa: F401

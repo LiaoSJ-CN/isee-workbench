@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { dataSourceApi } from '../api';
-import type { DataSource, DataSourceCreate } from '../types';
+import { dataSourceApi, usersApi } from '../api';
+import type {
+  DataSource,
+  DataSourceCreate,
+  DataSourceGrant,
+  DataSourceGrantCreate,
+} from '../types';
 import { queryKeys } from './keys';
 
 /**
@@ -120,3 +125,61 @@ export function useCachedDataSources(): DataSource[] | undefined {
   const qc = useQueryClient();
   return qc.getQueryData<DataSource[]>(queryKeys.dataSources.list());
 }
+
+// ---- ACL (批 9.3) ----
+
+/** List grants on a data source. Owner-or-admin only — backend
+ *  returns 404 for non-owners/non-admins. Disabled when ``dsId`` is
+ *  null so the modal doesn't fire the request before the row is picked. */
+export function useDataSourceAcl(dsId: number | null | undefined) {
+  return useQuery({
+    queryKey: queryKeys.dataSources.acl(dsId ?? -1),
+    queryFn: () => dataSourceApi.listAcl(dsId as number),
+    enabled: dsId != null,
+    retry: false, // 404 means "no access" — don't retry-loop.
+  });
+}
+
+/** Upsert a grant (POST). Invalidates the ACL cache so the list
+ *  refreshes after creation/update. */
+export function useUpsertDataSourceAcl() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ dsId, payload }: { dsId: number; payload: DataSourceGrantCreate }) =>
+      dataSourceApi.createAcl(dsId, payload),
+    onSuccess: (_grant, { dsId }) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.dataSources.acl(dsId) });
+    },
+  });
+}
+
+/** Revoke a grant (DELETE). Invalidates the ACL cache so the row
+ *  disappears from the table immediately. */
+export function useDeleteDataSourceAcl() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ grantId }: { dsId: number; grantId: number }) =>
+      dataSourceApi.revokeAcl(grantId),
+    onSuccess: (_data, { dsId }) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.dataSources.acl(dsId) });
+    },
+  });
+}
+
+/** List of users for the share-modal picker. Lazy — only fetches when
+ *  the consumer opts in (``enabled``), so the modal doesn't issue the
+ *  call until it's actually opened. Tolerates 404 (route lands in
+ *  批 9.5) so the modal degrades to manual user_id entry. */
+export function useUsers(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.users.list(),
+    queryFn: usersApi.list,
+    enabled: options?.enabled ?? false,
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+// Re-export so callers can grab the grant row type alongside the hooks
+// without importing from two places.
+export type { DataSourceGrant };

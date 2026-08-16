@@ -1,5 +1,20 @@
 // API Types matching backend Pydantic schemas
 
+// ---- RBAC (批 9) ----
+// Coarse-grained roles. Resource-level ACL lives server-side in
+// DataSourceAccess / ReportAccess; these strings only gate UI affordances
+// (e.g. "can I see the New Data Source button").
+export type UserRole = 'admin' | 'editor' | 'viewer';
+
+/** Mirrors `GET /auth/me` response shape (post 批 9.1). */
+export interface CurrentUser {
+  username: string;
+  user_id: number;
+  role: UserRole;
+  /** Reserved for a future multi-tenant deployment; today always `null`. */
+  org_id: number | null;
+}
+
 /** Schema-browser response shape — GET /data-sources/{id}/schema. */
 export interface ColumnInfo {
   name: string;
@@ -28,6 +43,8 @@ export interface DataSource {
   username?: string;
   schema_name?: string;
   description?: string;
+  owner_user_id?: number | null;
+  org_id?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -42,6 +59,23 @@ export interface DataSourceCreate {
   password?: string;
   schema_name?: string;
   description?: string;
+}
+
+export type DataSourceGrantPermission = 'read' | 'write';
+
+/** One row in :class:`DataSourceAccess` (批 9.3). */
+export interface DataSourceGrant {
+  id: number;
+  data_source_id: number;
+  user_id: number;
+  permission: DataSourceGrantPermission;
+  granted_by?: number | null;
+  created_at?: string;
+}
+
+export interface DataSourceGrantCreate {
+  user_id: number;
+  permission: DataSourceGrantPermission;
 }
 
 export type ItemType = 'table' | 'chart' | 'text' | 'metric';

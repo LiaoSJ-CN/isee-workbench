@@ -1,16 +1,22 @@
 import { useState } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined, ShareAltOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, DataSourceCreate } from '../types';
 import { formatError } from '../utils/error';
+import { useMe } from '../queries/useAuth';
 import {
   useCreateDataSource,
+  useDataSourceAcl,
   useDataSources,
   useDeleteDataSource,
+  useDeleteDataSourceAcl,
   useTestDataSource,
   useUpdateDataSource,
+  useUpsertDataSourceAcl,
+  useUsers,
 } from '../queries/useDataSources';
+import { DataSourceShareModal } from '../components/DataSourceShareModal';
 
 const { TextArea } = Input;
 
@@ -20,6 +26,17 @@ export default function DataSourceList() {
   const updateDs = useUpdateDataSource();
   const deleteDs = useDeleteDataSource();
   const testDs = useTestDataSource();
+
+  // ACL (批 9.3)
+  const me = useMe();
+  const currentUserId = me.data?.user_id;
+  const isAdmin = me.data?.role === 'admin';
+  const [shareTarget, setShareTarget] = useState<DataSource | null>(null);
+  const acl = useDataSourceAcl(shareTarget?.id ?? null);
+  const upsertAcl = useUpsertDataSourceAcl();
+  const revokeAcl = useDeleteDataSourceAcl();
+  // User list for the share picker — fetches only when the modal opens.
+  const usersQuery = useUsers({ enabled: shareTarget != null });
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
@@ -145,28 +162,44 @@ export default function DataSourceList() {
     {
       title: '操作',
       key: 'action',
-      width: 200,
-      render: (_, record) => (
-        <Space size="small">
-          <Button
-            type="link"
-            size="small"
-            icon={<SyncOutlined spin={testDs.isPending && testDs.variables === record.id} />}
-            onClick={() => handleTest(record.id)}
-            loading={testDs.isPending && testDs.variables === record.id}
-          >
-            测试
-          </Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
+      width: 260,
+      render: (_, record) => {
+        // Share button: only the owner or an admin can manage grants.
+        // The backend enforces the same — we hide the affordance
+        // client-side so non-owners don't see a broken button.
+        const canShare = isAdmin || (currentUserId != null && record.owner_user_id === currentUserId);
+        return (
+          <Space size="small">
+            <Button
+              type="link"
+              size="small"
+              icon={<SyncOutlined spin={testDs.isPending && testDs.variables === record.id} />}
+              onClick={() => handleTest(record.id)}
+              loading={testDs.isPending && testDs.variables === record.id}
+            >
+              测试
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+              编辑
+            </Button>
+            {canShare && (
+              <Button
+                type="link"
+                size="small"
+                icon={<ShareAltOutlined />}
+                onClick={() => setShareTarget(record)}
+              >
+                分享
+              </Button>
+            )}
+            <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -298,6 +331,38 @@ export default function DataSourceList() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <DataSourceShareModal
+        visible={shareTarget != null}
+        dataSource={shareTarget}
+        grants={acl.data}
+        grantsLoading={acl.isPending}
+        users={usersQuery.data}
+        usersLoading={usersQuery.isPending}
+        createPending={upsertAcl.isPending}
+        revokePending={revokeAcl.isPending}
+        onCreate={(payload) => {
+          if (!shareTarget) return;
+          upsertAcl.mutate(
+            { dsId: shareTarget.id, payload },
+            {
+              onSuccess: () => message.success('授权已添加'),
+              onError: (err) => message.error(formatError(err, '授权失败')),
+            },
+          );
+        }}
+        onRevoke={(grant) => {
+          if (!shareTarget) return;
+          revokeAcl.mutate(
+            { dsId: shareTarget.id, grantId: grant.id },
+            {
+              onSuccess: () => message.success('已撤销'),
+              onError: (err) => message.error(formatError(err, '撤销失败')),
+            },
+          );
+        }}
+        onCancel={() => setShareTarget(null)}
+      />
     </div>
   );
 }
