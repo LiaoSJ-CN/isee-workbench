@@ -24,14 +24,15 @@
 | 批 3b 前端轮询 / SSE 进度 | ✅ 完成 — 新 `queries/useJobs.ts`（`useJobStatus` 动态 refetchInterval + `useEnqueueReportJob` mutation）+ `jobsApi` + ReportPreview 「导出 Excel」enqueue→轮询→下载三段式 |
 | 批 4b 参数 UI 前端 | ✅ 完成 — 新 `components/ReportParameterForm.tsx`（按 type 渲染 5 种输入：Input/InputNumber/DatePicker/Select/Switch）+ `ReportEditor` 「参数」Tab CRUD UI（Table + ParameterEditorModal） |
 | 批 6b Prometheus + 限流 + CSRF + NotificationConfig | ✅ 完成 — Prometheus `/metrics` + 4 自定义指标 + `/explorer/query` 30/min/IP + `/reports/generate`+`/reports/{id}/jobs` 10/min/IP + `CSRFMiddleware` (Origin 白名单) + `NotificationConfig` 3-variant 判别联合 |
-| 下一批：批 1.5 ReportEditor 文件拆分 | ⏳ **下次会话从这里开始**（按已重排顺序：1.5 → 7 → 8 → 9 → 10） |
+| 批 1.5 ReportEditor 文件拆分 | ✅ 完成 — commit `baad103` + 修复 TODO-1 `html.escape(None)` 崩溃（commit `426dfa4`）。`pages/ReportEditor.tsx` (1043 行) → `pages/ReportEditor/{index, SortableItem, ItemEditorModal, ParameterEditorModal, ConfigTab, ItemsTab, ParametersTab}.tsx` (7 文件) |
+| 下一批：批 7 测试 + DX（vitest + e2e） | ⏳ **下次会话从这里开始**（按已重排顺序：7 → 8 → 9 → 10） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
 2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 3b」章节
-4. 建 TaskCreate 覆盖批 3b 子项（useJobStatus 轮询 hook + jobsApi + ReportPreview 「导出 Excel」改成 enqueue→轮询→下载三段式 + 进度显示），开始干
+3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` 中「批 7」章节（vitest 单元测试 + e2e 关键流程）
+4. 建 TaskCreate 覆盖批 7 子项，开始干
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
