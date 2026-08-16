@@ -1,0 +1,314 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Tabs, Button, Space, message } from 'antd';
+import { SaveOutlined, EyeOutlined } from '@ant-design/icons';
+import { arrayMove } from '@dnd-kit/sortable';
+import type { DragEndEvent } from '@dnd-kit/core';
+import type {
+  Report, ReportItem, ReportItemCreate, ReportItemUpdate,
+  ReportParameter, ReportParameterCreate, ReportParameterUpdate,
+} from '../../types';
+import { formatError } from '../../utils/error';
+import {
+  useCreateReportItem,
+  useDeleteReportItem,
+  useReport,
+  useReorderReportItems,
+  useUpdateReport,
+  useUpdateReportItem,
+} from '../../queries/useReports';
+import {
+  useCreateReportParameter,
+  useDeleteReportParameter,
+  useReportParameters,
+  useUpdateReportParameter,
+} from '../../queries/useParameters';
+import { useDataSources } from '../../queries/useDataSources';
+import { CardSkeleton } from '../../components/Skeleton';
+import { ConfigTab } from './ConfigTab';
+import { ItemsTab } from './ItemsTab';
+import { ParametersTab } from './ParametersTab';
+import { ItemEditorModal } from './ItemEditorModal';
+import { ParameterEditorModal } from './ParameterEditorModal';
+
+export default function ReportEditor() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const reportId = id ? Number(id) : null;
+
+  // Server truth from React Query cache. The cache is the source for
+  // items list and is what the page re-reads after any mutation.
+  const { data: report, isPending: reportLoading } = useReport(reportId);
+  // Edit buffer: a local copy of the report for unsaved edits in the
+  // "报表配置" tab. Initialized from the cache once it arrives.
+  const [buffer, setBuffer] = useState<Report | null>(null);
+  const [bufferHydrated, setBufferHydrated] = useState(false);
+  useEffect(() => {
+    if (!bufferHydrated && report) {
+      setBuffer(report);
+      setBufferHydrated(true);
+    }
+  }, [report, bufferHydrated]);
+
+  const { data: dataSources = [], isPending: dsLoading } = useDataSources();
+  const updateReport = useUpdateReport();
+  const createItem = useCreateReportItem(reportId ?? -1);
+  const updateItem = useUpdateReportItem(reportId ?? -1);
+  const deleteItem = useDeleteReportItem(reportId ?? -1);
+  const reorderItems = useReorderReportItems(reportId ?? -1);
+
+  // ---- Parameters (批 4b) -----------------------------------------------
+  const parametersQ = useReportParameters(reportId);
+  const createParam = useCreateReportParameter(reportId ?? -1);
+  const updateParam = useUpdateReportParameter(reportId ?? -1);
+  const deleteParam = useDeleteReportParameter(reportId ?? -1);
+  const parameters = parametersQ.data ?? [];
+
+  const [paramModalVisible, setParamModalVisible] = useState(false);
+  const [editingParam, setEditingParam] = useState<ReportParameter | null>(null);
+
+  const handleAddParam = () => {
+    setEditingParam(null);
+    setParamModalVisible(true);
+  };
+
+  const handleEditParam = (p: ReportParameter) => {
+    setEditingParam(p);
+    setParamModalVisible(true);
+  };
+
+  const handleDeleteParam = (paramId: number) => {
+    deleteParam.mutate(paramId, {
+      onSuccess: () => message.success('参数已删除'),
+      onError: (err) => message.error(formatError(err, '删除失败')),
+    });
+  };
+
+  const handleSaveParam = (payload: ReportParameterCreate | ReportParameterUpdate) => {
+    if (!reportId) return;
+    if (editingParam) {
+      updateParam.mutate(
+        { paramId: editingParam.id, payload: payload as ReportParameterUpdate },
+        {
+          onSuccess: () => {
+            message.success('参数已更新');
+            setParamModalVisible(false);
+          },
+          onError: (err) => message.error(formatError(err, '保存失败')),
+        },
+      );
+    } else {
+      createParam.mutate(payload as ReportParameterCreate, {
+        onSuccess: () => {
+          message.success('参数已创建');
+          setParamModalVisible(false);
+        },
+        onError: (err) => message.error(formatError(err, '创建失败')),
+      });
+    }
+  };
+
+  const [itemModalVisible, setItemModalVisible] = useState(false);
+  const [editingItem, setEditingItem] = useState<ReportItem | null>(null);
+  const [activeTab, setActiveTab] = useState('config');
+
+  const handleSaveReport = () => {
+    if (!buffer || !reportId) return;
+    updateReport.mutate(
+      {
+        id: reportId,
+        payload: {
+          name: buffer.name,
+          description: buffer.description,
+          data_source_id: buffer.data_source_id,
+          output_formats: buffer.output_formats,
+          is_active: buffer.is_active,
+        },
+      },
+      {
+        onSuccess: () => message.success('保存成功'),
+        // Rollback handled by useUpdateReport's onError (writes prev back
+        // into the cache); the buffer follows the cache via the next
+        // refetch from onSettled's invalidation, so no manual setBuffer
+        // is needed on error.
+        onError: (err) => message.error(formatError(err, '保存失败')),
+      },
+    );
+  };
+
+  const handleAddItem = () => {
+    setEditingItem(null);
+    setItemModalVisible(true);
+  };
+
+  const handleEditItem = (item: ReportItem) => {
+    setEditingItem(item);
+    setItemModalVisible(true);
+  };
+
+  const handleSaveItem = (itemData: ReportItemCreate | ReportItemUpdate) => {
+    if (!reportId) return;
+    const onDone = () => setItemModalVisible(false);
+    if (editingItem) {
+      updateItem.mutate(
+        { itemId: editingItem.id, payload: itemData as ReportItemUpdate },
+        {
+          onSuccess: () => {
+            message.success('更新成功');
+            onDone();
+          },
+          onError: (err) => message.error(formatError(err, '操作失败')),
+        },
+      );
+    } else {
+      createItem.mutate(itemData as ReportItemCreate, {
+        onSuccess: () => {
+          message.success('添加成功');
+          onDone();
+        },
+        onError: (err) => message.error(formatError(err, '操作失败')),
+      });
+    }
+  };
+
+  const handleDeleteItem = (itemId: number) => {
+    deleteItem.mutate(itemId, {
+      onSuccess: () => message.success('删除成功'),
+      onError: (err) => message.error(formatError(err, '删除失败')),
+    });
+  };
+
+  // Items list shown to the user. After a successful mutation, the cache
+  // refetches and `items` re-derives. During a drag-reorder we mutate the
+  // local view of items via a separate `itemsView` state so the visual
+  // update is instant; the server reorder call is a follow-up.
+  const itemsView = useMemo(() => {
+    if (!buffer) return [];
+    return [...buffer.items].sort((a, b) => a.order_index - b.order_index);
+  }, [buffer]);
+
+  const persistOrder = (orderedItems: ReportItem[]) => {
+    if (!reportId) return;
+    const payload = orderedItems
+      .filter((i) => i.id !== undefined)
+      .map((i) => ({ item_id: i.id as number, order_index: i.order_index }));
+    if (payload.length === 0) return;
+    reorderItems.mutate(payload, {
+      onError: (err) => message.error(formatError(err, '排序保存失败')),
+    });
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (!buffer) return;
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = itemsView.findIndex((i) => `item-${i.id}` === active.id);
+      const newIndex = itemsView.findIndex((i) => `item-${i.id}` === over.id);
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newItems = arrayMove(itemsView, oldIndex, newIndex);
+        const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
+        setBuffer({ ...buffer, items: updatedItems });
+        persistOrder(updatedItems);
+      }
+    }
+  };
+
+  const handleMoveItem = (index: number, direction: 'up' | 'down') => {
+    if (!buffer) return;
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= itemsView.length) return;
+    const newItems = arrayMove(itemsView, index, newIndex);
+    const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
+    setBuffer({ ...buffer, items: updatedItems });
+    persistOrder(updatedItems);
+  };
+
+  if (reportLoading || dsLoading) return <div style={{ padding: 24 }}><CardSkeleton rows={6} /></div>;
+  if (!report || !buffer) return <div style={{ padding: 24 }}>报表不存在</div>;
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+        <Space>
+          <Button onClick={() => navigate('/reports')}>返回</Button>
+          <h2 style={{ margin: 0 }}>{buffer.name}</h2>
+        </Space>
+        <Space>
+          <Button icon={<EyeOutlined />} onClick={() => navigate(`/reports/${buffer.id}/preview`)}>
+            预览
+          </Button>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            loading={updateReport.isPending}
+            onClick={handleSaveReport}
+          >
+            保存
+          </Button>
+        </Space>
+      </div>
+
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'config',
+            label: '报表配置',
+            children: (
+              <ConfigTab
+                buffer={buffer}
+                dataSources={dataSources}
+                onBufferChange={setBuffer}
+              />
+            ),
+          },
+          {
+            key: 'items',
+            label: `报表项 (${buffer.items?.length || 0})`,
+            children: (
+              <ItemsTab
+                items={itemsView}
+                onAdd={handleAddItem}
+                onEdit={handleEditItem}
+                onDelete={handleDeleteItem}
+                onMoveUp={(index) => handleMoveItem(index, 'up')}
+                onMoveDown={(index) => handleMoveItem(index, 'down')}
+                onDragEnd={handleDragEnd}
+              />
+            ),
+          },
+          {
+            key: 'parameters',
+            label: `参数 (${parameters.length})`,
+            children: (
+              <ParametersTab
+                parameters={parameters}
+                onAdd={handleAddParam}
+                onEdit={handleEditParam}
+                onDelete={handleDeleteParam}
+              />
+            ),
+          },
+        ]}
+      />
+
+      <ItemEditorModal
+        visible={itemModalVisible}
+        item={editingItem}
+        onSave={handleSaveItem}
+        onCancel={() => setItemModalVisible(false)}
+        isNew={!editingItem}
+        saving={createItem.isPending || updateItem.isPending}
+      />
+
+      <ParameterEditorModal
+        visible={paramModalVisible}
+        parameter={editingParam}
+        onSave={handleSaveParam}
+        onCancel={() => setParamModalVisible(false)}
+        saving={createParam.isPending || updateParam.isPending}
+      />
+    </div>
+  );
+}
