@@ -1,4 +1,4 @@
-"""HTTP endpoints for asynchronous report-generation jobs (批 3a).
+"""HTTP endpoints for asynchronous report-generation jobs (批 3a, 批 8.5).
 
 Surface (all auth-gated; HTML preview stays synchronous on the existing
 ``/reports/generate`` and ``/reports/{id}/preview`` routes):
@@ -7,12 +7,19 @@ Surface (all auth-gated; HTML preview stays synchronous on the existing
   freshly-created :class:`ReportJob` in ``pending`` state so the caller
   can immediately start polling.
 * ``GET /jobs/{id}`` — single-job status.
+* ``GET /jobs/{id}/download`` — serve the worker-produced file by
+  basename (批 8.5; previously the frontend called
+  ``/reports/{id}/export/excel`` and re-rendered the whole report on
+  download, wasting the worker's output).
 * ``GET /reports/{id}/jobs`` — per-report history (most-recent first).
 """
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session  # noqa: F401 — typing-only, kept for handlers
 
 from app.config import settings
@@ -20,7 +27,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.middleware.rate_limit import RateLimiter
 from app.models.report import Report
-from app.models.report_job import ReportJob
+from app.models.report_job import JOB_STATUS_DONE, ReportJob
 from app.models.user import User
 from app.schemas.job import (
     JobStatus,
@@ -149,6 +156,67 @@ def get_report_job(
             detail="Job not found",
         )
     return _serialize(job)
+
+
+@jobs_router.get("/{id}/download")
+def download_report_job_output(
+    id: int,
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """Serve the worker-produced file for a completed job (批 8.5).
+
+    Closes the async-export loop: previously the frontend polled
+    ``/jobs/{id}`` until ``status == 'done'`` and then called
+    ``/reports/{id}/export/excel`` to download — that endpoint
+    *re-runs* the report generator, discarding the worker's output.
+    For a 30-second render the user paid 60s end-to-end. This route
+    returns the worker's file directly.
+
+    404 in three cases:
+
+    * unknown job id (never issued / purged),
+    * job exists but status != ``done`` (still pending/running, or
+      failed with no file to serve),
+    * status == ``done`` but the on-disk file is gone (manual cleanup,
+      ``generated_reports_dir`` rotated).
+
+    Path-traversal protection: ``file_path`` may carry whatever the
+    worker wrote, so we route through :func:`os.path.basename` and
+    resolve relative to ``settings.generated_reports_dir``. A worker
+    that wrote ``"../../../etc/passwd"`` resolves to ``passwd`` inside
+    the output dir — which doesn't exist there, so the 404 still wins.
+    """
+    job = db.get(ReportJob, id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    if job.status != JOB_STATUS_DONE or not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job output not available",
+        )
+
+    safe_basename = os.path.basename(job.file_path)
+    full_path = settings.generated_reports_dir / safe_basename
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Generated file missing",
+        )
+
+    # Only Excel is queued today (HTML preview stays sync), so the media
+    # type is unambiguous. If a future format joins the queue, dispatch
+    # on ``job.output_format``.
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    return FileResponse(
+        path=full_path,
+        filename=safe_basename,
+        media_type=media_type,
+    )
 
 
 @report_jobs_router.get(

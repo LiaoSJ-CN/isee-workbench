@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 import uuid
 from concurrent.futures import Future
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -430,6 +431,210 @@ def test_list_jobs_404_for_missing_report(
     client: TestClient, auth_headers: dict
 ) -> None:
     r = client.get("/reports/99999999/jobs", headers=auth_headers)
+    assert r.status_code == 404
+
+
+# ----------------- GET /jobs/{id}/download (批 8.5) -----------------
+
+
+def _make_done_job(
+    db: Session,
+    report_id: int,
+    file_path: str | None,
+    status: str = JOB_STATUS_DONE,
+) -> ReportJob:
+    """Insert a ReportJob row in a chosen terminal state with optional file_path."""
+    job = ReportJob(
+        report_id=report_id,
+        output_format="excel",
+        parameters={},
+        created_by="pytest",
+        status=status,
+        file_path=file_path,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+def test_download_job_requires_auth(client: TestClient) -> None:
+    r = client.get("/jobs/1/download")
+    assert r.status_code == 401
+
+
+def test_download_job_serves_worker_file(
+    client: TestClient,
+    temp_report_with_sqlite: int,
+    auth_headers: dict,
+    tmp_path: Path,
+) -> None:
+    """A ``done`` job whose ``file_path`` points to a real file → 200 + bytes.
+
+    Uses pytest's ``tmp_path`` so the test never touches
+    ``settings.generated_reports_dir``; instead we monkeypatch the
+    settings attribute to point at the temp dir, mirroring the
+    worker's real write target.
+    """
+    db = SessionLocal()
+    try:
+        rid = temp_report_with_sqlite
+        out_dir = tmp_path / "reports_out"
+        out_dir.mkdir()
+        target = out_dir / "report_42.xlsx"
+        target.write_bytes(b"fake-xlsx-bytes")
+
+        job = _make_done_job(db, rid, file_path=str(target))
+        job_id = job.id
+    finally:
+        db.close()
+
+    # Settings.generated_reports_dir is module-level; monkeypatch via
+    # FastAPI dependency would be heavier than the test needs. We swap
+    # it directly and restore in finally.
+    from app.config import settings
+
+    original = settings.generated_reports_dir
+    settings.generated_reports_dir = tmp_path / "reports_out"
+    try:
+        r = client.get(f"/jobs/{job_id}/download", headers=auth_headers)
+    finally:
+        settings.generated_reports_dir = original
+
+    assert r.status_code == 200
+    assert (
+        r.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert r.content == b"fake-xlsx-bytes"
+    # FileResponse sets a Content-Disposition with the basename.
+    assert "report_42.xlsx" in r.headers.get("content-disposition", "")
+
+
+def test_download_job_404_for_unknown_id(
+    client: TestClient, auth_headers: dict
+) -> None:
+    r = client.get("/jobs/99999999/download", headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_download_job_404_when_pending(
+    client: TestClient,
+    temp_report_with_sqlite: int,
+    auth_headers: dict,
+) -> None:
+    """A pending job has no file yet — 404 with a clear message."""
+    db = SessionLocal()
+    try:
+        rid = temp_report_with_sqlite
+        job = _make_done_job(
+            db, rid, file_path=None, status=JOB_STATUS_PENDING
+        )
+        job_id = job.id
+    finally:
+        db.close()
+
+    r = client.get(f"/jobs/{job_id}/download", headers=auth_headers)
+    assert r.status_code == 404
+    assert "not available" in r.json()["detail"]
+
+
+def test_download_job_404_when_failed(
+    client: TestClient,
+    temp_report_with_sqlite: int,
+    auth_headers: dict,
+) -> None:
+    """Failed jobs have file_path=None — same 404 contract as pending."""
+    db = SessionLocal()
+    try:
+        rid = temp_report_with_sqlite
+        job = _make_done_job(
+            db, rid, file_path=None, status=JOB_STATUS_FAILED
+        )
+        job_id = job.id
+    finally:
+        db.close()
+
+    r = client.get(f"/jobs/{job_id}/download", headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_download_job_404_when_done_but_file_missing(
+    client: TestClient,
+    temp_report_with_sqlite: int,
+    auth_headers: dict,
+    tmp_path: Path,
+) -> None:
+    """``status=done`` with a stale ``file_path`` (manual cleanup) → 404.
+
+    We point file_path at a path that does NOT exist to simulate the
+    case where the worker wrote a file but it was rotated out from
+    under us. The 404 message distinguishes this from "not done".
+    """
+    db = SessionLocal()
+    try:
+        rid = temp_report_with_sqlite
+        out_dir = tmp_path / "missing_reports_out"
+        out_dir.mkdir()  # exists, but the named file inside does not
+        stale = out_dir / "never_existed.xlsx"
+        job = _make_done_job(db, rid, file_path=str(stale))
+        job_id = job.id
+    finally:
+        db.close()
+
+    from app.config import settings
+
+    original = settings.generated_reports_dir
+    settings.generated_reports_dir = tmp_path / "missing_reports_out"
+    try:
+        r = client.get(f"/jobs/{job_id}/download", headers=auth_headers)
+    finally:
+        settings.generated_reports_dir = original
+
+    assert r.status_code == 404
+    assert "missing" in r.json()["detail"].lower()
+
+
+def test_download_job_strips_directory_components(
+    client: TestClient,
+    temp_report_with_sqlite: int,
+    auth_headers: dict,
+    tmp_path: Path,
+) -> None:
+    """``file_path`` carrying traversal segments resolves to basename only.
+
+    If a future worker writes ``../../etc/passwd``, the endpoint should
+    look for ``passwd`` inside ``generated_reports_dir`` (not follow
+    the ``..`` up to ``/etc``). Even if that file happened to exist
+    there (it won't), it would only be readable inside the output dir.
+    Here we just confirm the path resolves to the basename — no file
+    means 404, but the security guarantee is that we never escape.
+    """
+    db = SessionLocal()
+    try:
+        rid = temp_report_with_sqlite
+        out_dir = tmp_path / "traversal_out"
+        out_dir.mkdir()
+        job = _make_done_job(
+            db,
+            rid,
+            file_path="../../../etc/passwd",  # tries to escape
+        )
+        job_id = job.id
+    finally:
+        db.close()
+
+    from app.config import settings
+
+    original = settings.generated_reports_dir
+    settings.generated_reports_dir = tmp_path / "traversal_out"
+    try:
+        r = client.get(f"/jobs/{job_id}/download", headers=auth_headers)
+    finally:
+        settings.generated_reports_dir = original
+
+    # The ``..`` segments are stripped to ``passwd`` and looked up
+    # inside the output dir → not found → 404 (never reads /etc/passwd).
     assert r.status_code == 404
 
 

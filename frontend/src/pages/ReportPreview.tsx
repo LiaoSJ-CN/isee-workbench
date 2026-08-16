@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useReport, useReportPreviewHtml, useDownloadReport } from '../queries/useReports';
 import { useEnqueueReportJob, useJobStatus } from '../queries/useJobs';
+import { jobsApi } from '../api';
 import { useReportParameters } from '../queries/useParameters';
 import { TableSkeleton } from '../components/Skeleton';
 import { ReportParameterForm } from '../components/ReportParameterForm';
@@ -28,16 +29,24 @@ export default function ReportPreview() {
   const previewQ = useReportPreviewHtml(reportId, shouldFetch);
   const downloadReport = useDownloadReport();
 
-  // ---- Excel async export (批 3b) ----------------------------------------
+  // ---- Excel async export (批 3b + 批 8.5) ---------------------------------
   // Flow: click "导出 Excel" → enqueue → poll job status → on done, show
-  // a "下载" button that hits the existing `/reports/{id}/export/excel`
-  // endpoint. The job id is kept in local state (not the URL) so a page
-  // refresh resets to a clean slate — that's the right trade-off because
-  // job rows are transient and the in-flight status would re-fire from
-  // scratch anyway.
+  // a "下载" button that hits the new `/jobs/{id}/download` endpoint,
+  // which serves the worker's output directly. Pre-批 8.5 the download
+  // button re-ran the renderer via `/reports/{id}/export/excel` and
+  // discarded the worker's file — a 30-second render took 60s end to
+  // end. The job id is kept in local state (not the URL) so a page
+  // refresh resets to a clean slate — that's the right trade-off
+  // because job rows are transient and the in-flight status would
+  // re-fire from scratch anyway.
   const [excelJobId, setExcelJobId] = useState<number | null>(null);
   const enqueueExcel = useEnqueueReportJob(reportId);
   const excelJob = useJobStatus(excelJobId);
+  // Local loading flag for the download click — `useDownloadReport`'s
+  // isPending would falsely trigger when the user does anything in the
+  // toolbar (e.g. a re-rendered Excel enqueue). Self-contained state is
+  // clearer here.
+  const [downloading, setDownloading] = useState(false);
 
   // Blob URL lifecycle: when the preview string arrives, wrap it in a
   // blob URL; revoke the previous one when the string changes.
@@ -76,19 +85,20 @@ export default function ReportPreview() {
     );
   };
 
-  const handleDownloadExcel = () => {
-    if (!report) return;
+  const handleDownloadExcel = async () => {
+    if (!report || excelJobId === null) return;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
     const filename = `${report.name}_${timestamp}.xlsx`;
     message.loading({ content: '正在准备下载…', key: 'excel-download' });
-    downloadReport.mutate(
-      { reportId: report.id, format: 'excel', filename },
-      {
-        onSuccess: () => message.success({ content: 'Excel 下载成功', key: 'excel-download' }),
-        onError: (err) =>
-          message.error({ content: formatError(err, '下载失败'), key: 'excel-download' }),
-      },
-    );
+    setDownloading(true);
+    try {
+      await jobsApi.download(excelJobId, filename);
+      message.success({ content: 'Excel 下载成功', key: 'excel-download' });
+    } catch (err) {
+      message.error({ content: formatError(err, '下载失败'), key: 'excel-download' });
+    } finally {
+      setDownloading(false);
+    }
   };
 
   if (loading) return <div style={{ padding: 24 }}><TableSkeleton rows={8} columns={4} /></div>;
@@ -158,7 +168,7 @@ export default function ReportPreview() {
                 type="primary"
                 size="small"
                 icon={<DownloadOutlined />}
-                loading={downloadReport.isPending}
+                loading={downloading}
                 onClick={handleDownloadExcel}
               >
                 下载 Excel

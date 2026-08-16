@@ -157,6 +157,65 @@ export const dataSourceApi = {
   },
 };
 
+/**
+ * Trigger a browser download from an axios `responseType: 'blob'` promise.
+ *
+ * The endpoints that serve generated files (Excel / HTML) are JWT-gated,
+ * so we go through axios (the interceptor attaches the Bearer token) and
+ * fetch the payload as a Blob. The wrinkle: when the server returns an
+ * error, FastAPI still honours the ``Accept`` we sent and may reply with
+ * a JSON body wrapped as a Blob — so we sniff ``content-type`` and
+ * unwrap the JSON detail before re-throwing, so the caller's error
+ * handler sees a normal ``{detail: ...}`` shape.
+ */
+async function downloadBlob(responsePromise: Promise<unknown>, filename: string): Promise<void> {
+  try {
+    const response = (await responsePromise) as {
+      headers: Record<string, string>;
+      data: Blob | ArrayBuffer;
+    };
+    const contentType = String(response.headers['content-type'] || '');
+    if (contentType.includes('application/json')) {
+      const text = await (response.data as Blob).text();
+      let detail = text;
+      try {
+        const parsed = JSON.parse(text);
+        detail = parsed.detail || text;
+      } catch { /* use raw text */ }
+      throw { response: { data: { detail } } };
+    }
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'response' in err &&
+      (err as { response?: { data?: unknown; headers?: Record<string, string> } }).response
+    ) {
+      const axiosErr = err as { response: { data?: unknown; headers?: Record<string, string> } };
+      const ct = String(axiosErr.response.headers?.['content-type'] || '');
+      if (ct.includes('application/json') && axiosErr.response.data instanceof Blob) {
+        const text = await axiosErr.response.data.text();
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text);
+          detail = parsed.detail || text;
+        } catch { /* use raw text */ }
+        throw { response: { data: { detail } } };
+      }
+    }
+    throw err;
+  }
+}
+
 // ============ Reports ============
 
 export const reportApi = {
@@ -252,50 +311,10 @@ export const reportApi = {
   // Bearer token. The `/export/{format}` endpoint is JWT-gated — a raw fetch
   // without an Authorization header always gets 401.
   download: async (reportId: number, format: 'excel' | 'html', filename: string): Promise<void> => {
-    try {
-      const response = await api.get(`/reports/${reportId}/export/${format}`, {
-        responseType: 'blob',
-      });
-      const contentType = String(response.headers['content-type'] || '');
-      if (contentType.includes('application/json')) {
-        const text = await response.data.text();
-        let detail = text;
-        try {
-          const parsed = JSON.parse(text);
-          detail = parsed.detail || text;
-        } catch { /* use raw text */ }
-        throw { response: { data: { detail } } };
-      }
-      const blob = new Blob([response.data]);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${filename}.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err: unknown) {
-      if (
-        err &&
-        typeof err === 'object' &&
-        'response' in err &&
-        (err as { response?: { data?: unknown; headers?: Record<string, string> } }).response
-      ) {
-        const axiosErr = err as { response: { data?: unknown; headers?: Record<string, string> } };
-        const ct = String(axiosErr.response.headers?.['content-type'] || '');
-        if (ct.includes('application/json') && axiosErr.response.data instanceof Blob) {
-          const text = await axiosErr.response.data.text();
-          let detail = text;
-          try {
-            const parsed = JSON.parse(text);
-            detail = parsed.detail || text;
-          } catch { /* use raw text */ }
-          throw { response: { data: { detail } } };
-        }
-      }
-      throw err;
-    }
+    return downloadBlob(
+      api.get(`/reports/${reportId}/export/${format}`, { responseType: 'blob' }),
+      `${filename}.${format}`,
+    );
   },
 };
 
@@ -370,6 +389,26 @@ export const jobsApi = {
   get: async (jobId: number): Promise<ReportJob> => {
     const { data } = await api.get(`/jobs/${jobId}`);
     return data;
+  },
+
+  /**
+   * Download the worker-produced file for a completed job (批 8.5).
+   *
+   * Closes the async-export loop: previously the frontend polled
+   * ``/jobs/{id}`` until ``status === 'done'`` and then called
+   * ``reportApi.download(reportId, ...)`` to download — that endpoint
+   * *re-runs* the renderer. With this route the worker output is served
+   * directly by basename, so a 30-second render takes 30 seconds end
+   * to end, not 60.
+   *
+   * Caller is responsible for the filename — the server's
+   * ``Content-Disposition`` only carries the basename (e.g.
+   * ``report_2026-08-16T02-30-00.xlsx``), so passing a friendlier name
+   * like ``<report.name>_2026-08-16.xlsx`` here gives the user a
+   * nicer file in their downloads folder.
+   */
+  download: async (jobId: number, filename: string): Promise<void> => {
+    return downloadBlob(api.get(`/jobs/${jobId}/download`, { responseType: 'blob' }), filename);
   },
 };
 
