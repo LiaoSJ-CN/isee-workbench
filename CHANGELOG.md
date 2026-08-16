@@ -7,10 +7,17 @@
 ### 新增
 - `ensure_columns` 启动期 schema 自愈：补齐 `create_all` 漏掉的「已存在表 + 新增列」（`Base.metadata.create_all` 只建表不补列）。新模块 `app/db_migrations.py`，在 `main.py` 启动时于 `create_all` 之后调用。幂等，`NOT NULL` 无 `server_default` 的列会 log warning + 跳过（要求人工迁移）
 - 调度器暂停/恢复 UI：Scheduler 页面每个定时任务增加 Pause/Resume 按钮和绿/橙状态标签，通过现有 POST 端点传递 `is_active` 控制启停
+- **RBAC（批 9.1–9.4）**：多人协作基础
+  - `User` 模型加 `role` (`admin`/`editor`/`viewer`) 和 nullable `org_id`（多租户 seam）；JWT payload 带 `uid`/`role`/`oid`；`GET /auth/me` 返回新字段
+  - `deps.require_role()` 原语 + `admin_required` / `editor_required` 高阶依赖
+  - DataSource ACL：每行 `owner_user_id` + `data_source_access` grants 表（`read`/`write`，upsert 语义）。所有 DS 端点、explorer 查询、report generate/preview/export、jobs 端点全部 ACL-gated。Grant 端点 owner-or-admin only
+  - Report ACL：每行 `owner_user_id` + `visibility` (`public`/`private`) + `report_access` grants 表。Report 端点 ACL 沿用 DS→Report 分层检查（DS 撤销级联到 Report 自动失效）。3 个 share 端点
+  - 前端 `DataSourceShareModal` / `ReportShareModal` + 行级「分享」按钮（仅 owner 或 admin）+ ReportEditor 可见性切换
 
 ### 安全修复
 - **SSRF 防护**：调度器 webhook URL 在发送前校验，阻断非 http/https scheme、IPv4/IPv6 内网/回环/保留地址、DNS 解析到被屏蔽 IP 的域名。新模块 `app/services/ssrf_guard.py`（`validate_webhook_url()`），含 30 个单元测试 + 4 个集成测试。`_send_notification` 禁用重定向跟随（`follow_redirects=False`）
 - **Explorer SQL 多语句注入**：`is_safe_sql` 先剥离 SQL 注释再拒绝任何 `;` 字符，堵住 `SELECT 1; DROP TABLE users` 绕过。已有的关键字检查（`\bDROP\b` 等）保留为纵深防御
+- **DataSource / Report ACL（批 9.3/9.4）**：单用户 demo 升级到多人协作。失败 / 越权一律返回 404（不区分"不存在"和"无权"，避免 ID 探测）。Dev DB 迁移：所有现有 DS/Report backfill `owner_user_id = admin.id`，Report 保留 `visibility='public'`（向后兼容）
 
 ### Bug 修复
 - 前端 `DisplayConfig` 字段命名统一为 snake_case：之前表单用 `showLegend`/`legendPosition`/`showGrid` 等 camelCase，但后端 Pydantic 是 snake_case，Pydantic v2 默认 `extra='ignore'` 会**静默丢弃**用户切换的图例/网格线等开关。新增 3 个回归测试（`test_display_config_drops_unknown_camelcase_keys` 等）锁住「camelCase 必须被忽略」这条契约，避免后续加 `populate_by_name` 时回退

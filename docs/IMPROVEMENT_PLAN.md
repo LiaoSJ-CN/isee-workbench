@@ -123,7 +123,12 @@
 | 批 8.1 | 未开始 | — | weasyprint PDF 导出（下次会话从这里开始） |
 | 批 8.3 | 未开始 | — | 报表订阅 |
 | 批 8.4 | 未开始 | — | IM 通知（飞书/企微） |
-| 批 9 | 未开始 | — | 先做数据隔离模型设计 |
+| 批 9.1 | ✅ 已完成 (2026-08-17) | `900c062` | User 加 `role`/`org_id` + JWT 携带 `uid`/`role`/`oid` + `/auth/me` 返回新字段 |
+| 批 9.2 | ✅ 已完成 (2026-08-17) | `d42c5f1` | `deps.require_role` + `admin_required`/`editor_required` 原语 |
+| 批 9.3 | ✅ 已完成 (2026-08-17) | `164d07d` | DataSource ACL (owner + grants) + explorer/report/jobs 联动 + DataSourceShareModal |
+| 批 9.4 | ✅ 已完成 (2026-08-17) | `02177d0` | Report owner + visibility + 共享 + 分层 DS/Report ACL + ReportShareModal |
+| 批 9.5 | 未开始 | — | Audit log（下次会话从这里开始） |
+| 批 9.6 | 未开始 | — | 前端 RBAC UI |
 | 批 10 | 未开始 | — | code-split + prettier |
 
 ## 每批结束的验证清单
@@ -571,6 +576,88 @@ npx playwright test                     # smoke 全过
 **lint 0、tsc 0、vitest 29/29、build 0、pytest 462/462（+7 下载测试 = 462）。**
 
 下一个批次：批 8.1 PDF 导出（weasyprint）。
+
+### 批 9.1：User 模型 + role/org_id + JWT 身份形状 — 2026-08-17 — `900c062` — 实际 ~45 min
+
+**子项落地**：
+
+**9.1.1 `User` 模型加 `role` + `org_id`** — `String(16)` role 默认 `'admin'`（批 9 期间保留 admin 默认；release 前改 `'viewer'`），nullable `org_id`（未来多租户 seam，今天所有 row 都是 NULL）。Alembic 迁移把所有现有 user 默认 `role='admin'`。
+
+**9.1.2 JWT payload 扩展** — `services/jwt_auth.py` 的 `_encode` 加 `uid`/`role`/`oid` claims；`decode_token` 不变（已返回 dict）。`deps.get_current_user` 把这些写进 `request.state`，下游 handler 通过 `request.state.current_user` 单次查询复用。
+
+**9.1.3 `GET /auth/me` 返回新字段** — `routers/auth.py` 的 `me` endpoint 返回 `{username, user_id, role, org_id}`。前端 `CurrentUser` type 同步扩展。
+
+**9.1.4 前端类型同步** — `types/index.ts` 加 `UserRole` 字面量 (`'admin' | 'editor' | 'viewer'`)；`CurrentUser` 加 `user_id`/`role`/`org_id`。
+
+**测试**：`tests/test_rbac_auth.py` 覆盖 JWT 携带 role、`/auth/me` 返回 role、`request.state.current_user` 含 role、admin seed 用户的 role 默认值。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 全过。**
+
+### 批 9.2：deps.py require_role 原语 — 2026-08-17 — `d42c5f1` — 实际 ~20 min
+
+**子项落地**：
+
+**9.2.1 `require_role(*allowed)` helper** — 工厂函数，返回 FastAPI `Depends`。`_dep` 检查 `user.role in allowed OR user.role == 'admin'`（admin 永远放行——不需每个端点显式列 admin）。`admin_required = require_role('admin')`、`editor_required = require_role('admin', 'editor')`。所有现有 router 的 `Depends(get_current_user)` 保留——这层只加"高权限操作"细粒度门（如 scheduler 管理、grant 管理），不影响 9.3/9.4 的资源级 ACL。
+
+**测试**：`tests/test_rbac_deps.py` 覆盖 wrong role → 403、admin 永远放行、disabled 用户已被前置门挡。
+
+**lint 0、tsc 0、pytest 全过。**
+
+### 批 9.3：DataSource ACL (owner + grants) — 2026-08-17 — `164d07d` — 实际 ~3 hr
+
+**子项落地**：
+
+**9.3.1 `DataSource` 加 `owner_user_id` + `org_id`** — FK `users.id` ondelete SET NULL（删 user 不级联删 DS——避免误删生产 DS，DS 变孤儿 → admin 接管）。新建 `DataSourceAccess(ds_id, user_id, permission)` UNIQUE(`ds_id`, `user_id`)，permission = `read`/`write`。Alembic 迁移把所有现有 DS 设 `owner_user_id=admin.id`，建 `data_source_access` 表。
+
+**9.3.2 `services/data_source.py` 访问控制 helper** — `is_admin` / `is_owner` / `get_data_source_for_user(level)` / `list_accessible_data_sources` / `create_grant` / `revoke_grant` / `list_grants` / `can_share_data_source`。`get_data_source_for_user` 对"row missing"和"forbidden"统一返回 None，调用方统一 404（cross-user 信息隔离）。
+
+**9.3.3 7 个现有 DS 端点全部 ACL-gated** — `GET list/get/test/schema` 用 `level="read"`；`PUT` 用 `level="write"`；`DELETE` 单独强制 owner-or-admin。
+
+**9.3.4 3 个新 grant 端点** — `POST /data-sources/{id}/grants`、`GET .../grants`、`DELETE /grants/{grant_id}`。写权限以上才能 grant；upsert 语义（同 (ds, user) 二次 POST 覆盖 permission 而不报 unique constraint）。Grant 端点全部走 `get_data_source_for_user` 而非直接 `db.get(DataSource)`——保证未授权用户连 grant_id 都不能探测。
+
+**9.3.5 Explorer / Report / Jobs ACL 联动** — `routers/explorer.py` 的 `/explorer/query` 走 `get_data_source_for_user(level="read")`；`routers/report.py` 的 generate/preview/export 同样；`routers/jobs.py` 的 `/jobs/{id}` 和 `/jobs/{id}/download` 加 Report → DS 两层 ACL 链。
+
+**9.3.6 前端 `DataSourceShareModal`** — 镜像后续 Report modal 模式；行级「分享」按钮仅 owner 或 admin 可见（`record.owner_user_id === currentUser.id || isAdmin`）。
+
+**关键 trade-off**：
+
+- **PUT 写权限不够时返回 404 而非 403**：避免泄露存在性——B 探测 A 的 DS id 时不能区分"不存在"和"无权"。与 `ReportSubscription` 完全一致。
+- **grant 创建不要求 target user 必须存在**：通过 `db.get(User, user_id)` + 404 兜底。
+- **grant 端点要求 write 而非 owner**：让被授予 write 权限的用户也能 share（owner → grant write → 用户可继续向下 share）。这是 write 的标准语义。
+
+**测试**：`tests/test_data_source_acl.py` 13 个用例覆盖 list/get/PUT/DELETE 的 owner/admin/grant/无授权矩阵、grant 端点 owner-only、upsert 语义、explorer/jobs ACL 联动、migration backfill。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 全过。**
+
+### 批 9.4：Report owner + visibility + sharing — 2026-08-17 — `02177d0` — 实际 ~3 hr
+
+**子项落地**：
+
+**9.4.1 `Report` 加 `owner_user_id` + `org_id` + `visibility`** — FK `users.id` ondelete SET NULL + nullable `org_id`（多租户 seam）。visibility = `Literal['public', 'private']`，`server_default='public'`（migration backfill 现有 report 为 public 保证 back-compat；新 report schema 默认 `private`）。新建 `ReportAccess(report_id, user_id, permission)` UNIQUE(`report_id`, `user_id`)，permission = `read`/`write`。
+
+**9.4.2 Alembic 迁移 `921b7fe787b0`** — 加三列（`op.batch_alter_table` 包裹 FK，SQLite 限制）+ 建 `report_access` 表 + backfill `owner_user_id = admin.id`。
+
+**9.4.3 `services/report.py` 访问控制 helper** — `is_owner` / `get_report_for_user(level)` / `list_accessible_reports` / `upsert_share` / `revoke_share` / `list_shares_for_report` / `can_share_report`。**关键设计**：分层 ACL——`get_report_for_user` 先调 `get_data_source_for_user`，DS 撤销级联到 Report 自动失效，不需要单写一遍联动逻辑。
+
+**9.4.4 现有 Report 端点全部 ACL-gated** — `list/get/PUT/DELETE` + 所有 items/parameters 子端点 + generate/preview/export。DELETE 只允许 owner 或 admin（write grant 不够）。
+
+**9.4.5 3 个新 share 端点** — `POST /reports/{id}/shares`、`GET .../shares`、`DELETE /reports/shares/{share_id}`（路径用 `/shares/{share_id}` 而不是 `/{report_id}/shares/{share_id}`，未授权 caller 连 share_id 都不能探测）。upsert 同 (report, user) 二次 POST 覆盖 permission。
+
+**9.4.6 Scheduler + Jobs ACL 联动** — `routers/scheduler.py` 的 POST/DELETE `/scheduler/jobs/{report_id}` 过 write ACL；`routers/jobs.py` 的所有端点加 Report → DS 两层 ACL。
+
+**9.4.7 前端** — `ReportVisibility` 字面量 + `ReportShare`/`ReportShareCreate` type；`reportApi.listShares/createShare/revokeShare`；`useReportShares/useUpsertReportShare/useDeleteReportShare` hook；`components/ReportShareModal.tsx`（带 public visibility Alert 提示）；`pages/ReportList.tsx` 加 owner-or-admin 可见的「分享」按钮；`pages/ReportEditor/ConfigTab.tsx` 加 private/public 可见性 Select。
+
+**关键 gotcha**：
+
+- **测试必须先 grant B DS read access 才能测 Report ACL** — Report ACL 分层（DS 先，Report 后），没有 DS grant 的 B 看不到任何 Report（即使 public）。`_grant_ds_read` helper 是测试 fixture 的关键。
+- **scheduler 端点的 cron 是 6 字段**：`"0 9 * * *"` 在 `_validate_cron` 422，要写 `"0 9 * * * *"`。
+- **mypy strict + `Mapped` 在 SQLAlchemy 2.x 让 `id` 推断为 `int | None`**：必须用 `assert id is not None` 收窄才能传给 `_grant_for(db, int, int)`，不能直接 `int(report.id)`（mypy 拒 `int() on int | None`）。
+
+**测试**：`tests/test_report_acl.py` 16 个用例覆盖 ownership on create、migration backfill、private/public list visibility、404 isolation、admin bypass、read/write grant 矩阵、share endpoint ownership、upsert 语义、scheduler ACL、jobs ACL cascade。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 561/561（2 个 pre-existing test_explorer 失败无关）。**
+
+下一个批次：批 9.5 Audit log。
 
 ### TODO-8：NotificationConfig 数据迁移 — 2026-08-16 — `c0a2b1d4e5f6` — 实际 ~2 hr
 
