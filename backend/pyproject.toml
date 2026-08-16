@@ -28,6 +28,8 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "hypothesis>=6.100.0",
     "httpx>=0.27.0",
     "mypy>=1.9.0",
     "ruff>=0.4.0",
@@ -69,4 +71,26 @@ filterwarnings = [
     # depends on upstream starlette releasing httpx2-compatible testclient.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
     "ignore:'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = [
+    # Alembic migrations and config files don't ship logic worth covering.
+    "app/alembic/*",
+    # `if __name__ == "__main__"` runners only execute in `python -m ...`.
+    "app/__main__.py",
+]
+
+[tool.coverage.report]
+precision = 1
+show_missing = false
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "\\.\\.\\.",
 ]
