@@ -37,6 +37,7 @@ from app.schemas.job import (
 )
 from app.services.data_source import get_data_source_for_user
 from app.services.job_queue import enqueue_report_job
+from app.services.report import get_report_for_user
 
 # Pulled out of /reports router so future batch 3b (SSE stream on
 # /jobs/{id}/stream) has a natural home without bloating the report
@@ -119,12 +120,12 @@ def create_report_job(
             detail="Report not found",
         )
 
-    # 批 9.3: enqueueing a render requires read access on the report's
-    # data source (the render opens a connection to it). Same 404
-    # message — no leak between "report gone", "data source gone",
-    # and "no DS access".
+    # 批 9.3 + 9.4: enqueueing a render requires both the report
+    # itself (read ACL) AND its data source (read ACL). Both layers
+    # collapse to the same 404 message — no leak between "report
+    # gone", "data source gone", "no report access", and "no DS access".
     ds = get_data_source_for_user(db, report.data_source_id, user)
-    if ds is None:
+    if ds is None or get_report_for_user(db, report_id, user) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report not found",
@@ -176,9 +177,11 @@ def get_report_job(
             detail="Job not found",
         )
     report = db.get(Report, job.report_id)
-    if report is None or get_data_source_for_user(
-        db, report.data_source_id, user
-    ) is None:
+    if (
+        report is None
+        or get_data_source_for_user(db, report.data_source_id, user) is None
+        or get_report_for_user(db, job.report_id, user) is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -228,9 +231,11 @@ def download_report_job_output(
             detail="Job not found",
         )
     report = db.get(Report, job.report_id)
-    if report is None or get_data_source_for_user(
-        db, report.data_source_id, user
-    ) is None:
+    if (
+        report is None
+        or get_data_source_for_user(db, report.data_source_id, user) is None
+        or get_report_for_user(db, job.report_id, user) is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -301,9 +306,11 @@ def list_report_jobs(
     "no DS access".
     """
     report = db.query(Report).filter(Report.id == report_id).first()
-    if report is None or get_data_source_for_user(
-        db, report.data_source_id, user
-    ) is None:
+    if (
+        report is None
+        or get_data_source_for_user(db, report.data_source_id, user) is None
+        or get_report_for_user(db, report_id, user) is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report not found",

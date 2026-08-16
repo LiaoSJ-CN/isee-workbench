@@ -9,8 +9,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.report import Report
+from app.models.user import User
 from app.schemas.notification import NotificationConfig
 from app.schemas.report import ScheduleTaskCreate
+from app.services.report import (
+    PERMISSION_WRITE,
+    get_report_for_user,
+)
 from app.services.scheduler import InvalidCronExpression, get_scheduler
 
 logger = logging.getLogger(__name__)
@@ -94,19 +99,28 @@ def create_or_update_job(
     report_id: int,
     payload: ScheduleTaskCreate,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SchedulerJobResponse:
-    """Create or update a scheduled job for a report."""
+    """Create or update a scheduled job for a report.
+
+    批 9.4: write ACL on the report — owner / write-grantee / admin
+    can configure scheduling. Read-only consumers (public visibility
+    without a grant) cannot install scheduled jobs, even though they
+    can preview the report.
+    """
     if payload.report_id != report_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="report_id in URL does not match body",
         )
 
-    report_obj = db.query(Report).filter(Report.id == report_id).first()
-    if not report_obj:
+    report_obj = get_report_for_user(
+        db, report_id, user, level=PERMISSION_WRITE
+    )
+    if report_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Report {report_id} not found",
+            detail="Report not found",
         )
 
     # Persist schedule + notification config; DB is the single source of truth.
@@ -158,8 +172,12 @@ def create_or_update_job(
 
 
 @router.delete("/jobs/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_job(report_id: int, db: Session = Depends(get_db)) -> None:
-    """Delete a scheduled job for a report.
+def delete_job(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete a scheduled job for a report. Write ACL.
 
     DB update and scheduler removal are independent — the DB write marks
     the report as unscheduled (the sidecar will drop the job on its next
@@ -167,14 +185,16 @@ def delete_job(report_id: int, db: Session = Depends(get_db)) -> None:
     mode ``SCHEDULER_DISABLED=true`` the web process scheduler is empty,
     so this is a no-op — the sidecar handles it).
     """
-    report_obj = db.query(Report).filter(Report.id == report_id).first()
-    if not report_obj:
+    report_obj = get_report_for_user(
+        db, report_id, user, level=PERMISSION_WRITE
+    )
+    if report_obj is None:
         # Still clean up any lingering scheduler job for this report ID.
         scheduler = get_scheduler()
         scheduler.remove_report_job(report_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Report {report_id} not found",
+            detail="Report not found",
         )
 
     try:

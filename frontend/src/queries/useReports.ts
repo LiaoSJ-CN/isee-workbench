@@ -7,6 +7,8 @@ import type {
   ReportItem,
   ReportItemCreate,
   ReportItemUpdate,
+  ReportShare,
+  ReportShareCreate,
   ReportUpdate,
 } from '../types';
 import { queryKeys } from './keys';
@@ -283,3 +285,52 @@ export function useDownloadReport() {
     }) => reportApi.download(reportId, format, filename),
   });
 }
+
+// ---- Shares (批 9.4) ----
+
+/** List shares on a report. Owner-or-admin only — backend returns 404
+ *  for write-grantees. Disabled when ``reportId`` is null so the
+ *  modal doesn't fire the request before the row is picked. */
+export function useReportShares(reportId: number | null | undefined) {
+  return useQuery({
+    queryKey: queryKeys.reports.shares(reportId ?? -1),
+    queryFn: () => reportApi.listShares(reportId as number),
+    enabled: reportId != null,
+    retry: false,
+  });
+}
+
+/** Upsert a share (POST). Invalidates the per-report shares cache so
+ *  the table refreshes after creation/update. */
+export function useUpsertReportShare() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      reportId,
+      payload,
+    }: {
+      reportId: number;
+      payload: ReportShareCreate;
+    }) => reportApi.createShare(reportId, payload),
+    onSuccess: (_share, { reportId }) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.reports.shares(reportId) });
+    },
+  });
+}
+
+/** Revoke a share (DELETE). Invalidates the per-report shares cache
+ *  so the row disappears from the table immediately. */
+export function useDeleteReportShare() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shareId }: { reportId: number; shareId: number }) =>
+      reportApi.revokeShare(shareId),
+    onSuccess: (_data, { reportId }) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.reports.shares(reportId) });
+    },
+  });
+}
+
+// Re-export so callers can grab the share row type alongside the
+// hooks without importing from two places.
+export type { ReportShare };

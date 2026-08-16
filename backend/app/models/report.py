@@ -10,7 +10,16 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.data_source import DataSource
+    from app.models.report_access import ReportAccess
     from app.models.report_parameter import ReportParameter
+
+# Visibility string constants — keep in sync with the validation in
+# ``schemas.report.ReportVisibility`` and the ACL helpers in
+# ``services.report``. Public reports are visible to every authenticated
+# user; private reports require an explicit grant.
+VISIBILITY_PUBLIC = "public"
+VISIBILITY_PRIVATE = "private"
+ALL_VISIBILITIES: tuple[str, ...] = (VISIBILITY_PUBLIC, VISIBILITY_PRIVATE)
 
 
 class Report(Base):
@@ -38,6 +47,27 @@ class Report(Base):
     # Status
     is_active = Column(Boolean, default=True)
 
+    # 批 9.4: per-user ownership + visibility. ``visibility`` is the
+    # coarse gate; private reports require an explicit grant or
+    # ownership. Existing rows default to ``public`` for back-compat
+    # with the pre-9.4 single-operator workflow (admin already saw
+    # everything; the migration backfills ownership to admin).
+    visibility = Column(
+        String(16),
+        nullable=False,
+        default=VISIBILITY_PUBLIC,
+        server_default=VISIBILITY_PUBLIC,
+    )
+    owner_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Reserved for a future multi-tenant deployment (mirrors the same
+    # nullable column on DataSource / User). Always NULL today.
+    org_id = Column(Integer, nullable=True, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -55,9 +85,14 @@ class Report(Base):
         cascade="all, delete-orphan",
         order_by="ReportParameter.order_index",
     )
+    shares: Mapped[list["ReportAccess"]] = relationship(
+        "ReportAccess",
+        back_populates="report",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
-        return f"<Report(id={self.id}, name='{self.name}')>"
+        return f"<Report(id={self.id}, name='{self.name}', visibility='{self.visibility}')>"
 
 
 class ReportItem(Base):

@@ -10,6 +10,7 @@ import {
   ExclamationCircleOutlined,
   DownloadOutlined,
   CloseCircleOutlined,
+  ShareAltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
@@ -19,10 +20,15 @@ import { formatError } from '../utils/error';
 import {
   useCreateReport,
   useDeleteReport,
+  useDeleteReportShare,
+  useReportShares,
   useReports,
+  useUpsertReportShare,
 } from '../queries/useReports';
-import { useDataSources } from '../queries/useDataSources';
+import { useDataSources, useUsers } from '../queries/useDataSources';
 import { useJobStatus } from '../queries/useJobs';
+import { useMe } from '../queries/useAuth';
+import { ReportShareModal } from '../components/ReportShareModal';
 // We don't use `useEnqueueReportJob` here — see handleGenerateExcel.
 
 export default function ReportList() {
@@ -30,6 +36,19 @@ export default function ReportList() {
   const { data: dataSources = [] } = useDataSources();
   const createReport = useCreateReport();
   const deleteReport = useDeleteReport();
+
+  // ---- 批 9.4: share modal state ----
+  // Owner-or-admin gate. The backend enforces the same; we just
+  // hide the affordance so non-owners don't see a button that 404s.
+  const me = useMe();
+  const currentUserId = me.data?.user_id;
+  const isAdmin = me.data?.role === 'admin';
+  const [shareTarget, setShareTarget] = useState<Report | null>(null);
+  const shares = useReportShares(shareTarget?.id ?? null);
+  const upsertShare = useUpsertReportShare();
+  const revokeShare = useDeleteReportShare();
+  // User list for the share picker — only fetched when the modal opens.
+  const usersQuery = useUsers({ enabled: shareTarget != null });
 
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm<ReportCreate>();
@@ -267,7 +286,7 @@ export default function ReportList() {
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 320,
       render: (_, record) => {
         // If this row's report is the one currently in-flight, disable
         // the button and show a spinner — the user's already waiting on
@@ -276,6 +295,10 @@ export default function ReportList() {
           excelJob?.report.id === record.id &&
           (excelStatus.data?.status === 'pending' ||
             excelStatus.data?.status === 'running');
+        // Share button: only the owner or an admin can manage shares.
+        // Backend enforces the same — we hide the affordance
+        // client-side so non-owners don't see a broken button.
+        const canShare = isAdmin || (currentUserId != null && record.owner_user_id === currentUserId);
         return (
           <Space size="small">
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/reports/${record.id}`)}>
@@ -284,6 +307,16 @@ export default function ReportList() {
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/reports/${record.id}/preview`)}>
               预览
             </Button>
+            {canShare && (
+              <Button
+                type="link"
+                size="small"
+                icon={<ShareAltOutlined />}
+                onClick={() => setShareTarget(record)}
+              >
+                分享
+              </Button>
+            )}
             <Button
               type="link"
               size="small"
@@ -494,6 +527,38 @@ export default function ReportList() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ReportShareModal
+        visible={shareTarget != null}
+        report={shareTarget}
+        shares={shares.data}
+        sharesLoading={shares.isPending}
+        users={usersQuery.data}
+        usersLoading={usersQuery.isPending}
+        createPending={upsertShare.isPending}
+        revokePending={revokeShare.isPending}
+        onCreate={(payload) => {
+          if (!shareTarget) return;
+          upsertShare.mutate(
+            { reportId: shareTarget.id, payload },
+            {
+              onSuccess: () => message.success('授权已添加'),
+              onError: (err) => message.error(formatError(err, '授权失败')),
+            },
+          );
+        }}
+        onRevoke={(share) => {
+          if (!shareTarget) return;
+          revokeShare.mutate(
+            { reportId: shareTarget.id, shareId: share.id },
+            {
+              onSuccess: () => message.success('已撤销'),
+              onError: (err) => message.error(formatError(err, '撤销失败')),
+            },
+          );
+        }}
+        onCancel={() => setShareTarget(null)}
+      />
     </div>
   );
 }

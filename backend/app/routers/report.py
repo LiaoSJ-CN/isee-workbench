@@ -15,6 +15,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.middleware.rate_limit import RateLimiter
 from app.models.report import Report, ReportItem
+from app.models.report_access import ReportAccess
 from app.models.report_parameter import ReportParameter
 from app.models.user import User
 from app.schemas.report import (
@@ -26,6 +27,8 @@ from app.schemas.report import (
     ReportItemReorderRequest,
     ReportItemResponse,
     ReportItemUpdate,
+    ReportShareCreate,
+    ReportShareResponse,
     ReportUpdate,
 )
 from app.schemas.report_parameter import (
@@ -33,8 +36,21 @@ from app.schemas.report_parameter import (
     ReportParameterResponse,
     ReportParameterUpdate,
 )
-from app.services.data_source import get_data_source_for_user
+from app.services.data_source import (
+    get_data_source_for_user,
+    is_admin,
+)
 from app.services.parameter_validator import ParameterValidationError, validate_parameters
+from app.services.report import (
+    PERMISSION_WRITE,
+    can_share_report,
+    get_report_for_user,
+    is_owner,
+    list_accessible_reports,
+    list_shares_for_report,
+    revoke_share,
+    upsert_share,
+)
 from app.services.report_generator import ReportGeneratorError, generate_report
 
 router = APIRouter(
@@ -46,6 +62,16 @@ router = APIRouter(
 
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+def _report_not_found() -> HTTPException:
+    """Uniform 404 — used for both "row missing" and "no access" so
+    an unauthorized caller can't probe for the existence of someone
+    else's report. Mirrors :func:`app.routers.data_source._not_found`."""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Report not found",
+    )
 
 
 # Per-IP rate limit on synchronous report generation. Report renders can
@@ -66,12 +92,19 @@ _generate_report_limiter = RateLimiter(
     status_code=status.HTTP_201_CREATED,
 )
 def create_report_item(
-    report_id: int, payload: ReportItemCreate, db: Session = Depends(get_db)
+    report_id: int,
+    payload: ReportItemCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ReportItem:
-    """Add a new item to a report."""
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    """Add a new item to a report.
+
+    批 9.4: write ACL on the parent report — owner or write-grantee
+    (or admin). Missing / no-access both 404.
+    """
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
 
     item = ReportItem(report_id=report_id, **payload.model_dump())
     db.add(item)
@@ -82,9 +115,17 @@ def create_report_item(
 
 @router.put("/{report_id}/items/{item_id}", response_model=ReportItemResponse)
 def update_report_item(
-    report_id: int, item_id: int, payload: ReportItemUpdate, db: Session = Depends(get_db)
+    report_id: int,
+    item_id: int,
+    payload: ReportItemUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ReportItem:
-    """Update an existing report item."""
+    """Update an existing report item. Write ACL on the parent report."""
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
+
     item = db.query(ReportItem).filter(
         ReportItem.id == item_id, ReportItem.report_id == report_id
     ).first()
@@ -101,8 +142,17 @@ def update_report_item(
 
 
 @router.delete("/{report_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_report_item(report_id: int, item_id: int, db: Session = Depends(get_db)) -> None:
-    """Delete a report item."""
+def delete_report_item(
+    report_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete a report item. Write ACL on the parent report."""
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
+
     item = db.query(ReportItem).filter(
         ReportItem.id == item_id, ReportItem.report_id == report_id
     ).first()
@@ -119,14 +169,19 @@ def reorder_report_items(
     report_id: int,
     payload: ReportItemReorderRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict[str, int]:
-    """Atomically update ``order_index`` for a report's items.
+    """Atomically update ``order_index`` for a report's items. Write ACL.
 
     Used by the drag-reorder UI to replace N parallel PUTs with one
     transactional call. All ``item_id`` values must belong to
     ``report_id``; any mismatch returns 422 so the caller can roll
     back the optimistic UI update.
     """
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
+
     item_ids = [e.item_id for e in payload.items]
 
     # Reject duplicate order_index values — the caller must assign unique
@@ -167,23 +222,23 @@ def list_reports(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[Report]:
-    """List reports with optional filtering and pagination.
+    """List reports the caller can see, with optional filtering.
 
-    ``limit`` is capped at 500 to keep response payloads bounded; the
-    total number of rows matching the filter is returned in the
-    ``X-Total-Count`` response header so the caller can drive a pager.
+    批 9.4: ACL via :func:`app.services.report.list_accessible_reports`
+    — admin sees all; owner / public / grant-holders see the union.
+    Filter values (``is_active``, ``data_source_id``) are applied
+    AFTER the ACL filter so an unauthorized caller can't probe via
+    filters. ``X-Total-Count`` reports the post-ACL total so the
+    frontend can drive a pager.
     """
-    query = db.query(Report)
-    if is_active is not None:
-        query = query.filter(Report.is_active == is_active)
-    if data_source_id is not None:
-        query = query.filter(Report.data_source_id == data_source_id)
-
-    total = query.count()
-    response.headers["X-Total-Count"] = str(total)
+    rows = list_accessible_reports(
+        db, user, is_active=is_active, data_source_id=data_source_id
+    )
+    response.headers["X-Total-Count"] = str(len(rows))
     # Stable order so offset+limit produces consistent pages.
-    return query.order_by(Report.id).offset(offset).limit(limit).all()
+    return rows[offset : offset + limit]
 
 
 @router.post("", response_model=ReportDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -194,10 +249,10 @@ def create_report(
 ) -> Report:
     """Create a new report with optional initial items.
 
-    批 9.3: caller must have read access to the data source the
-    report is bound to — building a report over a source you can't
-    read makes the report unusable (its render would 404). 9.4 will
-    add owner + visibility on the report itself.
+    批 9.4: caller becomes the owner; new reports default to
+    ``visibility=private`` (the schema default). The data source
+    still needs read ACL — building a report over a source you can't
+    read makes it unusable at render time.
     """
     # Check if report name already exists
     existing = db.query(Report).filter(Report.name == payload.name).first()
@@ -219,6 +274,9 @@ def create_report(
     # Extract items before creating report
     items_data = payload.model_dump().get("items", [])
     report_data = {k: v for k, v in payload.model_dump().items() if k != "items"}
+    # 批 9.4: caller becomes owner. ``visibility`` comes from the
+    # payload (default ``private`` per the schema).
+    report_data["owner_user_id"] = user.id
 
     report = Report(**report_data)
     db.add(report)
@@ -235,20 +293,32 @@ def create_report(
 
 
 @router.get("/{report_id}", response_model=ReportDetailResponse)
-def get_report(report_id: int, db: Session = Depends(get_db)) -> Report:
-    """Get a single report by ID with all items."""
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+def get_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Report:
+    """Get a single report by ID with all items. Read ACL."""
+    report = get_report_for_user(db, report_id, user)
+    if report is None:
+        raise _report_not_found()
     return report
 
 
 @router.put("/{report_id}", response_model=ReportDetailResponse)
-def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(get_db)) -> Report:
-    """Update an existing report."""
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+def update_report(
+    report_id: int,
+    payload: ReportUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Report:
+    """Update an existing report. Write ACL — owner or write-grantee."""
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        # 404 even when the row exists but the caller lacks write —
+        # uniform with the rest of the surface so an attacker can't
+        # probe for read-only rows they could otherwise PUT against.
+        raise _report_not_found()
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -270,11 +340,16 @@ def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(g
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_report(report_id: int, db: Session = Depends(get_db)) -> None:
-    """Delete a report and all its items."""
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+def delete_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete a report and all its items. Owner-or-admin only —
+    even a write-grantee cannot delete."""
+    report = get_report_for_user(db, report_id, user)
+    if report is None or not (is_admin(user) or is_owner(user, report)):
+        raise _report_not_found()
 
     db.delete(report)
     db.commit()
@@ -293,9 +368,10 @@ def generate_report_endpoint(
 ) -> ReportGenerateResponse:
     """Generate a report and return the output file or preview data.
 
-    批 9.3: requires read access on the report's data source — the
-    generator opens a connection to it during render. 9.4 will layer
-    Report-owner ACL on top.
+    批 9.4: read ACL on the report itself — layered on top of the
+    data-source ACL by :func:`get_report_for_user`. Public reports
+    are reachable by any authenticated user; private ones require
+    ownership or an explicit grant.
     """
     # Rate-limit by IP before any DB / query work. Report renders can
     # take seconds, so this cap protects the worker pool from a single
@@ -311,13 +387,9 @@ def generate_report_endpoint(
             headers={"Retry-After": "60"},
         )
 
-    report = db.query(Report).filter(Report.id == payload.report_id).first()
+    report = get_report_for_user(db, payload.report_id, user)
     if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
-    if get_data_source_for_user(db, report.data_source_id, user) is None:
-        # Uniform 404 — don't leak whether the report exists vs.
-        # whether the caller has DS access.
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+        raise _report_not_found()
 
     # Validate caller-supplied parameters against the report's declared
     # parameter spec before kicking off the SQL pipeline. Unknown keys,
@@ -371,13 +443,11 @@ def preview_report(
     frontend iframe can load it directly via <iframe src=...> and scripts
     (Chart.js) execute without being stripped by DOMPurify.
 
-    批 9.3: read ACL on the report's data source.
+    批 9.4: read ACL on the report itself (layered on DS ACL).
     """
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if report is None or get_data_source_for_user(
-        db, report.data_source_id, user
-    ) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report = get_report_for_user(db, report_id, user)
+    if report is None:
+        raise _report_not_found()
 
     try:
         result = generate_report(
@@ -405,13 +475,11 @@ def export_report(
 ) -> FileResponse:
     """Export a generated report file.
 
-    批 9.3: read ACL on the report's data source.
+    批 9.4: read ACL on the report itself.
     """
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if report is None or get_data_source_for_user(
-        db, report.data_source_id, user
-    ) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report = get_report_for_user(db, report_id, user)
+    if report is None:
+        raise _report_not_found()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{report.name}_{timestamp}"
@@ -459,15 +527,17 @@ def create_report_parameter(
     report_id: int,
     payload: ReportParameterCreate,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ReportParameter:
-    """Add a typed parameter declaration to a report.
+    """Add a typed parameter declaration to a report. Write ACL.
 
     ``order_index`` is auto-assigned to ``last + 1`` if omitted, so the
     common "append a parameter" UI flow doesn't have to know about
     existing positions.
     """
-    if not db.query(Report).filter(Report.id == report_id).first():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
 
     data = payload.model_dump()
     if data.get("order_index", 0) == 0:
@@ -497,15 +567,18 @@ def create_report_parameter(
     response_model=list[ReportParameterResponse],
 )
 def list_report_parameters(
-    report_id: int, db: Session = Depends(get_db)
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[ReportParameter]:
     """List a report's parameter declarations, ordered by ``order_index``.
 
     Used by the frontend (batch 4b) to render the parameter input form
-    before calling ``POST /reports/generate``.
+    before calling ``POST /reports/generate``. Read ACL.
     """
-    if not db.query(Report).filter(Report.id == report_id).first():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report = get_report_for_user(db, report_id, user)
+    if report is None:
+        raise _report_not_found()
 
     return (
         db.query(ReportParameter)
@@ -524,9 +597,14 @@ def update_report_parameter(
     param_id: int,
     payload: ReportParameterUpdate,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ReportParameter:
     """Update a report parameter. All fields are optional; the existing
-    ``type`` is preserved unless explicitly changed."""
+    ``type`` is preserved unless explicitly changed. Write ACL."""
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
+
     param = (
         db.query(ReportParameter)
         .filter(
@@ -564,8 +642,13 @@ def delete_report_parameter(
     report_id: int,
     param_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> None:
-    """Delete a report parameter declaration."""
+    """Delete a report parameter declaration. Write ACL."""
+    report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
+    if report is None:
+        raise _report_not_found()
+
     param = (
         db.query(ReportParameter)
         .filter(
@@ -581,4 +664,93 @@ def delete_report_parameter(
 
     db.delete(param)
     db.commit()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Report shares (批 9.4)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{report_id}/shares",
+    response_model=ReportShareResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_share_endpoint(
+    report_id: int,
+    payload: ReportShareCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ReportAccess:
+    """Grant ``user_id`` read/write on this report. Owner-or-admin OR
+    write-grantee — see :func:`app.services.report.can_share_report`.
+
+    Upserts: re-POSTing with the same ``user_id`` updates the
+    permission level rather than hitting the unique constraint.
+    """
+    report = get_report_for_user(db, report_id, user)
+    if report is None or not can_share_report(db, user, report):
+        raise _report_not_found()
+
+    target = db.get(User, payload.user_id)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    share = upsert_share(
+        db,
+        report_id=report_id,
+        target_user_id=payload.user_id,
+        permission=payload.permission,
+        granted_by=cast(int, user.id),
+    )
+    return share
+
+
+@router.get(
+    "/{report_id}/shares",
+    response_model=list[ReportShareResponse],
+)
+def list_shares_endpoint(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[ReportAccess]:
+    """List every share on this report. Owner-or-admin only — a
+    read grantee cannot see who else has access (same isolation as
+    the data_source grant list)."""
+    report = get_report_for_user(db, report_id, user)
+    if report is None or not (is_admin(user) or is_owner(user, report)):
+        raise _report_not_found()
+    return list_shares_for_report(db, report_id)
+
+
+@router.delete(
+    "/shares/{share_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def revoke_share_endpoint(
+    share_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Revoke a share by id. Owner-or-admin on the parent report.
+
+    Uses the ``/shares/{id}`` path so an unauthorized caller can't
+    probe for share_ids they don't own — lookup is by id, then the
+    parent report's ACL is checked.
+    """
+    share = db.get(ReportAccess, share_id)
+    if share is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share not found",
+        )
+    report = get_report_for_user(db, share.report_id, user)
+    if report is None or not (is_admin(user) or is_owner(user, report)):
+        raise _report_not_found()
+    revoke_share(db, share)
     return None

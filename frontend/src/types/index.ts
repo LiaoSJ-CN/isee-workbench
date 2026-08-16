@@ -6,6 +6,12 @@
 // (e.g. "can I see the New Data Source button").
 export type UserRole = 'admin' | 'editor' | 'viewer';
 
+/** Mirrors backend ``ReportVisibility`` Literal (批 9.4). */
+export type ReportVisibility = 'public' | 'private';
+
+/** Permission tier for a per-report share row. */
+export type ReportSharePermission = 'read' | 'write';
+
 /** Mirrors `GET /auth/me` response shape (post 批 9.1). */
 export interface CurrentUser {
   username: string;
@@ -76,6 +82,24 @@ export interface DataSourceGrant {
 export interface DataSourceGrantCreate {
   user_id: number;
   permission: DataSourceGrantPermission;
+}
+
+// ---- Report shares (批 9.4) ----
+// Mirrors the DataSource grant shape: one row per (report_id, user_id).
+// Upsert semantics — POSTing twice with the same user_id overwrites
+// the permission rather than failing the unique constraint.
+export interface ReportShare {
+  id: number;
+  report_id: number;
+  user_id: number;
+  permission: ReportSharePermission;
+  granted_by?: number | null;
+  created_at?: string;
+}
+
+export interface ReportShareCreate {
+  user_id: number;
+  permission: ReportSharePermission;
 }
 
 export type ItemType = 'table' | 'chart' | 'text' | 'metric';
@@ -197,6 +221,13 @@ export interface Report {
   cron_expression?: string;
   schedule_description?: string;
   notification_config?: Record<string, unknown> | null;
+  // 批 9.4 — owner / org / visibility. All optional so older
+  // pre-9.4 callers that don't read these fields still typecheck.
+  // Backfilled server-side: existing rows default to admin-owned
+  // and public visibility.
+  owner_user_id?: number | null;
+  org_id?: number | null;
+  visibility?: ReportVisibility;
   created_at?: string;
   updated_at?: string;
   items: ReportItem[];
@@ -213,6 +244,10 @@ export interface ReportCreate {
   cron_expression?: string;
   schedule_description?: string;
   items?: ReportItemCreate[];
+  // 批 9.4 — default private. Caller can opt into public when
+  // broadcasting a report; the backend rejects anything other than
+  // 'public' | 'private' via the ``ReportVisibility`` Literal.
+  visibility?: ReportVisibility;
 }
 
 export interface ReportUpdate {
@@ -225,6 +260,7 @@ export interface ReportUpdate {
   is_scheduled?: boolean;
   cron_expression?: string;
   schedule_description?: string;
+  visibility?: ReportVisibility;
 }
 
 export interface ReportGenerateRequest {

@@ -2,12 +2,18 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.notification import NotificationConfig
 from app.services.scheduler import validate_cron_expression
+
+# 批 9.4 — visibility is the coarse ACL gate. Public reports are
+# visible to every authenticated user; private reports require an
+# explicit grant or ownership. Mirrors the string constants in
+# :mod:`app.models.report`; keep in sync.
+ReportVisibility = Literal["public", "private"]
 
 
 class ItemType(str, Enum):
@@ -188,6 +194,10 @@ class ReportBase(BaseModel):
     layout_config: dict[str, Any] | None = Field(default_factory=dict)
     output_formats: list[str] = Field(default_factory=lambda: ["excel", "html"])
     is_active: bool = Field(default=True)
+    # 批 9.4 — coarse ACL gate. Defaults to ``private`` for new
+    # reports; the migration backfilled existing rows to ``public``
+    # so admin's pre-9.4 workflow keeps working.
+    visibility: ReportVisibility = Field(default="private")
 
 
 class ReportCreate(ReportBase):
@@ -211,6 +221,7 @@ class ReportUpdate(BaseModel):
     schedule_description: str | None = None
     output_formats: list[str] | None = None
     is_active: bool | None = None
+    visibility: ReportVisibility | None = None
     notification_config: NotificationConfig | None = None
 
     @field_validator("notification_config", mode="before")
@@ -234,6 +245,8 @@ class ReportResponse(ReportBase):
     cron_expression: str | None = None
     schedule_description: str | None = None
     notification_config: NotificationConfig | None = None
+    owner_user_id: int | None = None
+    org_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -302,3 +315,32 @@ class ScheduleTaskCreate(BaseModel):
         (API request, sync_with_database, add_report_job)."""
         validate_cron_expression(value)
         return value
+
+
+# ---------------------------------------------------------------------------
+# Report shares (批 9.4)
+# ---------------------------------------------------------------------------
+
+
+class ReportShareCreate(BaseModel):
+    """Payload for ``POST /reports/{id}/shares``.
+
+    Mirrors :class:`app.schemas.data_source.GrantCreate` — read/write
+    binary, no admin tier. Upserts on ``(report_id, user_id)``.
+    """
+
+    user_id: int = Field(..., ge=1)
+    permission: Literal["read", "write"]
+
+
+class ReportShareResponse(BaseModel):
+    """One :class:`app.models.report_access.ReportAccess` row."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    report_id: int
+    user_id: int
+    permission: str
+    granted_by: int | None = None
+    created_at: datetime | None = None

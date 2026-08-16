@@ -38,6 +38,9 @@ export const queryKeys = {
     detail: (id: number) => [...queryKeys.reports.details(), id] as const,
     preview: (id: number) =>
       [...queryKeys.reports.all, 'preview', id] as const,
+    // Shares key (批 9.4) — per-report share list. Owner-or-admin only.
+    shares: (id: number) =>
+      [...queryKeys.reports.all, 'shares', id] as const,
   },
   scheduler: {
     all: ['scheduler'] as const,

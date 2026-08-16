@@ -9,6 +9,8 @@ import type {
   QueryResult,
   Report,
   ReportCreate,
+  ReportShare,
+  ReportShareCreate,
   ReportUpdate,
   ReportItem,
   ReportItemCreate,
@@ -281,6 +283,28 @@ export const reportApi = {
 
   delete: async (id: number): Promise<void> => {
     await api.delete(`/reports/${id}`);
+  },
+
+  // ---- ACL / shares (批 9.4) ----
+
+  /** List shares on a report. Owner-or-admin only — a write grant
+   *  on the report lets the recipient mutate the report itself but
+   *  not enumerate who else has access (same semantics as the DS
+   *  endpoint). */
+  listShares: async (reportId: number): Promise<ReportShare[]> => {
+    const { data } = await api.get(`/reports/${reportId}/shares`);
+    return data;
+  },
+
+  /** Grant (or upsert) a permission. Owner-or-admin only. */
+  createShare: async (reportId: number, payload: ReportShareCreate): Promise<ReportShare> => {
+    const { data } = await api.post(`/reports/${reportId}/shares`, payload);
+    return data;
+  },
+
+  /** Revoke a share by id. Owner-or-admin only. */
+  revokeShare: async (shareId: number): Promise<void> => {
+    await api.delete(`/reports/shares/${shareId}`);
   },
 
   // Report Items
