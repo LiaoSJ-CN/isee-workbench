@@ -92,3 +92,9 @@ backend/logs/
 
 # CodeGraph local index (built by codegraph tool, not source)
 .codegraph/
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/playwright/.cache/

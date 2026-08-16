@@ -113,3 +113,52 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm test
+
+  e2e:
+    # Playwright smoke tests. Boots docker-compose (web + db, scheduler
+    # disabled so only the web container runs the API), waits for the
+    # backend health check, runs the suite against http://localhost:8080.
+    # The web container proxies /api to the backend container.
+    runs-on: ubuntu-latest
+    services:
+      backend:
+        image: isee-workbench-backend
+        build:
+          context: .
+          dockerfile: backend/Dockerfile
+        env:
+          DATABASE_URL: sqlite:////tmp/test.db
+          SCHEDULER_DISABLED: "true"
+          CORS_ORIGINS: '["http://localhost:8080"]'
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "python -c 'import urllib.request,sys; urllib.request.urlopen(\"http://localhost:8000/docs\").read(); sys.exit(0)'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 6
+      frontend:
+        image: isee-workbench-frontend
+        build:
+          context: .
+          dockerfile: frontend/Dockerfile
+        ports:
+          - 8080:80
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 6
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      E2E_BASE_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
