@@ -31,7 +31,7 @@ from typing import Any, Final, NoReturn, cast
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, TokenError
 
 from app.middleware.metrics import sql_validator_rejections_total
 
@@ -271,9 +271,14 @@ def is_safe_select_expression(expr: str) -> bool:
         return False
     # Wrap in a synthetic SELECT so comma-separated lists parse as a
     # single projection and the AST walker has a Select as parent.
+    # Catch both ParseError AND TokenError — adversarial inputs (a stray
+    # quote, NUL byte, unbalanced bracket) raise TokenError from the
+    # tokenizer before the parser even runs. Treat any parse failure as
+    # "not a safe expression" rather than letting it propagate to the
+    # caller as a 500.
     try:
         parsed = sqlglot.parse_one(f"SELECT {s}", read=None)
-    except ParseError:
+    except (ParseError, TokenError):
         return False
     if parsed is None:
         return False

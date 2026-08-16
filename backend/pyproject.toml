@@ -94,3 +94,12 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "\\.\\.\\.",
 ]
+
+# Hypothesis settings — keep property-based tests fast in CI.
+# `max_examples=50` is enough to catch obvious regressions without
+# slowing CI; bump locally when debugging (e.g. @settings(max_examples=500)).
+# `deadline` is in ms; SQL parse can be slow on adversarial inputs so
+# we set a generous limit (200ms) rather than disabling the check.
+[tool.hypothesis]
+max_examples = 50
+deadline = 200
