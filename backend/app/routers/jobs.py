@@ -30,6 +30,7 @@ from app.models.report import Report
 from app.models.report_job import JOB_STATUS_DONE, ReportJob
 from app.models.user import User
 from app.schemas.job import (
+    JobOutputFormat,
     JobStatus,
     ReportJobCreate,
     ReportJobResponse,
@@ -206,17 +207,34 @@ def download_report_job_output(
             detail="Generated file missing",
         )
 
-    # Only Excel is queued today (HTML preview stays sync), so the media
-    # type is unambiguous. If a future format joins the queue, dispatch
-    # on ``job.output_format``.
-    media_type = (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    # Dispatch Content-Type on the actual output format (batch 8.1
+    # added PDF; future formats slot in here). Unknown values fall
+    # through to ``application/octet-stream`` — safer than guessing
+    # a misclassified MIME for a brand-new format. ``output_format``
+    # is typed ``str | None`` at the ORM layer for legacy rows; treat
+    # None as "unknown" too.
+    media_type = _media_type_for(job.output_format or "")
     return FileResponse(
         path=full_path,
         filename=safe_basename,
         media_type=media_type,
     )
+
+
+def _media_type_for(output_format: str) -> str:
+    """Map a queued job's ``output_format`` to its HTTP ``Content-Type``.
+
+    Centralised so :func:`download_report_job_output` stays focused
+    on auth + path traversal guards, and any future format extension
+    (e.g. docx) only touches this one function.
+    """
+    mapping: dict[str, str] = {
+        JobOutputFormat.EXCEL.value: (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        JobOutputFormat.PDF.value: "application/pdf",
+    }
+    return mapping.get(output_format, "application/octet-stream")
 
 
 @report_jobs_router.get(

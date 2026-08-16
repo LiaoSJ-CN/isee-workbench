@@ -2,9 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# psycopg2 needs libpq-dev at build time; keep libpq5 at runtime
+# Runtime + build dependencies:
+#   - libpq-dev / gcc      : psycopg2-binary build (kept for backwards compat)
+#   - libpango / libcairo  : weasyprint PDF rendering (批 8.1)
+#   - libgdk-pixbuf        : weasyprint image handling
+#   - fonts-noto-cjk       : CJK glyph coverage in generated PDFs
+#
+# CJK fonts are intentionally pulled at image build time so production
+# PDFs render Chinese characters without per-deploy font setup.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libpq-dev gcc && \
+    apt-get install -y --no-install-recommends \
+      libpq-dev gcc \
+      libpango-1.0-0 libpangoft2-1.0-0 \
+      libcairo2 \
+      libgdk-pixbuf-2.0-0 \
+      fonts-noto-cjk && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -30,6 +30,7 @@ class JobOutputFormat(str, Enum):
     """
 
     EXCEL = "excel"
+    PDF = "pdf"
 
 
 class JobStatus(str, Enum):

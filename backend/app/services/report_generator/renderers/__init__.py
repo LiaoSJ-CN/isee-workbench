@@ -11,5 +11,6 @@ from __future__ import annotations
 
 from app.services.report_generator.renderers.excel import render_excel
 from app.services.report_generator.renderers.html import render_html
+from app.services.report_generator.renderers.pdf import render_pdf
 
-__all__ = ["render_html", "render_excel"]
+__all__ = ["render_html", "render_excel", "render_pdf"]

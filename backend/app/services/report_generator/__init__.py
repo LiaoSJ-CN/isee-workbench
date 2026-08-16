@@ -51,7 +51,7 @@ from app.services.report_generator.engine import (
 )
 from app.services.report_generator.errors import ReportGeneratorError
 from app.services.report_generator.query_builder import build_query, execute_query
-from app.services.report_generator.renderers import render_excel, render_html
+from app.services.report_generator.renderers import render_excel, render_html, render_pdf
 
 __all__ = [
     "ReportGenerator",
@@ -63,6 +63,7 @@ __all__ = [
     "get_or_create_engine",
     "render_excel",
     "render_html",
+    "render_pdf",
     "safe_filename",
     # Underscore-prefixed aliases preserved for backwards-compatible
     # imports in routers/explorer.py and tests/conftest.py.
@@ -232,6 +233,26 @@ def _generate_report_impl(
                 / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.xlsx"
             )
             render_excel(filename, report, results)
+            return {"file_path": str(filename), "errors": errors}
+
+        if output_format == "pdf":
+            # Render to bytes first, then write — keeps the renderer
+            # callable on its own (handy for tests). Same random
+            # suffix convention as Excel/HTML keeps file URLs
+            # unguessable.
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            rand = secrets.token_hex(4)
+            filename = (
+                output_dir
+                / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.pdf"
+            )
+            pdf_bytes = render_pdf(results, report, errors=errors)
+            try:
+                filename.write_bytes(pdf_bytes)
+            except OSError as exc:
+                raise ReportGeneratorError(
+                    f"Failed to write PDF report: {exc}"
+                ) from exc
             return {"file_path": str(filename), "errors": errors}
 
     raise ReportGeneratorError(f"Unsupported output format: {output_format}")

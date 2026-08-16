@@ -102,12 +102,12 @@ def enqueue_report_job(
     before this returns so the row is visible to the worker that picks
     it up; we commit here as a belt-and-braces guarantee.
     """
-    if output_format != "excel":
+    if output_format not in ("excel", "pdf"):
         # HTML stays synchronous (preview needs an immediate response).
         # If someone hits this with "html", reject rather than silently
         # route — the queue exists precisely because sync Excel is too slow.
         raise ValueError(
-            f"output_format must be 'excel' for async jobs (got {output_format!r})"
+            f"output_format must be 'excel' or 'pdf' (got {output_format!r})"
         )
 
     # Confirm FK target exists; save the caller a 4xx round-trip if not.

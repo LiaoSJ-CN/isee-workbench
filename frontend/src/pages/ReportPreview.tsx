@@ -40,13 +40,25 @@ export default function ReportPreview() {
   // because job rows are transient and the in-flight status would
   // re-fire from scratch anyway.
   const [excelJobId, setExcelJobId] = useState<number | null>(null);
-  const enqueueExcel = useEnqueueReportJob(reportId);
+  const enqueueJob = useEnqueueReportJob(reportId);
   const excelJob = useJobStatus(excelJobId);
   // Local loading flag for the download click — `useDownloadReport`'s
   // isPending would falsely trigger when the user does anything in the
   // toolbar (e.g. a re-rendered Excel enqueue). Self-contained state is
   // clearer here.
   const [downloading, setDownloading] = useState(false);
+
+  // ---- PDF async export (批 8.1) ------------------------------------------
+  // Mirrors the Excel flow — same hook, different output_format, separate
+  // slot so a user can fire Excel and PDF concurrently. Click "导出 PDF"
+  // → enqueue with `output_format: 'pdf'` → poll → download the
+  // worker's file via `/jobs/{id}/download` (server dispatches
+  // `application/pdf` on the format). Weasyprint dependency: if the
+  // server doesn't have weasyprint + libpango installed, the job will
+  // land in `failed` with an actionable error message.
+  const [pdfJobId, setPdfJobId] = useState<number | null>(null);
+  const pdfJob = useJobStatus(pdfJobId);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Blob URL lifecycle: when the preview string arrives, wrap it in a
   // blob URL; revoke the previous one when the string changes.
@@ -76,11 +88,22 @@ export default function ReportPreview() {
 
   const handleExportExcel = (paramValues?: Record<string, unknown>) => {
     if (!report) return;
-    enqueueExcel.mutate(
-      { parameters: paramValues ?? {} },
+    enqueueJob.mutate(
+      { parameters: paramValues ?? {}, output_format: 'excel' },
       {
         onSuccess: (job) => setExcelJobId(job.id),
         onError: (err) => message.error(formatError(err, '导出任务提交失败')),
+      },
+    );
+  };
+
+  const handleExportPdf = (paramValues?: Record<string, unknown>) => {
+    if (!report) return;
+    enqueueJob.mutate(
+      { parameters: paramValues ?? {}, output_format: 'pdf' },
+      {
+        onSuccess: (job) => setPdfJobId(job.id),
+        onError: (err) => message.error(formatError(err, 'PDF 导出任务提交失败')),
       },
     );
   };
@@ -101,6 +124,22 @@ export default function ReportPreview() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!report || pdfJobId === null) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
+    const filename = `${report.name}_${timestamp}.pdf`;
+    message.loading({ content: '正在准备下载…', key: 'pdf-download' });
+    setDownloadingPdf(true);
+    try {
+      await jobsApi.download(pdfJobId, filename);
+      message.success({ content: 'PDF 下载成功', key: 'pdf-download' });
+    } catch (err) {
+      message.error({ content: formatError(err, '下载失败'), key: 'pdf-download' });
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   if (loading) return <div style={{ padding: 24 }}><TableSkeleton rows={8} columns={4} /></div>;
   if (!report) return <div style={{ padding: 24 }}>报表不存在</div>;
 
@@ -108,6 +147,11 @@ export default function ReportPreview() {
   const excelInFlight = excelStatus === 'pending' || excelStatus === 'running';
   const excelDone = excelStatus === 'done';
   const excelFailed = excelStatus === 'failed';
+
+  const pdfStatus = pdfJob.data?.status;
+  const pdfInFlight = pdfStatus === 'pending' || pdfStatus === 'running';
+  const pdfDone = pdfStatus === 'done';
+  const pdfFailed = pdfStatus === 'failed';
 
   return (
     <div style={{ padding: 24 }}>
@@ -131,11 +175,21 @@ export default function ReportPreview() {
           {parameters.length === 0 && (
             <Button
               icon={<DownloadOutlined />}
-              loading={enqueueExcel.isPending}
+              loading={enqueueJob.isPending}
               disabled={excelInFlight}
               onClick={() => handleExportExcel()}
             >
               导出 Excel
+            </Button>
+          )}
+          {parameters.length === 0 && (
+            <Button
+              icon={<DownloadOutlined />}
+              loading={enqueueJob.isPending}
+              disabled={pdfInFlight}
+              onClick={() => handleExportPdf()}
+            >
+              导出 PDF
             </Button>
           )}
           <Button icon={<DownloadOutlined />} onClick={() => handleExportHtml('html')}>
@@ -149,7 +203,7 @@ export default function ReportPreview() {
           <ReportParameterForm
             parameters={parameters}
             onSubmit={handleExportExcel}
-            loading={enqueueExcel.isPending}
+            loading={enqueueJob.isPending}
             submitLabel="导出 Excel"
           />
         </Card>
@@ -189,6 +243,45 @@ export default function ReportPreview() {
               style={{ marginTop: 12 }}
               message="导出失败"
               description={excelJob.data.error}
+            />
+          )}
+        </Card>
+      )}
+
+      {pdfJobId !== null && (
+        <Card size="small" style={{ marginBottom: 16 }} title="PDF 导出任务">
+          <Space size="middle" align="center">
+            {pdfInFlight && <Spin size="small" />}
+            {pdfStatus === 'pending' && <Tag color="blue">排队中</Tag>}
+            {pdfStatus === 'running' && <Tag color="processing">执行中</Tag>}
+            {pdfDone && <Tag color="success">已完成</Tag>}
+            {pdfFailed && <Tag color="error">失败</Tag>}
+            {pdfDone && (
+              <Button
+                type="primary"
+                size="small"
+                icon={<DownloadOutlined />}
+                loading={downloadingPdf}
+                onClick={handleDownloadPdf}
+              >
+                下载 PDF
+              </Button>
+            )}
+            <Button
+              size="small"
+              icon={<CloseCircleOutlined />}
+              onClick={() => setPdfJobId(null)}
+            >
+              {pdfDone || pdfFailed ? '关闭' : '取消关注'}
+            </Button>
+          </Space>
+          {pdfFailed && pdfJob.data?.error && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="导出失败"
+              description={pdfJob.data.error}
             />
           )}
         </Card>

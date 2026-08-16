@@ -213,7 +213,9 @@ export interface ReportGenerateResponse {
 // ---- Async report jobs (批 3a backend, 批 3b frontend) ----
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed';
-export type JobOutputFormat = 'excel';
+// `pdf` joined in 批 8.1 alongside Excel; HTML stays synchronous
+// (preview is small and the iframe needs an immediate response).
+export type JobOutputFormat = 'excel' | 'pdf';
 
 export interface ReportJobCreate {
   output_format?: JobOutputFormat;

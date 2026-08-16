@@ -56,6 +56,19 @@ export default function ReportList() {
   const [enqueuing, setEnqueuing] = useState(false);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
 
+  // ---- PDF async export (批 8.1) ------------------------------------------
+  // Same single-slot pattern, independent of the Excel slot so a user
+  // can fire both formats on the same report in parallel. Each format
+  // owns one in-flight reference; clicking a different row's PDF while
+  // one is pending will replace the visible card but the previous
+  // worker keeps running in the background (the user can find it again
+  // via /jobs/{id} polling at lower fidelity — not surfaced in this
+  // page by design).
+  const [pdfJob, setPdfJob] = useState<{ jobId: number; report: Report } | null>(null);
+  const pdfStatus = useJobStatus(pdfJob?.jobId ?? null);
+  const [enqueuingPdf, setEnqueuingPdf] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
   const handleCreate = () => {
     form.resetFields();
     form.setFieldsValue({ output_formats: ['excel', 'html'], is_active: true });
@@ -125,7 +138,10 @@ export default function ReportList() {
       // returns it). Calling `jobsApi.enqueue` with the explicit
       // `report.id` sidesteps the closure problem and keeps the
       // loading flag local to this component.
-      const job = await jobsApi.enqueue(report.id, { parameters: {} });
+      const job = await jobsApi.enqueue(report.id, {
+        parameters: {},
+        output_format: 'excel',
+      });
       setExcelJob({ jobId: job.id, report });
       message.success({ content: `「${report.name}」导出任务已提交`, key: 'export' });
     } catch (err) {
@@ -151,6 +167,40 @@ export default function ReportList() {
       message.error({ content: formatError(err, '下载失败'), key: 'export' });
     } finally {
       setDownloadingExcel(false);
+    }
+  };
+
+  const handleGeneratePdf = async (report: Report) => {
+    message.loading({ content: '正在提交 PDF 导出任务…', key: 'pdf-export' });
+    setEnqueuingPdf(true);
+    try {
+      const job = await jobsApi.enqueue(report.id, {
+        parameters: {},
+        output_format: 'pdf',
+      });
+      setPdfJob({ jobId: job.id, report });
+      message.success({ content: `「${report.name}」PDF 导出任务已提交`, key: 'pdf-export' });
+    } catch (err) {
+      message.error({ content: formatError(err, 'PDF 导出任务提交失败'), key: 'pdf-export' });
+    } finally {
+      setEnqueuingPdf(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!pdfJob) return;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
+    const filename = `${pdfJob.report.name}_${timestamp}.pdf`;
+    message.loading({ content: '正在准备下载…', key: 'pdf-export' });
+    setDownloadingPdf(true);
+    try {
+      await jobsApi.download(pdfJob.jobId, filename);
+      message.success({ content: 'PDF 下载成功', key: 'pdf-export' });
+      setPdfJob(null);
+    } catch (err) {
+      message.error({ content: formatError(err, '下载失败'), key: 'pdf-export' });
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -244,6 +294,20 @@ export default function ReportList() {
             >
               Excel
             </Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<PlayCircleOutlined />}
+              loading={enqueuingPdf && pdfJob?.report.id === record.id}
+              disabled={
+                pdfJob?.report.id === record.id &&
+                (pdfStatus.data?.status === 'pending' ||
+                  pdfStatus.data?.status === 'running')
+              }
+              onClick={() => handleGeneratePdf(record)}
+            >
+              PDF
+            </Button>
             <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
               <Button type="link" size="small" danger icon={<DeleteOutlined />}>
                 删除
@@ -316,6 +380,50 @@ export default function ReportList() {
               style={{ marginTop: 12 }}
               message="导出失败"
               description={excelStatus.data.error}
+            />
+          )}
+        </Card>
+      )}
+
+      {pdfJob && (
+        <Card size="small" style={{ marginBottom: 16 }} title={`PDF 导出任务 — ${pdfJob.report.name}`}>
+          <Space size="middle" align="center">
+            {(pdfStatus.data?.status === 'pending' || pdfStatus.data?.status === 'running') && (
+              <Spin size="small" />
+            )}
+            {pdfStatus.data?.status === 'pending' && <Tag color="blue">排队中</Tag>}
+            {pdfStatus.data?.status === 'running' && <Tag color="processing">执行中</Tag>}
+            {pdfStatus.data?.status === 'done' && <Tag color="success">已完成</Tag>}
+            {pdfStatus.data?.status === 'failed' && <Tag color="error">失败</Tag>}
+            {!pdfStatus.data && <Tag>初始化</Tag>}
+            {pdfStatus.data?.status === 'done' && (
+              <Button
+                type="primary"
+                size="small"
+                icon={<DownloadOutlined />}
+                loading={downloadingPdf}
+                onClick={handleDownloadPdf}
+              >
+                下载 PDF
+              </Button>
+            )}
+            <Button
+              size="small"
+              icon={<CloseCircleOutlined />}
+              onClick={() => setPdfJob(null)}
+            >
+              {pdfStatus.data?.status === 'done' || pdfStatus.data?.status === 'failed'
+                ? '关闭'
+                : '取消关注'}
+            </Button>
+          </Space>
+          {pdfStatus.data?.status === 'failed' && pdfStatus.data?.error && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="导出失败"
+              description={pdfStatus.data.error}
             />
           )}
         </Card>

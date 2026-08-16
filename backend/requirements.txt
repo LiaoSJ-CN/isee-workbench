@@ -18,3 +18,7 @@ sentry-sdk[fastapi]>=2.0.0
 alembic>=1.13.0
 prometheus-fastapi-instrumentator>=7.0.0
 email-validator>=2.0.0
+# PDF export (批 8.1). weasyprint is optional at runtime — render_pdf
+# raises a clear error if the package or its system libraries
+# (libpango, libcairo, libgdk-pixbuf, fonts-noto-cjk) are missing.
+weasyprint>=60.0
