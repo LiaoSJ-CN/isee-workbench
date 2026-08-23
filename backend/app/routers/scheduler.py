@@ -1,17 +1,19 @@
 """API routes for scheduled task management."""
 
 import logging
+from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import admin_required, get_current_user
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.notification import NotificationConfig
 from app.schemas.report import ScheduleTaskCreate
+from app.services import audit as audit_service
 from app.services.report import (
     PERMISSION_WRITE,
     get_report_for_user,
@@ -55,13 +57,29 @@ def get_scheduler_status() -> SchedulerStatusResponse:
     return SchedulerStatusResponse(**get_scheduler().get_status())
 
 
+def _client_ip(request: Request) -> str:
+    """Peer IP for the audit log. ``ProxyHeadersMiddleware`` has
+    already rewritten ``request.client.host`` when the request came
+    through a trusted proxy, so this is the real client IP."""
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/sync", response_model=SchedulerSyncResponse)
-def sync_scheduler(db: Session = Depends(get_db)) -> SchedulerSyncResponse:
+def sync_scheduler(
+    request: Request,
+    db: Session = Depends(get_db),
+    _user: User = Depends(admin_required),
+) -> SchedulerSyncResponse:
     """Reconcile scheduler with the database — adds jobs for active scheduled
     reports and drops jobs whose DB row no longer qualifies (paused, deleted,
     missing). Delegates to `sync_with_database` so the HTTP path stays in
     lockstep with the sidecar; without orphan removal, periodic re-sync would
-    leak stale jobs."""
+    leak stale jobs.
+
+    批 9.5: admin-only — high-side-effect operation (rebuilds the
+    scheduler's job table). The ``_user`` parameter is unused; its
+    sole job is to enforce the admin gate via FastAPI.
+    """
     scheduler = get_scheduler()
     scheduler.sync_with_database(db)
 
@@ -76,6 +94,20 @@ def sync_scheduler(db: Session = Depends(get_db)) -> SchedulerSyncResponse:
         ).all()
     )
     msg = f"Synced {count} scheduled reports"
+    # 批 9.5: audit the sync — who triggered a full reconcile + how many
+    # jobs were loaded. ``after`` is a hand-built summary because the
+    # scheduler's in-memory job table isn't an ORM row we can dump.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, _user.id),
+        action=audit_service.ACTION_SCHEDULER_SYNC,
+        target_type=audit_service.TARGET_TYPE_SCHEDULER,
+        target_id=None,
+        before=None,
+        after={"jobs_loaded": count},
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return SchedulerSyncResponse(jobs_loaded=count, message=msg)
 
 
@@ -98,6 +130,7 @@ def get_job_status(report_id: int) -> SchedulerJobResponse:
 def create_or_update_job(
     report_id: int,
     payload: ScheduleTaskCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SchedulerJobResponse:
@@ -122,6 +155,11 @@ def create_or_update_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report not found",
         )
+
+    # 批 9.5: snapshot the report's schedule state before mutation so the
+    # audit row carries a before/after diff (cron expression / notification
+    # config / active flag).
+    before_snapshot = audit_service._snapshot(report_obj)
 
     # Persist schedule + notification config; DB is the single source of truth.
     # ``payload.notification_config`` is a typed Pydantic model (WebhookConfig
@@ -168,12 +206,29 @@ def create_or_update_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No scheduled job found for report {report_id}",
         )
+    # 批 9.5: audit successful scheduler job install / update. ``after`` is
+    # the refreshed report row (which now carries the new cron +
+    # notification_config); the scheduler's in-memory job table itself
+    # isn't an ORM row we can dump.
+    db.refresh(report_obj)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SCHEDULER_JOB_CREATE,
+        target_type=audit_service.TARGET_TYPE_SCHEDULER,
+        target_id=report_id,
+        before=before_snapshot,
+        after=report_obj,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return SchedulerJobResponse(**job_status)
 
 
 @router.delete("/jobs/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_job(
     report_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -196,6 +251,10 @@ def delete_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report not found",
         )
+
+    # 批 9.5: snapshot the report's pre-delete schedule state so we know
+    # which cron / notification config / active flag was removed.
+    before_snapshot = audit_service._snapshot(report_obj)
 
     try:
         report_obj.is_scheduled = False
@@ -222,4 +281,18 @@ def delete_job(
             "Scheduler removal for report %d failed (sidecar will clean up): %s",
             report_id, exc,
         )
+    # 批 9.5: audit successful scheduler job delete. ``after`` is the
+    # refreshed report row with all schedule fields cleared.
+    db.refresh(report_obj)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SCHEDULER_JOB_DELETE,
+        target_type=audit_service.TARGET_TYPE_SCHEDULER,
+        target_id=report_id,
+        before=before_snapshot,
+        after=report_obj,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
