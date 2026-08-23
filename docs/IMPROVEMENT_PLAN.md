@@ -917,9 +917,7 @@ npx playwright test                     # smoke 全过
 
 **Monaco / Ace 评估结论**：Monaco (~3 MB) 比 CodeMirror 重两个数量级；Ace (~250 KB) 比优化后 cm-vendor 仍大 10 倍。CodeMirror 6 是当前 SQL 编辑的正确选择，lazy-load 是性价比最高的优化路径。
 
-### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
-
-### P1-1 ✅：Audit log 索引 + 保留 + filter 扩展 — 2026-08-24 — `TBD`
+### P1-1 ✅：Audit log 索引 + 保留 + filter 扩展 — 2026-08-24 — `945c496`
 
 **问题**：批 9.5 把 `audit_log` 表建出来 + 给主键/单列加了 index，但缺 3 个高频 admin 能力的支撑：
 - (a) 「这个 user 干了啥」的查询 `WHERE actor_user_id = X ORDER BY created_at DESC` 走单列 `actor_user_id` + 单独 sort，表大了之后 sort 慢
@@ -946,7 +944,7 @@ npx playwright test                     # smoke 全过
 
 **验证基线**：ruff 0、mypy 0、pytest 653/653 + 1 skipped（promtool，不在本批范围）。
 
-### P1-2 ✅：PostgreSQL/OpenGauss 真实验证 — 2026-08-24 — `TBD`
+### P1-2 ✅：PostgreSQL/OpenGauss 真实验证 — 2026-08-24 — `bf3dd3a`
 
 **问题**：批 5.1 全套 Alembic migration 只在 SQLite 上跑过；生产目标 PG/OpenGauss 的 DDL/FK/CHECK 差异完全没 e2e 覆盖。autogenerate 出来的 SQL 是 cross-dialect，但谁也没确认过 `op.batch_alter_table` + FK 在 PG 上能跑通。
 
