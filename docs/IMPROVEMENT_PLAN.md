@@ -892,6 +892,14 @@ npx playwright test                     # smoke 全过
 | P1-2 | PostgreSQL / OpenGauss 真实验证 | 当前 alembic migration 只在 SQLite 上跑过；生产目标 PG / OpenGauss 的 FK / DDL 差异、autogenerate 偏差没 e2e 覆盖。CI 加 `postgres:16` profile 跑 `alembic upgrade head` + pytest。| ~4 hr |
 | P1-3 | cm-vendor 体积优化 | CodeMirror 344 KB / 113 KB gzip 是 DataExplorer 进路由才加载但首屏过半。(a) 只 import 用到的 extension (`@codemirror/lang-sql` 按需)；(b) 评估换 Monaco / Ace。| ~半天 |
 
+### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
+
+**问题**：CI 每次都 cold install deps —— `pip install -r requirements.txt` (75+ 包) + `pip install -e ".[dev]"` (25+ 包) 重复 4 个 backend job；`npm ci` 重复 5 个 frontend job。预估 cold cache 损失 ~30s/run。
+
+**落地**：`actions/setup-python@v5` + `cache: "pip"` (build-in) + `actions/setup-node@v4` + `cache: "npm"` (built-in)，全部 job 加 `cache-dependency-path: requirements.txt pyproject.toml` / `package-lock.json`。cache key 自动按文件 hash 失效。
+
+**纯配置改动**，16 行新增，无 functional 行为变化。YAML 结构未变（只是给现成 step 添字段），无 lint/typecheck 影响。
+
 ### P2 — code quality / developer experience
 
 | ID | 主题 | 说明 | 估计 |
