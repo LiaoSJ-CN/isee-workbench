@@ -129,7 +129,8 @@
 | 批 9.4 | ✅ 已完成 (2026-08-17) | `02177d0` | Report owner + visibility + 共享 + 分层 DS/Report ACL + ReportShareModal |
 | 批 9.5 | ✅ 已完成 (2026-08-23) | `334f36e`+`3f178ae`+`523d283`+`8fc1fb1`+`0670260`+`ee1d6c7`+`d7150c0`+`5affcd8`+`cc77cfe`+`2c5d81d`+`eab7975`+`489b72b` (12 commits) | Audit log: model + Alembic + service + schemas + admin-only GET `/audit-logs` + 33 mutating 端点钩子 + 47 tests |
 | 批 9.6 | ✅ 已完成 (2026-08-23) | `5fd150a` | Admin `/audit-logs` 页 + `RequireAdmin` 路由守卫 + 菜单入口 + actor username 解析 |
-| 批 10 | 未开始 | — | code-split + prettier |
+| 批 10 | ✅ 已完成 (2026-08-23) | `f871fb9` | code-split + 删 chart.js + Prettier |
+| 批 10.1 | ✅ 已完成 (2026-08-23) | `ad201e5` | 报表 `is_demo` 标志位 + ReportList 蓝色 "示例" Tag — 让运维一眼区分 seed 脚手架 vs 用户自建报表 |
 | TODO-9a | ✅ 已完成 (2026-08-23) | `a810842` | Prometheus + Grafana dashboard (`isee-workbench-dashboard.json`，9 面板：HTTP RPS / 5xx / 4xx / p50-p99 / Top routes / 报表 p95 / 报表 errors / SQL 校验 / webhook outcome) |
 | TODO-9b | ✅ 已完成 (2026-08-23) | `6376f06` | 8 条 alert rules (`isee-workbench.yml`) + alertmanager wiring + 6 pytest 防 typo + DEPLOY.md 配置告警段 |
 
