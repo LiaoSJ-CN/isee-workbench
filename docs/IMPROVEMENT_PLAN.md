@@ -132,6 +132,7 @@
 | 批 10 | ✅ 已完成 (2026-08-23) | `f871fb9` | code-split + 删 chart.js + Prettier |
 | 批 10.1 | ✅ 已完成 (2026-08-23) | `ad201e5` | 报表 `is_demo` 标志位 + ReportList 蓝色 "示例" Tag — 让运维一眼区分 seed 脚手架 vs 用户自建报表 |
 | 批 10.2 | ✅ 已完成 (2026-08-23) | `9e10435` | DataExplorer 模板分组（维度表 / 业务明细 / 聚合分析 / 跨表 JOIN / 自定义）— 18 条平铺 → OptGroup 下拉 |
+| 批 10.3 | ✅ 已完成 (2026-08-24) | `d59a345` | DataSource.clone + Report.duplicate — `<name> (副本)` 自动后缀 / 显式 name / 409 collision / 404 ACL / audit log / 前端 "复制" 按钮（DataSourceList + ReportList 后者直接跳编辑器）。复制重置 visibility=private + is_demo=false + is_scheduled=False + 不复制 shares |
 | TODO-9a | ✅ 已完成 (2026-08-23) | `a810842` | Prometheus + Grafana dashboard (`isee-workbench-dashboard.json`，9 面板：HTTP RPS / 5xx / 4xx / p50-p99 / Top routes / 报表 p95 / 报表 errors / SQL 校验 / webhook outcome) |
 | TODO-9b | ✅ 已完成 (2026-08-23) | `6376f06` | 8 条 alert rules (`isee-workbench.yml`) + alertmanager wiring + 6 pytest 防 typo + DEPLOY.md 配置告警段 |
 
