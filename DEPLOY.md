@@ -52,6 +52,11 @@ npm run dev
 - 后端 API：http://localhost:8000
 - API 文档：http://localhost:8000/docs
 
+> **PDF 导出（批 8.1）**：本地开发需装 weasyprint 系统依赖。
+> macOS: `brew install pango cairo gdk-pixbuf libffi`；
+> Debian/Ubuntu: 见 `backend/Dockerfile` 的 `apt-get install` 行（`libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 fonts-noto-cjk`）。
+> `pip install -r requirements.txt` 装的 `weasyprint` 是 Python 包，**系统库**单独装。
+
 ---
 
 ### 方式二：生产环境部署
