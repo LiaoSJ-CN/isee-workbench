@@ -9,6 +9,7 @@ import {
   SearchOutlined,
   LogoutOutlined,
   FundOutlined,
+  BellOutlined,
 } from '@ant-design/icons';
 import {
   AuditLogPage,
@@ -19,6 +20,7 @@ import {
   SchedulerPage,
   DataExplorer,
   Login,
+  MySubscriptionsPage,
 } from './pages';
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -52,6 +54,11 @@ function AppMenu() {
       key: '/scheduler',
       icon: <ClockCircleOutlined />,
       label: <Link to="/scheduler">定时任务</Link>,
+    },
+    {
+      key: '/my-subscriptions',
+      icon: <BellOutlined />,
+      label: <Link to="/my-subscriptions">我的订阅</Link>,
     },
     ...(isAdmin
       ? [
@@ -167,6 +174,7 @@ function AppShell() {
           <Route path="/reports/:id" element={<ReportEditor />} />
           <Route path="/reports/:id/preview" element={<ReportPreview />} />
           <Route path="/scheduler" element={<SchedulerPage />} />
+          <Route path="/my-subscriptions" element={<MySubscriptionsPage />} />
           <Route
             path="/audit-logs"
             element={

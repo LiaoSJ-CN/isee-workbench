@@ -12,6 +12,93 @@ export type ReportVisibility = 'public' | 'private';
 /** Permission tier for a per-report share row. */
 export type ReportSharePermission = 'read' | 'write';
 
+// ---- Notification config (批 6b.4 / 8.3 / 8.4) ----
+// Mirrors the Pydantic discriminated union in
+// ``app.schemas.notification``. The ``type`` field discriminates
+// the variant — same shape the backend uses to dispatch at send
+// time. We type the variants explicitly (rather than keeping the
+// ``Report.notification_config`` field as ``Record<string, unknown>``)
+// so the Subscription / Scheduler forms can render the right
+// inputs per provider without a runtime introspection pass.
+
+export type NotificationType =
+  | 'none'
+  | 'webhook'
+  | 'email'
+  | 'dingtalk'
+  | 'feishu'
+  | 'wechatwork';
+
+export interface WebhookConfig {
+  type: 'webhook';
+  url: string;
+  secret?: string | null;
+}
+
+export interface EmailConfig {
+  type: 'email';
+  to: string[];
+  subject: string;
+}
+
+export interface DingTalkConfig {
+  type: 'dingtalk';
+  webhook_url: string;
+  secret?: string | null;
+}
+
+export interface FeishuConfig {
+  type: 'feishu';
+  webhook_url: string;
+  secret?: string | null;
+}
+
+export interface WeChatWorkConfig {
+  type: 'wechatwork';
+  webhook_url: string;
+}
+
+export type NotificationConfig =
+  | WebhookConfig
+  | EmailConfig
+  | DingTalkConfig
+  | FeishuConfig
+  | WeChatWorkConfig;
+
+// ---- Subscriptions (批 8.3) ----
+// Per-user, per-report, per-cron subscription. The backend owns
+// the APScheduler reconciliation; the frontend only shows the
+// owner-scoped CRUD surface. See
+// ``app.models.report_subscription.ReportSubscription``.
+
+export interface ReportSubscription {
+  id: number;
+  owner_user_id: number;
+  report_id: number;
+  cron_expression: string;
+  parameters: Record<string, unknown> | null;
+  notification_config: NotificationConfig | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+export interface ReportSubscriptionCreate {
+  report_id: number;
+  cron_expression: string;
+  parameters?: Record<string, unknown> | null;
+  notification_config?: NotificationConfig | null;
+}
+
+export interface ReportSubscriptionUpdate {
+  cron_expression?: string;
+  parameters?: Record<string, unknown> | null;
+  notification_config?: NotificationConfig | null;
+  is_active?: boolean;
+}
+
 /** Mirrors `GET /auth/me` response shape (post 批 9.1). */
 export interface CurrentUser {
   username: string;
@@ -220,7 +307,7 @@ export interface Report {
   is_scheduled: boolean;
   cron_expression?: string;
   schedule_description?: string;
-  notification_config?: Record<string, unknown> | null;
+  notification_config?: NotificationConfig | null;
   // 批 9.4 — owner / org / visibility. All optional so older
   // pre-9.4 callers that don't read these fields still typecheck.
   // Backfilled server-side: existing rows default to admin-owned

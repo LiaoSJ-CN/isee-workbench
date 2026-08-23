@@ -13,6 +13,9 @@ import type {
   ReportCreate,
   ReportShare,
   ReportShareCreate,
+  ReportSubscription,
+  ReportSubscriptionCreate,
+  ReportSubscriptionUpdate,
   ReportUpdate,
   ReportItem,
   ReportItemCreate,
@@ -531,6 +534,74 @@ export const auditLogApi = {
       }
     }
     const { data } = await api.get('/audit-logs', { params });
+    return data;
+  },
+};
+
+// ============ Subscriptions (批 8.3) ============
+// Owner-scoped CRUD on per-user report subscriptions. The backend
+// route filters by ``owner_user_id == current_user.id`` so a 404
+// here covers both "doesn't exist" and "belongs to someone else"
+// (the latter surfaces to the user as "Subscription not found" —
+// we don't leak cross-user existence).
+export const subscriptionApi = {
+  /** List the current user's subscriptions. ``reportId`` is an
+   *  optional filter for the per-report subscriptions panel. */
+  list: async (
+    reportId?: number,
+    limit = 50,
+    offset = 0,
+  ): Promise<ReportSubscription[]> => {
+    const params: Record<string, unknown> = { limit, offset };
+    if (reportId !== undefined) params.report_id = reportId;
+    const { data } = await api.get('/subscriptions', { params });
+    return data;
+  },
+
+  /** Single lookup. Returns ``null`` on 404 (cross-user or gone) so
+   *  callers can branch without try/catch around the request. */
+  get: async (subscriptionId: number): Promise<ReportSubscription | null> => {
+    try {
+      const { data } = await api.get(`/subscriptions/${subscriptionId}`);
+      return data;
+    } catch (err) {
+      // 404 from the router means either "no such id" or "wrong
+      // owner"; both surface as not-found to the user.
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  create: async (
+    payload: ReportSubscriptionCreate,
+  ): Promise<ReportSubscription> => {
+    const { data } = await api.post('/subscriptions', payload);
+    return data;
+  },
+
+  update: async (
+    subscriptionId: number,
+    payload: ReportSubscriptionUpdate,
+  ): Promise<ReportSubscription> => {
+    const { data } = await api.patch(`/subscriptions/${subscriptionId}`, payload);
+    return data;
+  },
+
+  delete: async (subscriptionId: number): Promise<void> => {
+    await api.delete(`/subscriptions/${subscriptionId}`);
+  },
+
+  /** Pause (set ``is_active=false``) without deleting. */
+  pause: async (subscriptionId: number): Promise<ReportSubscription> => {
+    const { data } = await api.post(`/subscriptions/${subscriptionId}/pause`);
+    return data;
+  },
+
+  /** Resume a paused subscription. */
+  resume: async (subscriptionId: number): Promise<ReportSubscription> => {
+    const { data } = await api.post(`/subscriptions/${subscriptionId}/resume`);
     return data;
   },
 };

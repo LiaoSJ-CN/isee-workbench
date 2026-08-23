@@ -121,7 +121,7 @@
 | 批 8.5 | ✅ 已完成 (2026-08-16) | `a87e295` + `724ac90` | `GET /jobs/{id}/download` worker 产物直下载 + ReportList 行内 Excel 异步化 + `downloadBlob` helper |
 | TODO-8 数据迁移 | ✅ 已完成 (2026-08-16) | (pending) | alembic `c0a2b1d4e5f6` + `app/services/notification_migration.py` + 16 tests |
 | 批 8.1 | ✅ 已完成 (2026-08-23) | (synthesis) | weasyprint PDF 导出：render_pdf (lazy import) + JobOutputFormat.PDF + 同步 /reports/{id}/export/pdf + 异步 /reports/{id}/jobs output_format=pdf + ReportList PDF 按钮 + libpango/libcairo/libgdk-pixbuf/fonts-noto-cjk Dockerfile + 11 tests |
-| 批 8.3 | 未开始 | — | 报表订阅 |
+| 批 8.3 | ✅ 已完成 (2026-08-23) | (synthesis) | 报表订阅：ReportSubscription model + Alembic + per-user cron + 6 endpoint（POST/GET list/GET single/PATCH/DELETE + pause/resume）+ `sub_<id>` APScheduler namespace + reconcile 接入 sidecar+web + EmailConfig SMTP sender (stdlib smtplib + STARTTLS/SSL 双模 + smtp_auth/email_error 指标 + smtp_user 含 @ 时不重复拼接 host) + 前端 NotificationConfig 类型 + subscriptionApi + SubscriptionModal + MySubscriptionsPage + ReportList 「订阅」按钮 + nav 「我的订阅」 + 14 SMTP 测试 + conftest 清理 pytest_*/bad-test-source-*/happy-sqlite-source-* 泄漏行 |
 | 批 8.4 | ✅ 已完成 (2026-08-23) | `47ca3c9` | IM 通知：FeishuConfig/WeChatWorkConfig schema + `_send_feishu`/`_send_wechatwork` HMAC/JSON dispatch + Scheduler.tsx Form 飞书/企业微信 选项 + `test_notification_im.py` 8 tests |
 | 批 9.1 | ✅ 已完成 (2026-08-17) | `900c062` | User 加 `role`/`org_id` + JWT 携带 `uid`/`role`/`oid` + `/auth/me` 返回新字段 |
 | 批 9.2 | ✅ 已完成 (2026-08-17) | `d42c5f1` | `deps.require_role` + `admin_required`/`editor_required` 原语 |

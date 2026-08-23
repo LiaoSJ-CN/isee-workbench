@@ -11,6 +11,7 @@ import {
   DownloadOutlined,
   CloseCircleOutlined,
   ShareAltOutlined,
+  BellOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
@@ -29,6 +30,7 @@ import { useDataSources, useUsers } from '../queries/useDataSources';
 import { useJobStatus } from '../queries/useJobs';
 import { useMe } from '../queries/useAuth';
 import { ReportShareModal } from '../components/ReportShareModal';
+import { SubscriptionModal } from '../components/SubscriptionModal';
 // We don't use `useEnqueueReportJob` here — see handleGenerateExcel.
 
 export default function ReportList() {
@@ -55,6 +57,14 @@ export default function ReportList() {
   const navigate = useNavigate();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+
+  // ---- 批 8.3: subscription modal ----
+  // The modal is opened from a row's "订阅" button and binds the
+  // current user to the chosen report + cron + notification. The
+  // list page is just the entry point — the heavy listing /
+  // pause / resume / delete lives in /my-subscriptions (so the
+  // ReportList row stays focused on per-report actions).
+  const [subTarget, setSubTarget] = useState<Report | null>(null);
 
   // ---- Excel async export (批 8.5 / TODO-5) -----------------------------
   // ReportList is a navigation page — the user clicks Excel and usually
@@ -320,6 +330,14 @@ export default function ReportList() {
             <Button
               type="link"
               size="small"
+              icon={<BellOutlined />}
+              onClick={() => setSubTarget(record)}
+            >
+              订阅
+            </Button>
+            <Button
+              type="link"
+              size="small"
               icon={<PlayCircleOutlined />}
               loading={enqueuing && excelJob?.report.id === record.id}
               disabled={inFlight}
@@ -558,6 +576,12 @@ export default function ReportList() {
           );
         }}
         onCancel={() => setShareTarget(null)}
+      />
+
+      <SubscriptionModal
+        open={subTarget != null}
+        report={subTarget}
+        onClose={() => setSubTarget(null)}
       />
     </div>
   );

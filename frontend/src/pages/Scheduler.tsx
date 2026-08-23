@@ -103,7 +103,7 @@ export default function SchedulerPage() {
         reportId: record.id,
         cronExpression: record.cron_expression ?? '',
         scheduleDescription: record.schedule_description,
-        notificationConfig: record.notification_config ?? null,
+        notificationConfig: (record.notification_config as Record<string, unknown> | null) ?? null,
         isActive: nextActive,
       },
       {
