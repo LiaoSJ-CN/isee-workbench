@@ -96,11 +96,35 @@ services:
       - --web.console.templates=/usr/share/prometheus/consoles
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9091}:9090"
     depends_on:
       - backend
+    networks:
+      - isee-net
+    profiles:
+      - observability
+
+  # Optional alertmanager — receives alerts from prometheus once you
+  # uncomment the ``alerting.alertmanagers`` block in
+  # deploy/prometheus/prometheus.yml. Default route is a no-op
+  # webhook config; override alertmanager.yml via your own bind-mount
+  # (drop a config into deploy/prometheus/alertmanager.yml and add the
+  # mount here). Out of the box it logs alerts to stdout only.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: isee-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./deploy/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
     networks:
       - isee-net
     profiles:
@@ -134,6 +158,7 @@ volumes:
   # pgdata:
   prometheus-data:
   grafana-data:
+  alertmanager-data:
 
 networks:
   isee-net:

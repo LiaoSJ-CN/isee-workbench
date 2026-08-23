@@ -1,0 +1,170 @@
+# Prometheus alert rules for the isee-workbench stack.
+#
+# Mounted at /etc/prometheus/alerts/isee-workbench.yml in the
+# prometheus container via the ``rule_files`` entry in
+# deploy/prometheus/prometheus.yml. The ``.yml`` glob is intentional —
+# add more files alongside this one without touching the main config.
+#
+# Metric sources:
+# * http_requests_total / http_request_duration_highr_seconds_* — auto
+#   from prometheus-fastapi-instrumentator (see backend/app/middleware/metrics.py).
+# * report_generate_duration_seconds_* / report_generate_errors_total /
+#   webhook_delivery_attempts_total / sql_validator_rejections_total —
+#   custom metrics from backend/app/middleware/metrics.py.
+#
+# Severity ladder:
+#   critical → wake someone up (page, SMS, Slack #alerts-critical).
+#   warning  → ticket during business hours.
+#   info     → low-signal, log-only.
+#
+# Each alert carries a ``service`` label so an external alertmanager
+# route can fan out by component without a separate rules file.
+
+groups:
+  # ---- API health ----------------------------------------------------------
+  - name: isee-workbench.api
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="isee-backend",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="isee-backend"}[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          service: isee-backend
+        annotations:
+          summary: "iSee 后端 5xx 错误率超过 1% (5m avg)"
+          description: |
+            当前 5xx 比例: {{ $value | humanizePercentage }}。
+            阈值: 1%，持续 5 分钟以上触发。
+            排查方向: 看 backend logs/app.log 最近 ERROR/Traceback，对应 Sentry。
+
+      - alert: BackendDown
+        expr: up{job="isee-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: isee-backend
+        annotations:
+          summary: "iSee backend /metrics scrape 失败"
+          description: |
+            Prometheus 已经 1 分钟无法抓取 {{ $labels.instance }} 的 /metrics。
+            可能: 容器崩溃、backend 进程 OOM、网络分区。检查 ``docker compose ps backend``。
+
+      - alert: High4xxRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="isee-backend",status=~"4.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="isee-backend"}[5m]))
+          ) > 0.20
+        for: 15m
+        labels:
+          severity: warning
+          service: isee-backend
+        annotations:
+          summary: "iSee 后端 4xx 错误率超过 20% (5m avg)"
+          description: |
+            客户端错误率: {{ $value | humanizePercentage }}。可能: 上游调用方参数错误、Token 过期、限流触发。
+            看 ``/metrics`` 中 ``status=~"4.."`` 的 handler 分布，定位。
+
+  # ---- Report generation ---------------------------------------------------
+  - name: isee-workbench.reports
+    interval: 30s
+    rules:
+      - alert: SlowReportGeneration
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, format) (
+              rate(report_generate_duration_seconds_bucket{job="isee-backend"}[10m])
+            )
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+          service: isee-backend
+        annotations:
+          summary: "报表生成 p95 超过 30s (format={{ $labels.format }})"
+          description: |
+            当前 p95 = {{ $value | humanizeDuration }}。
+            阈值 30s 持续 10 分钟。可能: 底层数据源慢、报表 item 多、Excel 大文件。
+
+      - alert: HighReportErrorRate
+        expr: |
+          sum by (reason) (
+            rate(report_generate_errors_total{job="isee-backend"}[5m])
+          ) * 60 > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: isee-backend
+        annotations:
+          summary: "报表生成持续失败 ({{ $labels.reason }})"
+          description: |
+            失败速率: {{ $value }}/min，10 分钟内持续。
+            常见 reason: ReportGeneratorError / DataSourceNotFound / ExecutorCrash。
+            看对应报表的 logs 看堆栈。
+
+  # ---- Integration health ------------------------------------------------
+  - name: isee-workbench.integrations
+    interval: 30s
+    rules:
+      - alert: WebhookDeliveryFailing
+        # http_error 是真正的投递失败（4xx/5xx/timeout）；
+        # ssrf_blocked / https_required 是 SSRF guard 的合法阻断，不算业务失败，
+        # 但如果量很大也要看 — 多半是 webhook URL 配置写错了。
+        expr: |
+          (
+            sum(rate(webhook_delivery_attempts_total{job="isee-backend",outcome="http_error"}[10m]))
+            /
+            clamp_min(
+              sum(rate(webhook_delivery_attempts_total{job="isee-backend",outcome=~"success|http_error"}[10m])),
+              1
+            )
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: isee-backend
+        annotations:
+          summary: "Webhook HTTP 投递失败率超过 10% (10m avg)"
+          description: |
+            失败率: {{ $value | humanizePercentage }}。
+            仅统计 outcome=http_error 的真投递失败，SSRF guard 拦截不计入。
+            看 webhook 接收端日志，确认签名/URL 是否过期。
+
+      - alert: SSRFGuardSurge
+        expr: |
+          sum(rate(webhook_delivery_attempts_total{job="isee-backend",outcome=~"ssrf_blocked|https_required"}[10m])) * 60 > 1
+        for: 15m
+        labels:
+          severity: warning
+          service: isee-backend
+        annotations:
+          summary: "SSRF guard 高频阻断 (可能配置错误)"
+          description: |
+            阻断速率: {{ $value }}/min。
+            outcome={{ $labels.outcome }}。
+            正常情况几乎为 0；持续出现说明 webhook URL 配错（指向内网 / http）。
+
+      - alert: SQLValidatorSurge
+        # 可能是 SQL 注入尝试、客户端 bug、或上游误用。5/min 阈值很保守。
+        expr: |
+          sum by (rule) (
+            rate(sql_validator_rejections_total{job="isee-backend"}[5m])
+          ) * 60 > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: isee-backend
+        annotations:
+          summary: "SQL validator 大量拒绝 (rule={{ $labels.rule }})"
+          description: |
+            拒绝速率: {{ $value }}/min (5m avg)。
+            rule 取值: parse / not_select / multi_stmt / empty / unsafe_*。
+            持续出现意味着有客户端 / 用户在试探写非 SELECT。

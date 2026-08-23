@@ -190,6 +190,69 @@ docker compose --profile observability up -d
 
 如果已有外部 Prometheus 实例，只需要把 `deploy/prometheus/prometheus.yml` 的 `scrape_configs` 段贴进它的配置里，然后 `deploy/grafana/isee-workbench-dashboard.json` 通过 UI "Import dashboard" 导入。
 
+#### 配置告警（可选）
+
+`observability` profile 还会拉起一个 `alertmanager` 容器，规则文件 `deploy/prometheus/alerts/isee-workbench.yml` 会被 Prometheus 自动加载（通过 `prometheus.yml` 的 `rule_files`）。当前 ship 的 7 条规则：
+
+| Alert | 阈值 | 含义 | 默认 severity |
+|---|---|---|---|
+| `BackendDown` | `up == 0` 持续 1 分钟 | `/metrics` 抓不到，进程崩溃 / OOM / 网络断 | critical |
+| `HighErrorRate` | 5xx 比例 > 1%，持续 5 分钟 | 后端在持续抛 5xx | critical |
+| `High4xxRate` | 4xx 比例 > 20%，持续 15 分钟 | 客户端参数错 / Token 过期 / 限流触发 | warning |
+| `SlowReportGeneration` | `report_generate_duration_seconds` p95 > 30s，持续 10 分钟 | 报表生成慢，可能是数据源慢 / item 多 | warning |
+| `HighReportErrorRate` | `report_generate_errors_total` 任意 reason > 0.5/min，持续 10 分钟 | 报表生成持续失败 | warning |
+| `WebhookDeliveryFailing` | HTTP 投递失败率 > 10%（仅 `outcome="http_error"`，不含 SSRF guard 阻断），持续 10 分钟 | Webhook 接收端不可达 / 签名过期 | warning |
+| `SSRFGuardSurge` | `ssrf_blocked` 或 `https_required` 阻断 > 1/min，持续 15 分钟 | Webhook URL 配错（指向内网或 http） | warning |
+| `SQLValidatorSurge` | `sql_validator_rejections_total` 任意 rule > 5/min，持续 5 分钟 | 有客户端 / 用户在试探写非 SELECT | warning |
+
+> 上表 7 条规则；表格列 8 项是因为 SSRFGuardSurge 在 webhook family 里独立一行。每条规则的 summary / description 都按 dashboard panel 同名设置，方便从告警跳 Grafana 面板查细节。
+
+接告警通道前要先做两件事：
+
+1. **打开 prometheus → alertmanager 的 wiring**：`deploy/prometheus/prometheus.yml` 里 `alerting.alertmanagers` 段默认是注释掉的。去掉 `#` 注释，让 Prometheus 把 firing alerts 推给 alertmanager：
+
+   ```yaml
+   alerting:
+     alertmanagers:
+       - static_configs:
+           - targets:
+               - alertmanager:9093
+   ```
+
+2. **写真正的 alertmanager 配置**：`deploy/prometheus/alertmanager.yml` 当前是 no-op stub（所有 alert 都被 `null` receiver 静默 drop，方便本地起 stack 不被自己的告警淹没）。复制成你自己的 `alertmanager.yml`，按 severity 路由到 Slack / 邮件 / PagerDuty：
+
+   ```yaml
+   global:
+     resolve_timeout: 5m
+   route:
+     receiver: ops-default
+     group_by: [alertname, service]
+     routes:
+       - matchers: [severity="critical"]
+         receiver: pager-critical       # PagerDuty / 短信
+       - matchers: [severity="warning"]
+         receiver: slack-warnings       # Slack #ops-warnings
+   receivers:
+     - name: ops-default
+     - name: pager-critical
+       pagerduty_configs:
+         - service_key: <PAGERDUTY_KEY>
+     - name: slack-warnings
+       slack_configs:
+         - api_url: <SLACK_WEBHOOK_URL>
+           channel: "#ops-warnings"
+   ```
+
+   写好后 bind-mount 进 alertmanager 容器（`docker-compose.yml` 已经预留 mount），重启 `isee-alertmanager` 即可。
+
+**调整阈值**：直接改 `deploy/prometheus/alerts/isee-workbench.yml`，改完 `docker compose restart prometheus`，Prometheus 会自动 reload rules。CI 会跑 `backend/tests/test_alert_rules.py` 校验文件 schema（包括 expr 引用的 metric 必须在 backend 实际发射的清单里），避免 typo 让告警静默失效。
+
+**用 promtool 本地校验**：
+
+```bash
+promtool check rules deploy/prometheus/alerts/isee-workbench.yml
+```
+
 #### 使用 PostgreSQL（可选）
 
 编辑 `backend/.env`，设置 `DATABASE_URL` 为 PostgreSQL 连接串，然后取消 `docker-compose.yml` 中 `db` 服务的注释：
