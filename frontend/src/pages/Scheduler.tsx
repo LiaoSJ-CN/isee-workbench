@@ -304,13 +304,23 @@ export default function SchedulerPage() {
                         }
                       />
                     </Form.Item>
-                    {t === 'feishu' && (
+                    {(t === 'webhook' || t === 'feishu') && (
                       <Form.Item
                         name="secret"
-                        label="飞书签名密钥 (可选)"
-                        tooltip="开启签名校验后，飞书会在 JSON body 里追加 timestamp + sign 字段"
+                        label={
+                          t === 'feishu'
+                            ? '飞书签名密钥 (可选)'
+                            : 'Webhook 签名密钥 (可选)'
+                        }
+                        tooltip={
+                          t === 'feishu'
+                            ? '开启签名校验后，飞书会在 JSON body 里追加 timestamp + sign 字段'
+                            : '设置后，webhook 请求会带上 X-Webhook-Timestamp 与 X-Webhook-Signature 头；不填则沿用后端 WEBHOOK_SECRET 全局配置'
+                        }
                       >
-                        <Input.Password placeholder="SEC..." />
+                        <Input.Password
+                          placeholder={t === 'feishu' ? 'SEC...' : 'shared-secret'}
+                        />
                       </Form.Item>
                     )}
                   </>
