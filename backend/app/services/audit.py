@@ -68,10 +68,18 @@ ACTION_DATA_SOURCE_UPDATE = "data_source.update"
 ACTION_DATA_SOURCE_DELETE = "data_source.delete"
 ACTION_DATA_SOURCE_GRANT = "data_source.grant"
 ACTION_DATA_SOURCE_REVOKE = "data_source.revoke"
+# 批 10.3: clone a DataSource — ``before`` is the source row,
+# ``after`` is the new row (different id / owner). Reuses
+# ``TARGET_TYPE_DATA_SOURCE``; the action disambiguates.
+ACTION_DATA_SOURCE_CLONE = "data_source.clone"
 
 ACTION_REPORT_CREATE = "report.create"
 ACTION_REPORT_UPDATE = "report.update"
 ACTION_REPORT_DELETE = "report.delete"
+# 批 10.3: duplicate a Report — copies items + parameters, resets
+# scheduler fields, drops shares. ``before`` = source report,
+# ``after`` = new report.
+ACTION_REPORT_DUPLICATE = "report.duplicate"
 ACTION_REPORT_ITEM_CREATE = "report.item.create"
 ACTION_REPORT_ITEM_UPDATE = "report.item.update"
 ACTION_REPORT_ITEM_DELETE = "report.item.delete"

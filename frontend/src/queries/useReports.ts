@@ -112,6 +112,20 @@ export function useDeleteReport() {
   });
 }
 
+/** Duplicate (batch 10.3) — returns the new Report so the caller can
+ *  navigate straight into the editor. Invalidates the list cache so
+ *  the new row appears on the next render. */
+export function useDuplicateReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: number; name?: string }) =>
+      reportApi.duplicate(id, name),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.reports.all });
+    },
+  });
+}
+
 /**
  * Optimistic `useUpdateReport` — replaces the hand-rolled
  * snapshot/rollback in `ReportEditor.tsx:485-505`.

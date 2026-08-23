@@ -19,6 +19,8 @@ explicit grant.
 
 from __future__ import annotations
 
+import copy
+
 from sqlalchemy.orm import Session
 
 from app.models.data_source_access import DataSourceAccess  # noqa: F401  # noqa
@@ -27,8 +29,10 @@ from app.models.report import (
     VISIBILITY_PRIVATE,
     VISIBILITY_PUBLIC,
     Report,
+    ReportItem,
 )
 from app.models.report_access import ReportAccess
+from app.models.report_parameter import ReportParameter
 from app.models.user import User
 from app.services.data_source import (
     PERMISSION_READ,
@@ -260,3 +264,148 @@ def can_share_report(db: Session, user: User, report: Report) -> bool:
     assert user.id is not None
     grant = _grant_for(db, report.id, user.id)
     return grant is not None and grant.permission == PERMISSION_WRITE
+
+
+# ---- Duplicate (批 10.3) ----
+
+# Scalar fields on ``Report`` that are intentionally NOT copied when
+# duplicating. Everything else (description / layout_config /
+# output_formats) is fair game. JSON-shaped fields are deep-copied so
+# mutations on the original don't bleed into the clone.
+_EXCLUDE_REPORT_FIELDS = frozenset(
+    {
+        "id",
+        "name",  # caller resolves (or we generate a "(副本)" suffix)
+        "owner_user_id",  # the duplicator becomes the new owner
+        "visibility",  # resets to private — see below
+        "is_demo",  # clones are never demo scaffolding
+        "is_scheduled",  # user explicitly opts back in if they want
+        "cron_expression",
+        "schedule_description",
+        "notification_config",  # may reference external webhook URLs
+        "created_at",
+        "updated_at",
+    }
+)
+
+
+def _next_duplicate_name(db: Session, base: str) -> str:
+    """Pick a unique duplicate name with ``(副本)`` / ``(副本 2)`` /
+    ``(副本 3)`` suffix progression. Same pattern as
+    ``data_source._next_clone_name`` — kept separate so each side
+    scopes its collision check to its own table (DataSource.name and
+    Report.name are both UNIQUE but in different tables).
+    """
+    candidate = f"{base} (副本)"
+    n = 1
+    while n <= 1000:
+        exists = db.query(Report.id).filter(Report.name == candidate).first()
+        if not exists:
+            return candidate
+        n += 1
+        candidate = f"{base} (副本 {n})"
+    raise RuntimeError(
+        f"could not find a free duplicate name after 1000 attempts for base {base!r}"
+    )
+
+
+def duplicate_report(
+    db: Session,
+    report_id: int,
+    user: User,
+    *,
+    new_name: str | None = None,
+) -> tuple[Report, Report]:
+    """Duplicate ``report_id`` into a new Report owned by ``user``.
+
+    Read ACL is sufficient (mirroring ``clone_data_source``). The new
+    row is created private + unscheduled + without notification
+    config; the caller can opt-in via the regular update endpoint.
+    Items + parameters are deep-copied (JSON columns included) so
+    later edits to either side stay independent.
+
+    Returns ``(original, duplicate)`` for the audit log.
+    Raises ``LookupError`` if the source is missing / inaccessible
+    (uniform 404). Raises ``ValueError`` on name collision.
+    """
+    original = get_report_for_user(db, report_id, user)
+    if original is None:
+        raise LookupError(f"Report {report_id} not found or inaccessible")
+
+    # ``name`` is NOT NULL in the schema so the narrowing is safe.
+    assert original.name is not None
+    chosen = new_name if new_name else _next_duplicate_name(db, original.name)
+    if chosen == original.name:
+        raise ValueError("duplicate name must differ from the source name")
+    collision = db.query(Report.id).filter(Report.name == chosen).first()
+    if collision:
+        raise ValueError(f"Report named {chosen!r} already exists")
+
+    clone = Report(
+        **{
+            col: getattr(original, col)
+            for col in [c.key for c in Report.__table__.columns]
+            if col not in _EXCLUDE_REPORT_FIELDS
+        },
+        name=chosen,
+        owner_user_id=user.id,
+        visibility=VISIBILITY_PRIVATE,
+        is_demo=False,
+        is_scheduled=False,
+        cron_expression=None,
+        schedule_description=None,
+        notification_config=None,
+    )
+    db.add(clone)
+    db.flush()  # populate clone.id so item / parameter FKs can resolve
+
+    # Deep-copy items. ``copy.deepcopy`` handles the JSON columns
+    # (fields, where_conditions, group_by, order_by, display_config)
+    # so post-duplicate edits don't bleed across. List-typed JSON
+    # columns are normalised to ``[]`` instead of ``None`` — the
+    # Pydantic response schema rejects ``None`` for these fields
+    # (they have ``default_factory=list``), and SQLite stores ``[]``
+    # and ``None`` interchangeably for our purposes.
+    for src_item in original.items:
+        db.add(
+            ReportItem(
+                report_id=clone.id,
+                name=src_item.name,
+                item_type=src_item.item_type,
+                order_index=src_item.order_index,
+                table_name=src_item.table_name,
+                fields=copy.deepcopy(src_item.fields) or [],
+                where_conditions=copy.deepcopy(src_item.where_conditions) or [],
+                group_by=copy.deepcopy(src_item.group_by) or [],
+                order_by=copy.deepcopy(src_item.order_by) or [],
+                limit=src_item.limit,
+                display_config=copy.deepcopy(src_item.display_config)
+                if src_item.display_config is not None
+                else None,
+                custom_sql=src_item.custom_sql,
+            )
+        )
+
+    # Deep-copy parameters. ``default`` / ``options`` are JSON; rest
+    # are scalars. ``default`` is nullable by design (an unset
+    # optional param), ``options`` is only present on ``enum``.
+    for src_param in original.parameters:
+        db.add(
+            ReportParameter(
+                report_id=clone.id,
+                name=src_param.name,
+                label=src_param.label,
+                type=src_param.type,
+                required=src_param.required,
+                default=copy.deepcopy(src_param.default)
+                if src_param.default is not None
+                else None,
+                options=copy.deepcopy(src_param.options)
+                if src_param.options is not None
+                else None,
+                order_index=src_param.order_index,
+            )
+        )
+
+    db.flush()
+    return original, clone

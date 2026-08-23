@@ -221,6 +221,105 @@ def can_share(db: Session, user: User, ds: DataSource) -> bool:
     return perm is not None and perm[0] == PERMISSION_WRITE
 
 
+# ---- Clone (批 10.3) ----
+
+# Fields that are intentionally NOT copied when cloning a DataSource.
+# Everything else on the row is fair game (host/port/db/user/password
+# encrypted with the same Fernet key, so the ciphertext round-trips).
+_EXCLUDE_ON_CLONE = frozenset(
+    {
+        "id",
+        "name",  # caller resolves (or we generate a "(副本)" suffix)
+        "owner_user_id",  # the cloner becomes the new owner
+        "created_at",
+        "updated_at",
+    }
+)
+
+
+def _next_clone_name(db: Session, base: str) -> str:
+    """Generate a unique clone name by appending ``(副本)`` /
+    ``(副本 2)`` / ``(副本 3)`` … until no existing DataSource matches.
+
+    Tries the suffixes in numeric order so the user sees a stable
+    progression if they clone the same source multiple times. Stops
+    at 1000 iterations as a safety net against pathological cases.
+    """
+    candidate = f"{base} (副本)"
+    n = 1
+    while n <= 1000:
+        exists = (
+            db.query(DataSource.id).filter(DataSource.name == candidate).first()
+        )
+        if not exists:
+            return candidate
+        n += 1
+        candidate = f"{base} (副本 {n})"
+    raise RuntimeError(
+        f"could not find a free clone name after 1000 attempts for base {base!r}"
+    )
+
+
+def clone_data_source(
+    db: Session,
+    source_id: int,
+    user: User,
+    *,
+    new_name: str | None = None,
+) -> tuple[DataSource, DataSource]:
+    """Clone ``source_id`` into a new DataSource owned by ``user``.
+
+    Read ACL is sufficient — anyone who can list the source can clone
+    its connection details. The new row's ``owner_user_id`` is the
+    cloner, so ACL is reset (the original owner loses visibility if
+    the clone target is private to them, which matches user
+    expectation when they "copy it to my workspace").
+
+    Returns ``(original, clone)`` so the caller can audit both rows.
+    Raises ``LookupError`` if the source doesn't exist or the caller
+    can't read it (uniform 404 — caller doesn't know which case).
+    Raises ``ValueError`` if ``new_name`` collides with an existing
+    DataSource name (caller's contract — they picked it).
+    """
+    original = get_data_source_for_user(db, source_id, user)
+    if original is None:
+        raise LookupError(f"DataSource {source_id} not found or inaccessible")
+
+    # Resolve name. If caller passed one, validate it's free; otherwise
+    # auto-generate with the "(副本)" suffix progression. ``name`` is
+    # NOT NULL in the schema so the ``str | None`` narrowing is safe.
+    assert original.name is not None
+    chosen = new_name if new_name else _next_clone_name(db, original.name)
+    if chosen == original.name:
+        raise ValueError("clone name must differ from the source name")
+    collision = (
+        db.query(DataSource.id).filter(DataSource.name == chosen).first()
+    )
+    if collision:
+        raise ValueError(f"Data source named {chosen!r} already exists")
+
+    clone = DataSource(
+        **{
+            col: getattr(original, col)
+            for col in _column_names(DataSource)
+            if col not in _EXCLUDE_ON_CLONE
+        },
+        name=chosen,
+        owner_user_id=user.id,
+    )
+    db.add(clone)
+    db.flush()  # populate clone.id so the audit ``after`` row resolves
+    return original, clone
+
+
+def _column_names(model: type[DataSource]) -> list[str]:
+    """Return all column attribute names on a SQLAlchemy declarative
+    class. Used by ``clone_data_source`` to iterate every field
+    without hard-coding the schema in two places.
+    """
+    return [c.key for c in model.__table__.columns]
+
+
 __all__ = [
     "ALL_PERMISSIONS",
     "PERMISSION_READ",

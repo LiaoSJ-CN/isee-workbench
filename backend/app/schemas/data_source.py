@@ -70,6 +70,23 @@ class DataSourceResponse(DataSourceBase):
 
 
 # ---------------------------------------------------------------------------
+# Clone (批 10.3)
+# ---------------------------------------------------------------------------
+
+
+class DataSourceCloneRequest(BaseModel):
+    """Payload for ``POST /data-sources/{id}/clone``.
+
+    ``name`` is optional. If omitted, the server picks
+    ``<original_name> (副本)`` with a numeric suffix on collision.
+    If supplied, it must be unique against the existing DataSource
+    table (else 409).
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+# ---------------------------------------------------------------------------
 # Grants (批 9.3)
 # ---------------------------------------------------------------------------
 

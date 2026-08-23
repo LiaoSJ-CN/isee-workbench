@@ -14,6 +14,7 @@ from app.models.data_source import DataSource
 from app.models.data_source_access import DataSourceAccess
 from app.models.user import User
 from app.schemas.data_source import (
+    DataSourceCloneRequest,
     DataSourceCreate,
     DataSourceResponse,
     DataSourceSchemaResponse,
@@ -26,6 +27,7 @@ from app.services.connection import ConnectionError, test_connection
 from app.services.data_source import (
     PERMISSION_WRITE,
     can_share,
+    clone_data_source,
     get_data_source_for_user,
     is_admin,
     is_owner,
@@ -120,6 +122,58 @@ def create_data_source(
         user_agent=request.headers.get("user-agent", ""),
     )
     return source
+
+
+@router.post(
+    "/{source_id}/clone",
+    response_model=DataSourceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def clone_data_source_endpoint(
+    source_id: int,
+    request: Request,
+    payload: DataSourceCloneRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DataSource:
+    """Duplicate a DataSource — read ACL is sufficient.
+
+    Copies connection details (host/port/db/user/password ciphertext
+    round-trips under the same Fernet key). The clone's owner is the
+    caller, so original ACL does not transfer. Grants / refresh on
+    the original row are left untouched.
+
+    Body is optional. If the caller passes a name that collides
+    with an existing row, the endpoint returns 409.
+    """
+    body = payload or DataSourceCloneRequest()
+    try:
+        original, clone = clone_data_source(
+            db, source_id, user, new_name=body.name
+        )
+    except LookupError:
+        raise _not_found()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(e)
+        )
+    db.commit()
+    db.refresh(clone)
+    # 批 9.5: audit the clone. ``before`` = original (with password
+    # redacted by _snapshot), ``after`` = clone.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_DATA_SOURCE_CLONE,
+        target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+        target_id=cast(int, clone.id),
+        before=original,
+        after=clone,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    db.commit()
+    return clone
 
 
 @router.get("/{source_id}", response_model=DataSourceResponse)

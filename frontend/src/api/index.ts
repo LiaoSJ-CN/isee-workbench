@@ -149,6 +149,11 @@ export const dataSourceApi = {
     await api.delete(`/data-sources/${id}`);
   },
 
+  clone: async (id: number, name?: string): Promise<DataSource> => {
+    const { data } = await api.post(`/data-sources/${id}/clone`, name ? { name } : {});
+    return data;
+  },
+
   test: async (id: number): Promise<{ success: boolean; version: string }> => {
     const { data } = await api.post(`/data-sources/${id}/test`);
     return data;
@@ -288,6 +293,15 @@ export const reportApi = {
 
   delete: async (id: number): Promise<void> => {
     await api.delete(`/reports/${id}`);
+  },
+
+  /** Duplicate a report (batch 10.3). Returns the new report detail
+   *  including items — the caller usually wants to navigate straight
+   *  into the editor for the new copy. ``name`` is optional; the
+   *  backend picks ``<original> (副本)`` when omitted. */
+  duplicate: async (id: number, name?: string): Promise<Report> => {
+    const { data } = await api.post(`/reports/${id}/duplicate`, name ? { name } : {});
+    return data;
   },
 
   // ---- ACL / shares (批 9.4) ----

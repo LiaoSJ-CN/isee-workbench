@@ -325,6 +325,21 @@ class ScheduleTaskCreate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Duplicate (批 10.3)
+# ---------------------------------------------------------------------------
+
+
+class ReportDuplicateRequest(BaseModel):
+    """Payload for ``POST /reports/{id}/duplicate``.
+
+    ``name`` is optional. If omitted, the server picks
+    ``<original_name> (副本)`` with a numeric suffix on collision.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+# ---------------------------------------------------------------------------
 # Report shares (批 9.4)
 # ---------------------------------------------------------------------------
 

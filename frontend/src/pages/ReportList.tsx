@@ -12,6 +12,7 @@ import {
   CloseCircleOutlined,
   ShareAltOutlined,
   BellOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
@@ -22,6 +23,7 @@ import {
   useCreateReport,
   useDeleteReport,
   useDeleteReportShare,
+  useDuplicateReport,
   useReportShares,
   useReports,
   useUpsertReportShare,
@@ -38,6 +40,7 @@ export default function ReportList() {
   const { data: dataSources = [] } = useDataSources();
   const createReport = useCreateReport();
   const deleteReport = useDeleteReport();
+  const duplicateReport = useDuplicateReport();
 
   // ---- 批 9.4: share modal state ----
   // Owner-or-admin gate. The backend enforces the same; we just
@@ -155,6 +158,16 @@ export default function ReportList() {
       onSuccess: () => message.success('删除成功'),
       onError: (err) => message.error(formatError(err, '删除失败')),
     });
+  };
+
+  const handleDuplicate = (report: Report) => {
+    duplicateReport.mutate(
+      { id: report.id },
+      {
+        onSuccess: (clone) => navigate(`/reports/${clone.id}/edit`),
+        onError: (err) => message.error(formatError(err, '复制失败')),
+      },
+    );
   };
 
   const handleGenerateExcel = async (report: Report) => {
@@ -342,6 +355,15 @@ export default function ReportList() {
                 分享
               </Button>
             )}
+            <Button
+              type="link"
+              size="small"
+              icon={<CopyOutlined />}
+              loading={duplicateReport.isPending && duplicateReport.variables?.id === record.id}
+              onClick={() => handleDuplicate(record)}
+            >
+              复制
+            </Button>
             <Button
               type="link"
               size="small"

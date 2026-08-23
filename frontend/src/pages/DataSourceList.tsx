@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined, ShareAltOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined, ShareAltOutlined, CopyOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, DataSourceCreate } from '../types';
 import { formatError } from '../utils/error';
 import { useMe } from '../queries/useAuth';
 import {
+  useCloneDataSource,
   useCreateDataSource,
   useDataSourceAcl,
   useDataSources,
@@ -26,6 +27,7 @@ export default function DataSourceList() {
   const updateDs = useUpdateDataSource();
   const deleteDs = useDeleteDataSource();
   const testDs = useTestDataSource();
+  const cloneDs = useCloneDataSource();
 
   // ACL (批 9.3)
   const me = useMe();
@@ -134,6 +136,16 @@ export default function DataSourceList() {
     });
   };
 
+  const handleClone = (id: number) => {
+    cloneDs.mutate(
+      { id },
+      {
+        onSuccess: (clone) => message.success(`已复制为「${clone.name}」`),
+        onError: (err) => message.error(formatError(err, '复制失败')),
+      },
+    );
+  };
+
   const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
     setPagination({
       current: pag.current || 1,
@@ -181,6 +193,15 @@ export default function DataSourceList() {
             </Button>
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
               编辑
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<CopyOutlined />}
+              loading={cloneDs.isPending && cloneDs.variables?.id === record.id}
+              onClick={() => handleClone(record.id)}
+            >
+              复制
             </Button>
             {canShare && (
               <Button

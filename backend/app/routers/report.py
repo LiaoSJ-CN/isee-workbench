@@ -21,6 +21,7 @@ from app.models.user import User
 from app.schemas.report import (
     ReportCreate,
     ReportDetailResponse,
+    ReportDuplicateRequest,
     ReportGenerateRequest,
     ReportGenerateResponse,
     ReportItemCreate,
@@ -45,6 +46,7 @@ from app.services.parameter_validator import ParameterValidationError, validate_
 from app.services.report import (
     PERMISSION_WRITE,
     can_share_report,
+    duplicate_report,
     get_report_for_user,
     is_owner,
     list_accessible_reports,
@@ -383,6 +385,58 @@ def get_report(
     if report is None:
         raise _report_not_found()
     return report
+
+
+@router.post(
+    "/{report_id}/duplicate",
+    response_model=ReportDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def duplicate_report_endpoint(
+    report_id: int,
+    request: Request,
+    payload: ReportDuplicateRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Report:
+    """Duplicate a Report — copies items + parameters, resets scheduler.
+
+    Read ACL is sufficient. The duplicate is owned by the caller
+    (not the original owner), defaults to private visibility, and
+    starts unscheduled with no notification config. Shares on the
+    original are NOT transferred — the duplicate is a fresh
+    workspace-owned report. Items / parameters / display_config /
+    SQL are deep-copied so post-duplicate edits stay independent.
+    """
+    body = payload or ReportDuplicateRequest()
+    try:
+        original, clone = duplicate_report(
+            db, report_id, user, new_name=body.name
+        )
+    except LookupError:
+        raise _report_not_found()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(e)
+        )
+    db.commit()
+    db.refresh(clone)
+    # 批 9.5: audit the duplicate. ``before`` = original (a fresh
+    # snapshot is required because the session may have already
+    # mutated related rows during the duplicate); ``after`` = clone.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_DUPLICATE,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=cast(int, clone.id),
+        before=original,
+        after=clone,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    db.commit()
+    return clone
 
 
 @router.put("/{report_id}", response_model=ReportDetailResponse)

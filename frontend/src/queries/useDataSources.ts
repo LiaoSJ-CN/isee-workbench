@@ -120,6 +120,20 @@ export function useTestDataSource() {
   });
 }
 
+/** Clone (batch 10.3) — returns the new DataSource so it can be
+ *  navigated into. Invalidates the list query so the new row shows
+ *  up immediately. */
+export function useCloneDataSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: number; name?: string }) =>
+      dataSourceApi.clone(id, name),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.dataSources.all });
+    },
+  });
+}
+
 /** Convenience: returns the data-source list synchronously if already cached. */
 export function useCachedDataSources(): DataSource[] | undefined {
   const qc = useQueryClient();
