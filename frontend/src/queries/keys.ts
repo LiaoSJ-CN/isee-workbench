@@ -66,4 +66,11 @@ export const queryKeys = {
     list: (reportId: number) =>
       [...queryKeys.parameters.all, 'list', reportId] as const,
   },
+  // Audit log (批 9.6) — admin-only. Filters go into the key so
+  // different filter combos don't share a cache entry.
+  auditLog: {
+    all: ['audit-log'] as const,
+    list: (filters?: { actor_user_id?: number; action?: string; target_type?: string; target_id?: number; since?: string; until?: string; limit?: number; offset?: number }) =>
+      [...queryKeys.auditLog.all, 'list', filters ?? {}] as const,
+  },
 } as const;

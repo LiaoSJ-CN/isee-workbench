@@ -1,5 +1,7 @@
 import axios from 'axios';
 import type {
+  AuditLogFilters,
+  AuditLogListResponse,
   CurrentUser,
   DataSource,
   DataSourceCreate,
@@ -509,5 +511,26 @@ export const parametersApi = {
 
   delete: async (reportId: number, paramId: number): Promise<void> => {
     await api.delete(`/reports/${reportId}/parameters/${paramId}`);
+  },
+};
+
+// ============ Audit log (批 9.5 / 9.6) ============
+// Admin-only reader. The backend route is gated by `admin_required`,
+// so a 403 here means the current user is not an admin. We do NOT
+// set `retry: false` here — a transient 5xx is worth retrying once
+// before we show an error.
+export const auditLogApi = {
+  list: async (filters?: AuditLogFilters): Promise<AuditLogListResponse> => {
+    // Strip undefined keys so axios doesn't serialise them as
+    // `?undefined=...`. Backend treats missing fields as
+    // "no filter on this dimension" (Query(default=None)).
+    const params: Record<string, unknown> = {};
+    if (filters) {
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null) params[key] = value;
+      }
+    }
+    const { data } = await api.get('/audit-logs', { params });
+    return data;
   },
 };

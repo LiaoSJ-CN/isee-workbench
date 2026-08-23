@@ -393,3 +393,49 @@ export interface QueryResult {
   row_count: number;
   error?: string;
 }
+
+// ---- Audit log (批 9.5 / 9.6) ----
+// Mirrors `AuditLogResponse` in backend/app/schemas/audit.py. The
+// fields are nullable because `actor_user_id` / `target_id` go NULL
+// when the original user / row is deleted, and `before` / `after`
+// are absent on create-only events. The `before`/`after` shapes
+// are deliberately typed as `Record<string, unknown> | null` — their
+// concrete shape depends on `target_type`, which we don't try to
+// model on the TS side.
+export interface AuditLog {
+  id: number;
+  actor_user_id: number | null;
+  action: string;
+  target_type: string;
+  target_id: number | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  request_id: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  items: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Query params for `GET /audit-logs`. All fields are optional; the
+ *  backend treats null/missing as "no filter on this dimension". The
+ *  page component owns the filter form state and passes it straight
+ *  through to the API client. */
+export interface AuditLogFilters {
+  actor_user_id?: number;
+  action?: string;
+  target_type?: string;
+  target_id?: number;
+  /** ISO datetime inclusive lower bound on `created_at`. */
+  since?: string;
+  /** ISO datetime inclusive upper bound on `created_at`. */
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
