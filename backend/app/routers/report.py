@@ -36,6 +36,7 @@ from app.schemas.report_parameter import (
     ReportParameterResponse,
     ReportParameterUpdate,
 )
+from app.services import audit as audit_service
 from app.services.data_source import (
     get_data_source_for_user,
     is_admin,
@@ -94,6 +95,7 @@ _generate_report_limiter = RateLimiter(
 def create_report_item(
     report_id: int,
     payload: ReportItemCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportItem:
@@ -110,6 +112,19 @@ def create_report_item(
     db.add(item)
     db.commit()
     db.refresh(item)
+    # 批 9.5: audit successful create. target_type=report_item so the
+    # admin UI can filter "show every item event" by target_type.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_ITEM_CREATE,
+        target_type=audit_service.TARGET_TYPE_REPORT_ITEM,
+        target_id=cast(int, item.id),
+        before=None,
+        after=item,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return item
 
 
@@ -118,6 +133,7 @@ def update_report_item(
     report_id: int,
     item_id: int,
     payload: ReportItemUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportItem:
@@ -132,12 +148,25 @@ def update_report_item(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report item not found")
 
+    before_snapshot = audit_service._snapshot(item)
+
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(item, field, value)
 
     db.commit()
     db.refresh(item)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_ITEM_UPDATE,
+        target_type=audit_service.TARGET_TYPE_REPORT_ITEM,
+        target_id=cast(int, item.id),
+        before=before_snapshot,
+        after=item,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return item
 
 
@@ -145,6 +174,7 @@ def update_report_item(
 def delete_report_item(
     report_id: int,
     item_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -159,8 +189,20 @@ def delete_report_item(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report item not found")
 
+    before_snapshot = audit_service._snapshot(item)
     db.delete(item)
     db.commit()
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_ITEM_DELETE,
+        target_type=audit_service.TARGET_TYPE_REPORT_ITEM,
+        target_id=item_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
 
 
@@ -168,6 +210,7 @@ def delete_report_item(
 def reorder_report_items(
     report_id: int,
     payload: ReportItemReorderRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, int]:
@@ -204,10 +247,32 @@ def reorder_report_items(
             detail="All item_ids must belong to this report",
         )
 
+    # 批 9.5: snapshot the report-level reorder state (item_ids +
+    # new order_index) so the audit row captures the full reordering,
+    # not per-row changes. ``target_type`` is the report (not item)
+    # because the resource being acted on is the report's order.
+    before_order = sorted(
+        (cast(int, row.id), cast(int, row.order_index)) for row in rows
+    )
+
     index_by_id = {e.item_id: e.order_index for e in payload.items}
     for row in rows:
         row.order_index = index_by_id[cast(int, row.id)]
     db.commit()
+    after_order = sorted(
+        (cast(int, row.id), cast(int, row.order_index)) for row in rows
+    )
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_ITEM_REORDER,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=report_id,
+        before={"order": before_order},
+        after={"order": after_order},
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return {"updated": len(rows)}
 
 
@@ -244,6 +309,7 @@ def list_reports(
 @router.post("", response_model=ReportDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_report(
     payload: ReportCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Report:
@@ -289,6 +355,20 @@ def create_report(
 
     db.commit()
     db.refresh(report)
+    # 批 9.5: audit successful create. ``before`` is None (no pre-image).
+    # Snapshot includes nested items because ``refresh`` populates the
+    # relationship collection.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_CREATE,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=cast(int, report.id),
+        before=None,
+        after=report,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return report
 
 
@@ -309,6 +389,7 @@ def get_report(
 def update_report(
     report_id: int,
     payload: ReportUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Report:
@@ -319,6 +400,11 @@ def update_report(
         # uniform with the rest of the surface so an attacker can't
         # probe for read-only rows they could otherwise PUT against.
         raise _report_not_found()
+
+    # 批 9.5: snapshot before mutation so the audit row carries a
+    # before/after diff. ``get_report_for_user`` already returned the
+    # ORM row — capture it now before setattr.
+    before_snapshot = audit_service._snapshot(report)
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -336,12 +422,24 @@ def update_report(
 
     db.commit()
     db.refresh(report)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_UPDATE,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=cast(int, report.id),
+        before=before_snapshot,
+        after=report,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return report
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_report(
     report_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -351,8 +449,23 @@ def delete_report(
     if report is None or not (is_admin(user) or is_owner(user, report)):
         raise _report_not_found()
 
+    # 批 9.5: capture the report row before delete so we know what
+    # was removed (and which items / params / shares / subscriptions
+    # were cascade-deleted along with it).
+    before_snapshot = audit_service._snapshot(report)
     db.delete(report)
     db.commit()
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_DELETE,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=report_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
 
 
@@ -416,6 +529,27 @@ def generate_report_endpoint(
         # result may include an `errors` dict; pull it out so it goes into
         # the typed `item_errors` field rather than as an arbitrary kwarg.
         item_errors = result.pop("errors", {})
+        # 批 9.5: audit successful generate. ``after`` is hand-built
+        # rather than the ORM row because the generated file is a side
+        # effect outside the DB; we just want the parameters + result
+        # envelope. ``item_errors`` captures partial failures (some
+        # items rendered, others did not).
+        audit_service.log(
+            db,
+            actor_user_id=cast(int, user.id),
+            action=audit_service.ACTION_REPORT_GENERATE,
+            target_type=audit_service.TARGET_TYPE_REPORT,
+            target_id=cast(int, report.id),
+            before=None,
+            after={
+                "report_id": cast(int, report.id),
+                "output_format": payload.output_format,
+                "success": True,
+                "item_errors": item_errors,
+            },
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
         return ReportGenerateResponse(
             success=True,
             report_id=cast(int, report.id),
@@ -425,6 +559,25 @@ def generate_report_endpoint(
             **result,
         )
     except ReportGeneratorError as exc:
+        # 批 9.5: audit generation failures too — even when the report
+        # didn't render, the attempt itself is auditable ("who probed
+        # report X with format Y at time T"). Re-raise after logging.
+        audit_service.log(
+            db,
+            actor_user_id=cast(int, user.id),
+            action=audit_service.ACTION_REPORT_GENERATE,
+            target_type=audit_service.TARGET_TYPE_REPORT,
+            target_id=cast(int, report.id),
+            before=None,
+            after={
+                "report_id": cast(int, report.id),
+                "output_format": payload.output_format,
+                "success": False,
+                "error": str(exc),
+            },
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -526,6 +679,7 @@ def export_report(
 def create_report_parameter(
     report_id: int,
     payload: ReportParameterCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportParameter:
@@ -559,6 +713,20 @@ def create_report_parameter(
             detail=f"Parameter {data['name']!r} already exists for this report",
         ) from exc
     db.refresh(param)
+    # 批 9.5: audit successful parameter create. ``before`` is None
+    # (no pre-image). ``target_type`` is the param (not report) so the
+    # admin UI can filter "show every parameter event" by target_type.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_PARAM_CREATE,
+        target_type=audit_service.TARGET_TYPE_REPORT_PARAM,
+        target_id=cast(int, param.id),
+        before=None,
+        after=param,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return param
 
 
@@ -596,6 +764,7 @@ def update_report_parameter(
     report_id: int,
     param_id: int,
     payload: ReportParameterUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportParameter:
@@ -618,6 +787,11 @@ def update_report_parameter(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report parameter not found"
         )
 
+    # 批 9.5: snapshot before mutation so the audit row carries a
+    # before/after diff. Important here because the param ``type``
+    # change is a SQL-impacting diff (string vs number vs date).
+    before_snapshot = audit_service._snapshot(param)
+
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(param, field, value)
@@ -631,6 +805,17 @@ def update_report_parameter(
             detail="Parameter name conflicts with an existing parameter on this report",
         ) from exc
     db.refresh(param)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_PARAM_UPDATE,
+        target_type=audit_service.TARGET_TYPE_REPORT_PARAM,
+        target_id=cast(int, param.id),
+        before=before_snapshot,
+        after=param,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return param
 
 
@@ -641,6 +826,7 @@ def update_report_parameter(
 def delete_report_parameter(
     report_id: int,
     param_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -662,8 +848,20 @@ def delete_report_parameter(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report parameter not found"
         )
 
+    before_snapshot = audit_service._snapshot(param)
     db.delete(param)
     db.commit()
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_PARAM_DELETE,
+        target_type=audit_service.TARGET_TYPE_REPORT_PARAM,
+        target_id=param_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
 
 
@@ -680,6 +878,7 @@ def delete_report_parameter(
 def create_share_endpoint(
     report_id: int,
     payload: ReportShareCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportAccess:
@@ -706,6 +905,21 @@ def create_share_endpoint(
         target_user_id=payload.user_id,
         permission=payload.permission,
         granted_by=cast(int, user.id),
+    )
+    # 批 9.5: target_type=report_share so the admin UI can filter
+    # "show every share event" by target_type. ``before`` is None
+    # because upsert either created a fresh row or refreshed an
+    # existing one (the service doesn't return the previous permission).
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_SHARE,
+        target_type=audit_service.TARGET_TYPE_REPORT_SHARE,
+        target_id=cast(int, share.id),
+        before=None,
+        after=share,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
     )
     return share
 
@@ -734,6 +948,7 @@ def list_shares_endpoint(
 )
 def revoke_share_endpoint(
     share_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -752,5 +967,19 @@ def revoke_share_endpoint(
     report = get_report_for_user(db, share.report_id, user)
     if report is None or not (is_admin(user) or is_owner(user, report)):
         raise _report_not_found()
+    # 批 9.5: capture the share row before revoke so the audit trail
+    # shows who lost access and at which permission level.
+    before_snapshot = audit_service._snapshot(share)
     revoke_share(db, share)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_REVOKE,
+        target_type=audit_service.TARGET_TYPE_REPORT_SHARE,
+        target_id=share_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
