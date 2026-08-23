@@ -17,6 +17,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.middleware.rate_limit import RateLimiter
 from app.models.user import User
+from app.services import audit as audit_service
 from app.services.connection import ConnectionError
 from app.services.data_source import get_data_source_for_user
 from app.services.report_generator import _get_or_create_engine
@@ -104,6 +105,27 @@ def execute_query(
     try:
         validate_select_only(payload.sql)
     except UnsafeSQLError as exc:
+        # 批 9.5: audit unsafe-SQL attempts. The validator rejected
+        # the query — the attempt itself is auditable ("who probed
+        # the validator with what"). ``sql`` is captured so we can
+        # see which statements were blocked.
+        audit_service.log(
+            db,
+            actor_user_id=cast(int, user.id),
+            action=audit_service.ACTION_EXPLORER_QUERY,
+            target_type=audit_service.TARGET_TYPE_EXPLORER_QUERY,
+            target_id=None,
+            before=None,
+            after={
+                "data_source_id": payload.data_source_id,
+                "sql": payload.sql,
+                "row_count": 0,
+                "success": False,
+                "error": str(exc),
+            },
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
         return QueryResponse(
             success=False,
             columns=[],
@@ -158,6 +180,28 @@ def execute_query(
                     cleaned_row[k] = v
             cleaned_rows.append(cleaned_row)
 
+        # 批 9.5: audit successful explorer query. ``after`` is
+        # hand-built — the row content itself is too large to dump
+        # (the whole point of the row cap above is to keep results
+        # bounded), but ``sql`` + ``row_count`` are what an admin
+        # needs for the audit ("who ran which SQL on which DS, and
+        # how many rows came back").
+        audit_service.log(
+            db,
+            actor_user_id=cast(int, user.id),
+            action=audit_service.ACTION_EXPLORER_QUERY,
+            target_type=audit_service.TARGET_TYPE_EXPLORER_QUERY,
+            target_id=None,
+            before=None,
+            after={
+                "data_source_id": payload.data_source_id,
+                "sql": payload.sql,
+                "row_count": row_count,
+                "success": True,
+            },
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
         return QueryResponse(
             success=True,
             columns=columns,
@@ -166,6 +210,25 @@ def execute_query(
         )
 
     except ConnectionError as exc:
+        # 批 9.5: audit connection failures so an operator can see
+        # whether DS downtime correlates with specific queries.
+        audit_service.log(
+            db,
+            actor_user_id=cast(int, user.id),
+            action=audit_service.ACTION_EXPLORER_QUERY,
+            target_type=audit_service.TARGET_TYPE_EXPLORER_QUERY,
+            target_id=None,
+            before=None,
+            after={
+                "data_source_id": payload.data_source_id,
+                "sql": payload.sql,
+                "row_count": 0,
+                "success": False,
+                "error": str(exc),
+            },
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
         return QueryResponse(
             success=False,
             columns=[],
@@ -174,9 +237,28 @@ def execute_query(
             error=f"Connection error: {exc}",
         )
     except Exception:
+        # 批 9.5: audit unexpected failures too. ``sql`` lets the
+        # operator reproduce the trace after the fact.
         logger.exception(
             "Unexpected error during query execution for data source %s",
             payload.data_source_id,
+        )
+        audit_service.log(
+            db,
+            actor_user_id=cast(int, user.id),
+            action=audit_service.ACTION_EXPLORER_QUERY,
+            target_type=audit_service.TARGET_TYPE_EXPLORER_QUERY,
+            target_id=None,
+            before=None,
+            after={
+                "data_source_id": payload.data_source_id,
+                "sql": payload.sql,
+                "row_count": 0,
+                "success": False,
+                "error": "unexpected_error",
+            },
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
         )
         return QueryResponse(
             success=False,
