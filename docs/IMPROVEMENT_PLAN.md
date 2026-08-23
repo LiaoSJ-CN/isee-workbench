@@ -892,6 +892,33 @@ npx playwright test                     # smoke 全过
 | P1-2 | PostgreSQL / OpenGauss 真实验证 | 当前 alembic migration 只在 SQLite 上跑过；生产目标 PG / OpenGauss 的 FK / DDL 差异、autogenerate 偏差没 e2e 覆盖。CI 加 `postgres:16` profile 跑 `alembic upgrade head` + pytest。| ~4 hr |
 | P1-3 | cm-vendor 体积优化 | CodeMirror 344 KB / 113 KB gzip 是 DataExplorer 进路由才加载但首屏过半。(a) 只 import 用到的 extension (`@codemirror/lang-sql` 按需)；(b) 评估换 Monaco / Ace。| ~半天 |
 
+### P1-3 ✅：cm-vendor lazy-load — 2026-08-24 — `ffc770c`
+
+**问题**：批 10 把 `@codemirror/*` 切成 `cm-vendor` chunk（344.13 KB raw / 112.63 KB gzip），但整块都进 `/explorer` 才加载，首次打开 DataExplorer 时 SQL parser (`@codemirror/lang-sql` + `@codemirror/autocomplete`，~180 KB raw / 60 KB gzip) 就阻塞编辑器 shell 渲染——用户等的是输入能力，但不是高亮。
+
+**落地**：
+
+**P1-3.1 Vite manualChunks 切分** —— `@codemirror/lang-sql` + `@codemirror/autocomplete` 从 `@codemirror/{state,view,commands,language}` + `@lezer/highlight` 拆出，单列成 `cm-sql` chunk。前者（编辑器壳）22.78 KB / 7.71 KB gzip；后者（parser + 弹窗补全）365.53 KB / 116.50 KB gzip。
+
+**P1-3.2 SqlEditor 三 Compartment 异步加载** —— `langCompartment` + `complCompartment` + `keymapCompartment` 分别承接 SQL 语言、autocompletion、completion keymap。edior shell 同步挂载（state/view/commands/language + 占位），空 `Compartment.of([])` 占位；`useEffect` 里 `Promise.all([import('@codemirror/lang-sql'), import('@codemirror/autocomplete')])` 完成后用 `view.dispatch({ effects: compartment.reconfigure(...) })` 注入，**不重建 editor**（保留 cursor / undo / selection）。
+
+**经验数值**：
+
+| | raw | gzip |
+|---|---|---|
+| 之前 `cm-vendor` | 344.13 KB | 112.63 KB |
+| 之后 `cm-vendor` (initial) | 22.78 KB | **7.71 KB** |
+| 之后 `cm-sql` (lazy) | 365.53 KB | 116.50 KB |
+| DataExplorer 首次 payload | ~363→**~43 KB raw** | ~120→**~15 KB gzip** |
+
+**NUX**：editor shell 立刻可输入；SQL 关键字高亮 + 补全弹窗延迟 ~50-150 ms 才补上（chunk 下载 + 解析时间）。e2e `smoke.spec.ts:88` 的 `.cm-content` selector 在 mount 时就命中，不受影响。
+
+**验证**：tsc 0 / eslint 0 / vitest 41/41 / vite build 0 warnings。
+
+**Monaco / Ace 评估结论**：Monaco (~3 MB) 比 CodeMirror 重两个数量级；Ace (~250 KB) 比优化后 cm-vendor 仍大 10 倍。CodeMirror 6 是当前 SQL 编辑的正确选择，lazy-load 是性价比最高的优化路径。
+
+### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
+
 ### P1-1 ✅：Audit log 索引 + 保留 + filter 扩展 — 2026-08-24 — `TBD`
 
 **问题**：批 9.5 把 `audit_log` 表建出来 + 给主键/单列加了 index，但缺 3 个高频 admin 能力的支撑：
