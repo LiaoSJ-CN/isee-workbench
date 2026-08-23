@@ -21,6 +21,7 @@ from app.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.middleware.request_id import RequestIDMiddleware, install_request_id_log_factory
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.sentry import init_sentry
+from app.models import audit_log as _audit_log_module  # noqa: F401  # 批 9.5
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
@@ -29,6 +30,7 @@ from app.models import revoked_token as _revoked_token_module  # noqa: F401
 from app.models import user as _user_module  # noqa: F401
 from app.models.user import User
 from app.routers import (
+    audit,  # 批 9.5
     auth,
     data_source,
     explorer,
@@ -229,6 +231,8 @@ app.include_router(jobs.report_jobs_router)
 app.include_router(jobs.jobs_router)
 # Per-user report subscriptions (批 8.3).
 app.include_router(subscription.router)
+# Admin-only audit log (批 9.5).
+app.include_router(audit.router)
 
 # Prometheus /metrics + default HTTP histogram. Must come AFTER the
 # routers so Instrumentator sees the final route table. Idempotent for
