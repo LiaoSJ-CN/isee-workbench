@@ -38,6 +38,7 @@ from app.schemas.report_subscription import (
     ReportSubscriptionResponse,
     ReportSubscriptionUpdate,
 )
+from app.services import audit as audit_service
 from app.services.scheduler import InvalidCronExpression
 from app.services.subscription import (
     create_subscription,
@@ -110,6 +111,18 @@ def create_my_subscription(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    # 批 9.5: audit successful create. ``before`` is None (no pre-image).
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SUBSCRIPTION_CREATE,
+        target_type=audit_service.TARGET_TYPE_REPORT_SUBSCRIPTION,
+        target_id=cast(int, sub.id),
+        before=None,
+        after=sub,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return ReportSubscriptionResponse.model_validate(sub)
 
 
@@ -160,6 +173,7 @@ def get_my_subscription(
 def update_my_subscription(
     subscription_id: int,
     payload: ReportSubscriptionUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportSubscriptionResponse:
@@ -169,6 +183,9 @@ def update_my_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subscription not found",
         )
+    # 批 9.5: snapshot before mutation so the audit row carries a
+    # before/after diff (cron / parameters / notification_config / active).
+    before_snapshot = audit_service._snapshot(sub)
     try:
         updated = update_subscription(
             db,
@@ -183,6 +200,17 @@ def update_my_subscription(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SUBSCRIPTION_UPDATE,
+        target_type=audit_service.TARGET_TYPE_REPORT_SUBSCRIPTION,
+        target_id=cast(int, sub.id),
+        before=before_snapshot,
+        after=updated,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return ReportSubscriptionResponse.model_validate(updated)
 
 
@@ -192,6 +220,7 @@ def update_my_subscription(
 )
 def delete_my_subscription(
     subscription_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -201,7 +230,19 @@ def delete_my_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subscription not found",
         )
+    before_snapshot = audit_service._snapshot(sub)
     delete_subscription(db, sub)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SUBSCRIPTION_DELETE,
+        target_type=audit_service.TARGET_TYPE_REPORT_SUBSCRIPTION,
+        target_id=subscription_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
 
 
@@ -211,6 +252,7 @@ def delete_my_subscription(
 )
 def pause_my_subscription(
     subscription_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportSubscriptionResponse:
@@ -220,7 +262,20 @@ def pause_my_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subscription not found",
         )
+    # 批 9.5: snapshot the active=true state before flipping to false.
+    before_snapshot = audit_service._snapshot(sub)
     updated = update_subscription(db, sub, is_active=False)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SUBSCRIPTION_PAUSE,
+        target_type=audit_service.TARGET_TYPE_REPORT_SUBSCRIPTION,
+        target_id=cast(int, sub.id),
+        before=before_snapshot,
+        after=updated,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return ReportSubscriptionResponse.model_validate(updated)
 
 
@@ -230,6 +285,7 @@ def pause_my_subscription(
 )
 def resume_my_subscription(
     subscription_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportSubscriptionResponse:
@@ -239,5 +295,18 @@ def resume_my_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Subscription not found",
         )
+    # 批 9.5: snapshot the active=false state before flipping to true.
+    before_snapshot = audit_service._snapshot(sub)
     updated = update_subscription(db, sub, is_active=True)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_SUBSCRIPTION_RESUME,
+        target_type=audit_service.TARGET_TYPE_REPORT_SUBSCRIPTION,
+        target_id=cast(int, sub.id),
+        before=before_snapshot,
+        after=updated,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return ReportSubscriptionResponse.model_validate(updated)
