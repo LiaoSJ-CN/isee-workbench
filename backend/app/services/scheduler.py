@@ -338,14 +338,22 @@ def _send_notification(
     if isinstance(notification_config, (WebhookConfig, DingTalkConfig)):
         # Both webhook variants share the same delivery pipeline; only
         # the URL field name differs (``url`` vs ``webhook_url``).
+        # The per-config ``secret`` is honoured when present; otherwise
+        # :func:`_send_webhook` falls back to the global
+        # ``settings.webhook_secret`` for backwards compatibility with
+        # operators who configured signing at the app level rather than
+        # per-report.
         if isinstance(notification_config, WebhookConfig):
             url = str(notification_config.url)
+            per_config_secret = notification_config.secret
         else:
             url = str(notification_config.webhook_url)
+            per_config_secret = notification_config.secret
         _send_webhook(
             webhook_url=url,
             report=report,
             file_paths=file_paths,
+            secret=per_config_secret,
         )
     elif isinstance(notification_config, FeishuConfig):
         _send_feishu(
@@ -513,10 +521,26 @@ def _send_wechatwork(
         webhook_delivery_attempts_total.labels(outcome="http_error").inc()
 
 
-def _send_webhook(webhook_url: str, report: Report, file_paths: list[str]) -> None:
+def _send_webhook(
+    webhook_url: str,
+    report: Report,
+    file_paths: list[str],
+    secret: str | None = None,
+) -> None:
     """Common webhook delivery path used by ``WebhookConfig`` and
     ``DingTalkConfig``. URL has already been validated at the Pydantic
-    layer (``HttpUrl``); this function applies the runtime gates."""
+    layer (``HttpUrl``); this function applies the runtime gates.
+
+    ``secret`` is the per-config signing key from
+    ``WebhookConfig.secret`` / ``DingTalkConfig.secret``. When unset
+    (the historical default — operators configure signing globally via
+    ``settings.webhook_secret``), we fall back to that env-level
+    secret so existing deployments keep working unchanged. Per-config
+    takes precedence over the global fallback, which matches the
+    intent in ``notification.py``: each report can opt into its own
+    signing key without forcing every other report through the same
+    key.
+    """
 
     # --- Scheme gate (SEC-14) ---
     if settings.webhook_https_only and not webhook_url.startswith("https://"):
@@ -551,12 +575,18 @@ def _send_webhook(webhook_url: str, report: Report, file_paths: list[str]) -> No
     }
 
     # --- Sign (SEC-4) ---
-    secret = settings.webhook_secret
+    # Per-config wins over the global ``WEBHOOK_SECRET`` env var. The
+    # truthy check normalises empty-string-as-cleared to "no signing"
+    # — same convention :func:`_send_feishu` uses for its in-body
+    # ``secret`` field, so behaviour is consistent across senders.
+    effective_secret = secret if secret else settings.webhook_secret
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    if secret:
+    if effective_secret:
         timestamp = str(int(datetime.now(timezone.utc).timestamp()))
         headers["X-Webhook-Timestamp"] = timestamp
-        headers["X-Webhook-Signature"] = _sign_payload(payload, secret, timestamp)
+        headers["X-Webhook-Signature"] = _sign_payload(
+            payload, effective_secret, timestamp
+        )
 
     # --- Send with IP-pinned transport (PY-4) ---
     try:

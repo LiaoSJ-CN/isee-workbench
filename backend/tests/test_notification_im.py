@@ -348,3 +348,197 @@ def test_dispatch_routes_wechatwork_to_wechatwork_sender(monkeypatch: Any) -> No
     )
 
     assert seen_in == ["wechatwork"]
+
+
+# -------------------- _send_webhook per-config secret plumbing --------------------
+# Regression guard: pre-fix, ``_send_notification`` routed
+# WebhookConfig / DingTalkConfig through ``_send_webhook`` without
+# forwarding the per-config ``secret`` field — so operators who set a
+# signing key on a specific report had it silently dropped in favour
+# of the global ``settings.webhook_secret``. The two tests below pin
+# the new behaviour: per-config ``secret`` (when truthy) takes
+# precedence; ``None`` / falsy values fall back to the global setting.
+
+
+def test_webhook_uses_per_config_secret_when_provided(monkeypatch: Any) -> None:
+    """``WebhookConfig(secret=...)`` must end up as the signing key
+    on the outbound request, not the global ``settings.webhook_secret``."""
+    from app.schemas.notification import WebhookConfig
+    from app.services import scheduler as scheduler_module
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            # Capture both the body (needed to verify the signature)
+            # and the headers.
+            captured["headers"] = kwargs.get("headers") or {}
+            captured["body"] = kwargs.get("json") or {}
+            return _FakeResponse()
+
+        def close(self) -> None:
+            pass
+
+        def __enter__(self) -> "_FakeClient":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    def fake_create_client(url: str, **kw: Any) -> _FakeClient:
+        return _FakeClient()
+
+    # Force a known global secret so we can assert the request did
+    # NOT use it.
+    monkeypatch.setattr(scheduler_module.settings, "webhook_secret", "GLOBAL")
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", fake_create_client)
+
+    scheduler_module._send_notification(
+        notification_config=WebhookConfig(
+            type="webhook",
+            url="https://8.8.8.8/hook",
+            secret="PER_REPORT",
+        ),
+        report=Report(id=1, name="x"),
+        file_paths=["/tmp/r.xlsx"],
+    )
+
+    headers = captured.get("headers", {})
+    body = captured.get("body", {})
+    assert "X-Webhook-Signature" in headers, (
+        "per-config secret should have produced a signature header"
+    )
+    # Re-compute the signature using the *actual* body the sender
+    # put on the wire — the helper signs ``timestamp.body``, so any
+    # divergence from the live payload would invalidate the test
+    # even if the fix were correct.
+    from app.services.scheduler import _sign_payload
+
+    timestamp = headers["X-Webhook-Timestamp"]
+    expected = _sign_payload(body, "PER_REPORT", timestamp)
+    not_expected = _sign_payload(body, "GLOBAL", timestamp)
+    assert headers["X-Webhook-Signature"] == expected
+    assert headers["X-Webhook-Signature"] != not_expected
+
+
+def test_webhook_falls_back_to_global_secret_when_per_config_is_none(
+    monkeypatch: Any,
+) -> None:
+    """When ``WebhookConfig.secret`` is ``None``, ``_send_webhook``
+    must fall back to ``settings.webhook_secret`` so existing
+    deployments that sign at the app level keep working unchanged."""
+    from app.schemas.notification import WebhookConfig
+    from app.services import scheduler as scheduler_module
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            captured["headers"] = kwargs.get("headers") or {}
+            captured["body"] = kwargs.get("json") or {}
+            return _FakeResponse()
+
+        def close(self) -> None:
+            pass
+
+        def __enter__(self) -> "_FakeClient":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    def fake_create_client(url: str, **kw: Any) -> _FakeClient:
+        return _FakeClient()
+
+    monkeypatch.setattr(scheduler_module.settings, "webhook_secret", "GLOBAL")
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", fake_create_client)
+
+    scheduler_module._send_notification(
+        notification_config=WebhookConfig(
+            type="webhook",
+            url="https://8.8.8.8/hook",
+            secret=None,
+        ),
+        report=Report(id=1, name="x"),
+        file_paths=["/tmp/r.xlsx"],
+    )
+
+    headers = captured.get("headers", {})
+    body = captured.get("body", {})
+    assert "X-Webhook-Signature" in headers
+    from app.services.scheduler import _sign_payload
+
+    timestamp = headers["X-Webhook-Timestamp"]
+    assert headers["X-Webhook-Signature"] == _sign_payload(
+        body, "GLOBAL", timestamp
+    )
+
+
+def test_dingtalk_uses_per_config_secret(monkeypatch: Any) -> None:
+    """Mirror of the WebhookConfig per-config secret test, but for
+    DingTalkConfig — same bug, same fix path. Belt-and-braces guard
+    against a future refactor that splits DingTalk delivery away from
+    :func:`_send_webhook` without re-plumbing the ``secret`` kw."""
+    from app.schemas.notification import DingTalkConfig
+    from app.services import scheduler as scheduler_module
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            captured["headers"] = kwargs.get("headers") or {}
+            captured["body"] = kwargs.get("json") or {}
+            return _FakeResponse()
+
+        def close(self) -> None:
+            pass
+
+        def __enter__(self) -> "_FakeClient":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    def fake_create_client(url: str, **kw: Any) -> _FakeClient:
+        return _FakeClient()
+
+    monkeypatch.setattr(scheduler_module.settings, "webhook_secret", "GLOBAL")
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", fake_create_client)
+
+    scheduler_module._send_notification(
+        notification_config=DingTalkConfig(
+            type="dingtalk",
+            webhook_url="https://8.8.8.8/dingtalk-hook",
+            secret="DINGTALK_KEY",
+        ),
+        report=Report(id=1, name="x"),
+        file_paths=[],
+    )
+
+    headers = captured.get("headers", {})
+    body = captured.get("body", {})
+    assert "X-Webhook-Signature" in headers
+    from app.services.scheduler import _sign_payload
+
+    timestamp = headers["X-Webhook-Timestamp"]
+    assert headers["X-Webhook-Signature"] == _sign_payload(
+        body, "DINGTALK_KEY", timestamp
+    )
