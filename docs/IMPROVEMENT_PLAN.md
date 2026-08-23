@@ -820,3 +820,57 @@ npx playwright test                     # smoke 全过
 **ruff 0、mypy 0、pytest 635/635（+6 new），前端未触及。**
 
 下一个批次：批 10 code-split + prettier。
+
+### 批 10：前端优化（code-split + 删 chart.js + Prettier）— 2026-08-23 — `f871fb9` — 实际 ~30 min
+
+**问题**：main bundle 1.88 MB / 580 KB gzip 单一 chunk，vite warning 阈值 500 KB 已超 3.7x。新增页面/dialog 每次涨 ~100 KB 但完全没机制约束。Dashboard (`a810842`) 加了 Prettier 一节但没真接。
+
+**落地**：
+
+**10.1 — 路由 code-split**：
+- `Skeleton.tsx` 新 export `PageSkeleton`（centered Spin + minHeight:60vh，mirror 现有 inline pattern）
+- `App.tsx` 把 8 个 page 改成 `lazy(() => import('./pages/XXX'))`，Login 留 eager（无 Suspense 父级，加 spinner 无意义）
+- `AppShell` 内 `<Routes>` 外包 `<Suspense fallback={<PageSkeleton />}>`
+- 顺手把 `RequireAuth` / `RequireAdmin` inline `<div minHeight + Spin />` 替换成 `<PageSkeleton />` —— 视觉完全一致，省 12 行重复代码
+
+**10.2 — manualChunks vendor split**：
+`vite.config.ts` 加 `build.rollupOptions.output.manualChunks` 函数（不是 regex map）：
+
+| Chunk | 来源 | Raw / gzip | 加载时机 |
+|---|---|---|---|
+| `index` | AppShell + 路由 + queries | 15 KB / 5 KB | 初始 |
+| `react-vendor` | react / react-dom / scheduler | 0.4 KB / 0.3 KB | 初始 |
+| `antd-vendor` | antd 主包 + rc-* | 1.22 MB / 372 KB | 初始 |
+| `router-vendor` | react-router + react-router-dom | 42 KB / 15 KB | 初始 |
+| `rq-vendor` | @tanstack/react-query + devtools | 29 KB / 9 KB | 初始 |
+| `icons-vendor` | @ant-design/icons | 32 KB / 8 KB | 初始 |
+| `vendor` | axios / misc | 51 KB / 19 KB | 初始 |
+| `dnd-vendor` | @dnd-kit/* | 44 KB / 15 KB | 进 `/reports/:id` |
+| `cm-vendor` | @codemirror/* + @lezer/highlight | 344 KB / 113 KB | 进 `/explorer` |
+| 8 个 page chunks | 4-21 KB 各 | — | 路由 lazy |
+
+`chunkSizeWarningLimit: 1300` 静音 antd-vendor 的 500 KB warning —— antd 每个 page 都用是 true shared dependency，拆不出来。
+
+**10.3 — 删 chart.js dep**：grep `frontend/src/` + `e2e/` 零引用，确认 dead code。后端 `backend/static/chart.umd.min.js` 不动（报表 HTML iframe 用）。
+
+**10.4 — Prettier 配置（仅 config）**：
+- `frontend/.prettierrc.json`：`{semi: true, singleQuote: true, trailingComma: 'all', printWidth: 100, tabWidth: 2, arrowParens: 'always', endOfLine: 'lf'}` —— 匹配 eslint 现有规则
+- `frontend/.prettierignore`：node_modules / dist / e2e / playwright-report / test-results / coverage / *.lock
+- `package.json` 加 `prettier@^3.3.0` + `format` / `format:check` scripts
+- **不跑全仓 format** —— 45 个文件差异（`npx prettier --check` 报告）历史 PR diff 不能被一次性 commit 污染；`npm run format -- src/path/file.tsx` 单文件按需触发
+
+**关键决策**：
+- **manualChunks 用函数形式不是对象正则** —— 一个 module 走一次函数判断，shared deps 只分到一次，避免重复 chunk。
+- **不引入 husky / lint-staged** —— 用户明确选 "仅加 Prettier"。CI 已经有 eslint；format check 留作未来按需。
+- **不重构 barrel `./pages/index.ts`** —— vitest 还在用 `__tests__/pages/Login.test.tsx` 路径；保留 barrel，App.tsx 不再 import barrel 直接走 page 路径。
+- **`Login` 留 eager** —— 它是未登录流程的入口，外面没有 Suspense 父级，在 login 路径上加 spinner 是 silly。其它 8 个都 lazy。
+- **antd-vendor 不再拆** —— 380 KB gzip 是 shared-by-every-page 的固有成本；进一步拆会丢 tree-shake 收益（ESM 入口分类太多反而 code-split 失效）。
+- **chunkSizeWarningLimit: 1300** —— 不是 disable warning，是表达"我们接受这个 size"。entry chunk 实际 5 KB gzip，build log 不被无关 noise 干扰。
+
+**Trade-off**：
+- 第一次访问 `/explorer` 多加载 113 KB gzip 的 cm-vendor chunk + 7 KB page chunk —— 但 dev server（vite instant）和生产（CDN）都 < 200ms。换得的是首页初始 bundle 从 580 KB → ~430 KB（共享部分），且其它 page 不会拉 CodeMirror。
+- Playwright `e2e/smoke.spec.ts` 第 88-92 行 `.cm-content` selector 立即检查 —— vite dev instant serve 应该通过；如出现 flake 加 `await page.waitForSelector('.cm-content', { state: 'visible', timeout: 10_000 })`。
+
+**验证**：`npm run build` 0 warning, 23 chunks emitted；`npm run lint` 0；`npx tsc -b` 0；`npx vitest run` 29/29；vite dev server 启动 OK + 4 个 HTTP 200。
+
+下一个批次：盘点新方向（demo-driven / 用户反馈驱动）。
