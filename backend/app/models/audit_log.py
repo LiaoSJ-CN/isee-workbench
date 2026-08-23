@@ -43,7 +43,7 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    pass
 
 
 class AuditLog(Base):
