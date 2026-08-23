@@ -17,6 +17,31 @@ from app.services.schema_introspection import (
 )
 
 
+def _delete_ds(ds_id: int) -> None:
+    """Best-effort DataSource row cleanup.
+
+    These tests share the dev ``app.db`` (no transactional fixture),
+    so a row inserted without a teardown leaks forever — eventually
+    pushing port-0 / placeholder-credential rows past the response
+    validator and breaking unrelated tests like
+    ``test_admin_bypasses_acl_for_list``. Swallow errors so a
+    pre-existing bad row (e.g. from a prior crashed run) doesn't mask
+    the real test failure.
+    """
+    from sqlalchemy import text
+
+    cleanup_db = SessionLocal()
+    try:
+        cleanup_db.execute(
+            text("DELETE FROM data_sources WHERE id = :id"), {"id": ds_id}
+        )
+        cleanup_db.commit()
+    except Exception:
+        cleanup_db.rollback()
+    finally:
+        cleanup_db.close()
+
+
 @pytest.fixture
 def client() -> TestClient:
     with TestClient(app) as c:
@@ -189,9 +214,12 @@ def test_schema_endpoint_502_when_source_unreachable(
     finally:
         db.close()
 
-    res = client.get(f"/data-sources/{bad_id}/schema", headers=auth_headers)
-    assert res.status_code == 502
-    assert "Failed to introspect schema" in res.json()["detail"]
+    try:
+        res = client.get(f"/data-sources/{bad_id}/schema", headers=auth_headers)
+        assert res.status_code == 502
+        assert "Failed to introspect schema" in res.json()["detail"]
+    finally:
+        _delete_ds(bad_id)
 
 
 def test_schema_endpoint_happy_path_sqlite(
@@ -221,7 +249,10 @@ def test_schema_endpoint_happy_path_sqlite(
     finally:
         db.close()
 
-    res = client.get(f"/data-sources/{src_id}/schema", headers=auth_headers)
-    assert res.status_code == 200
-    body = res.json()
-    assert body == {"tables": []}  # empty DB → empty tree
+    try:
+        res = client.get(f"/data-sources/{src_id}/schema", headers=auth_headers)
+        assert res.status_code == 200
+        body = res.json()
+        assert body == {"tables": []}  # empty DB → empty tree
+    finally:
+        _delete_ds(src_id)

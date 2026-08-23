@@ -107,3 +107,33 @@ def _reset_rate_limit_table():
         db.commit()
     finally:
         db.close()
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_leaked_data_source_rows():
+    """Delete any ``port=0`` ``data_sources`` rows between tests.
+
+    Belt-and-braces against tests that insert a DataSource row to set
+    up a scenario but never tear it down. Without this, port-0 SQLite
+    rows accumulate in the dev ``app.db`` and eventually fail
+    ``GET /data-sources`` response validation (the
+    ``DataSourceResponse`` schema enforces ``port >= 1`` — port-0 is
+    only valid for SQLite in-flight, never on the wire).
+
+    Individual tests that create DataSource rows should still call
+    the local ``_delete_ds`` (or equivalent) helper as their primary
+    cleanup; this fixture is the safety net.
+    """
+    from sqlalchemy import text
+
+    from app.database import SessionLocal
+
+    yield
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM data_sources WHERE port = 0"))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
