@@ -128,8 +128,10 @@
 | 批 9.3 | ✅ 已完成 (2026-08-17) | `164d07d` | DataSource ACL (owner + grants) + explorer/report/jobs 联动 + DataSourceShareModal |
 | 批 9.4 | ✅ 已完成 (2026-08-17) | `02177d0` | Report owner + visibility + 共享 + 分层 DS/Report ACL + ReportShareModal |
 | 批 9.5 | ✅ 已完成 (2026-08-23) | `334f36e`+`3f178ae`+`523d283`+`8fc1fb1`+`0670260`+`ee1d6c7`+`d7150c0`+`5affcd8`+`cc77cfe`+`2c5d81d`+`eab7975`+`489b72b` (12 commits) | Audit log: model + Alembic + service + schemas + admin-only GET `/audit-logs` + 33 mutating 端点钩子 + 47 tests |
-| 批 9.6 | 未开始 | — | 前端 RBAC UI |
+| 批 9.6 | ✅ 已完成 (2026-08-23) | `5fd150a` | Admin `/audit-logs` 页 + `RequireAdmin` 路由守卫 + 菜单入口 + actor username 解析 |
 | 批 10 | 未开始 | — | code-split + prettier |
+| TODO-9a | ✅ 已完成 (2026-08-23) | `a810842` | Prometheus + Grafana dashboard (`isee-workbench-dashboard.json`，9 面板：HTTP RPS / 5xx / 4xx / p50-p99 / Top routes / 报表 p95 / 报表 errors / SQL 校验 / webhook outcome) |
+| TODO-9b | ✅ 已完成 (2026-08-23) | `6376f06` | 8 条 alert rules (`isee-workbench.yml`) + alertmanager wiring + 6 pytest 防 typo + DEPLOY.md 配置告警段 |
 
 ## 每批结束的验证清单
 
@@ -738,3 +740,83 @@ npx playwright test                     # smoke 全过
 **ruff 0、mypy 0、pytest 478/478（+16 新 test）、alembic upgrade/downgrade head cycle 跑通。**
 
 下一个批次：批 8.1 PDF 导出（weasyprint）。
+
+### 批 9.6：前端 RBAC UI — 2026-08-23 — `5fd150a` — 实际 ~30 min
+
+**问题**：9.1–9.5 把 role / org / visibility / audit log 全在后端落地了，但前端还没读 `useMe().role` 也没按 admin-only 路由守卫——admin 拿不到任何"运维"界面入口。
+
+**落地**：
+
+- **`App.tsx` `RequireAdmin` 守卫** —— 复用 `RequireAuth` 的 shape（`useMe` 缓存读 role），非 admin 跳 `/`。轻量组件，不引入新依赖。
+- **`pages/AuditLogPage.tsx`** —— 过滤 Form（actor_user_id / action / target_type / target_id / RangePicker for since/until）→ `useAuditLogs` query hook；分页 Table（id / 时间 / 操作者 / 操作 / 对象 / IP / 请求 ID）；可展开行渲染 `before`/`after` JSON。操作者名字走 `useDataSources` 已有的 `/users` lookup cache（DataSourceList/ReportList share modals 也用同一个），不引新 query。
+- **`pages/index.ts`** —— export AuditLogPage。
+- **菜单入口** —— 顶部 nav 根据 `useMe().role === 'admin'` 渲染 `/audit-logs` 入口，非 admin 看不到。
+
+**Trade-off**：actor username 解析复用 `useDataSources` 里的 `/users` cache，没单独写 `useUsers` hook——3 个组件共享同一份内存里的 user map，避免每次 row render 都打接口。但 `/users` 列表大了之后（> 几百人）这个 cache 会偏重，那时再换分页。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 629/629。**
+
+下一个批次：TODO-9 alert rules (补 operator-response 闭环)。
+
+### TODO-9a：Prometheus + Grafana dashboard — 2026-08-23 — `a810842` — 实际 ~30 min
+
+**问题**：批 6b 把 4 个自定义 metric + 默认 HTTP histogram 暴露在 `/metrics`，但没人在看——Prometheus 没拉、Grafana 没面板、面板没面板就只是数字。
+
+**落地**：
+
+- **`deploy/prometheus/prometheus.yml`** —— scrape `backend:8000/metrics` on `isee-net`，15s interval（匹配 Grafana `timeInterval`，刷新不出现 "no data"），external label `monitor=isee-workbench`。
+- **`deploy/grafana/isee-workbench-dashboard.json`** —— 9-panel dashboard：HTTP RPS by status / 5xx error rate / 4xx error rate / p50-p95-p99 latency / Top-5 routes / report generation p95 by format / report generation errors by reason / SQL validator rejections by rule / webhook delivery outcomes。Schema 38 (Grafana 10+)。
+- **provisioning** —— datasources/prometheus.yml auto-create datasource with `uid=prometheus`（matches dashboard 的 `DS_PROMETHEUS` template var）；dashboards/dashboards.yml file provider → `/var/lib/grafana/dashboards`，`allowUiUpdates=true` 让 re-import 更新 in place。
+- **docker-compose `observability` profile** —— Prometheus 容器挂 prometheus.yml + volume；Grafana 容器挂 provisioning + dashboard JSON + volume。
+
+**关键决策**：
+- 不用 pushgateway —— 业务自己 scrape pull 模型够用，stateful pushgateway 是 over-engineering。
+- Dashboard 直接用 JSON 不要 CRD —— k8s/Grafana-operator 我们没装，JSON 比 values.yaml 简单。
+- `allowUiUpdates=true` —— 允许 ops 在 UI 上改完导出再 re-import，覆盖回 JSON。但 dashboard 改后还得手动 re-import（不是自动 round-trip），见 TODO-9b 文档段。
+
+**Trade-off**：dashboard 模板 var (`DS_PROMETHEUS`) 硬编码 `prometheus` —— datasource `uid` 必须严格匹配，改一个另一个跟着改（注释里写了）。
+
+### TODO-9b：Prometheus alert rules + alertmanager — 2026-08-23 — `6376f06` — 实际 ~2 hr
+
+**问题**：TODO-9a 把面板装好了，但面板红了也只在屏幕上——没人被通知。把 operator-response 的另一半补齐。
+
+**8 条规则**（`deploy/prometheus/alerts/isee-workbench.yml`，3 组）：
+
+| Group | Alert | 阈值 | Severity |
+|---|---|---|---|
+| api | `BackendDown` | `up == 0` 持续 1m | critical |
+| api | `HighErrorRate` | 5xx 比例 > 1%，持续 5m | critical |
+| api | `High4xxRate` | 4xx 比例 > 20%，持续 15m | warning |
+| reports | `SlowReportGeneration` | `report_generate_duration_seconds` p95 > 30s 持续 10m | warning |
+| reports | `HighReportErrorRate` | `report_generate_errors_total{reason}` 任意 > 0.5/min 持续 10m | warning |
+| integrations | `WebhookDeliveryFailing` | `outcome="http_error"` 失败率 > 10% 持续 10m（不算 SSRF 阻断） | warning |
+| integrations | `SSRFGuardSurge` | `ssrf_blocked` 或 `https_required` 阻断 > 1/min 持续 15m | warning |
+| integrations | `SQLValidatorSurge` | `sql_validator_rejections_total{rule}` 任意 > 5/min 持续 5m | warning |
+
+每条都设 `for:` 防单点抖动 + `severity` 在 {critical, warning, info} + `summary` 按 dashboard panel 同名（方便从 alert 跳 Grafana）。
+
+**Test 防 typo**（`backend/tests/test_alert_rules.py`，6 tests）：
+- YAML parses, has groups > rules shape
+- severity ∈ known ladder
+- annotations.summary 非空
+- alert name 唯一
+- **expr 只引用 KNOWN_METRICS allowlist**（mirror `backend/app/middleware/metrics.py` + prometheus-fastapi-instrumentator HTTP series）—— `report_generated_errors_total` 拼错会 parses 但永远不 fire，allowlist 让这种 bug 在 unit test 阶段挂掉
+- 每条有 `for:` 避免单点抖动
+- `promtool check rules` 可选跑（PATH 上有就 run，没就 skip）
+
+**Wiring**：
+- `prometheus.yml` `rule_files: [/etc/prometheus/alerts/*.yml]` + 注释掉的 `alerting.alertmanagers` 段（默认不接，让 ops 选 alertmanager URL 后开）
+- `deploy/prometheus/alertmanager.yml` no-op stub（route receiver="null"）—— alertmanager 容器不挂 config 会拒绝启动；本地起 stack 不被自己的告警淹没；ops 自己写 Slack/PagerDuty/email 真实配置覆盖
+- `docker-compose.yml` observability profile 加 `prom/alertmanager:v0.27.0` service + bind-mount alerts/ 目录
+- `DEPLOY.md` 加 "配置告警（可选）" 段：8 条规则表 + 两步 wiring（去掉 `alerting.alertmanagers` 注释 + 写真 alertmanager.yml）+ promtool 本地校验命令
+
+**关键决策**：
+- webhook 失败率 alert 只统计 `outcome="http_error"` —— SSRF guard 阻断 (`ssrf_blocked`/`https_required`) 是合法防御行为，不算业务失败；分母用 `outcome=~"success|http_error"` 而不是 total，避免 SSRF 阻断推高假阳性
+- SQL validator surge 是早期信号：5/min 阈值很保守，5 分钟持续才 page —— 单点试探不告警，但持续注入尝试会
+- BackendDown severity=critical —— 进程没了，其它面板全部归零，没意义在前面再加一层 condition
+
+**Trade-off**：promtool 检查在 CI 里 skip（没装 promtool binary），靠 Python 静态校验（KNOWN_METRICS allowlist + 结构性断言）兜底；如要 CI 强制，可加 docker container step 跑 `promtool`。
+
+**ruff 0、mypy 0、pytest 635/635（+6 new），前端未触及。**
+
+下一个批次：批 10 code-split + prettier。
