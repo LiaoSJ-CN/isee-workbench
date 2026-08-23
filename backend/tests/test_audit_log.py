@@ -190,6 +190,8 @@ def _list_audit_rows(
     target_type: str | None = None,
     actor_user_id: int | None = None,
     target_id: int | None = None,
+    request_id: str | None = None,
+    ip_address: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = 50,
@@ -205,6 +207,10 @@ def _list_audit_rows(
         params["actor_user_id"] = actor_user_id
     if target_id is not None:
         params["target_id"] = target_id
+    if request_id is not None:
+        params["request_id"] = request_id
+    if ip_address is not None:
+        params["ip_address"] = ip_address
     if since is not None:
         params["since"] = since.isoformat()
     if until is not None:
@@ -1626,3 +1632,142 @@ def test_audit_password_field_redacted_in_create_after(
     assert "password" not in matching[0]["after"]
     # Defense in depth: the plaintext password string is nowhere in the row.
     assert "very-secret-123" not in str(matching[0])
+
+
+# ---------------------------------------------------------------------------
+# 批 11.1 — composite index, ip_address / request_id filters, retention purge
+# ---------------------------------------------------------------------------
+def test_audit_endpoint_filters_by_request_id(
+    client: TestClient, db_setup: Any, user_a: Any
+) -> None:
+    """``?request_id=...`` returns only rows tagged with that middleware ID."""
+    admin = db_setup[1]
+    rid_a = f"req-filter-a-{uuid.uuid4().hex[:8]}"
+    rid_b = f"req-filter-b-{uuid.uuid4().hex[:8]}"
+
+    def _post_with(rid: str, name: str) -> None:
+        r = client.post(
+            "/data-sources",
+            json={
+                "name": name,
+                "db_type": "sqlite",
+                "host": "x",
+                "port": 1,
+                "database": ":memory:",
+                "username": "x",
+                "password": "p",
+            },
+            headers={
+                **_auth_for(user_a),
+                "X-Request-ID": rid,
+            },
+        )
+        assert r.status_code == 201, r.text
+
+    _delete_audit_rows_for_action(audit_service.ACTION_DATA_SOURCE_CREATE)
+    _post_with(rid_a, _unique("audit_rid_a1"))
+    _post_with(rid_a, _unique("audit_rid_a2"))
+    _post_with(rid_b, _unique("audit_rid_b"))
+
+    rows_a = _list_audit_rows(client, admin=admin, request_id=rid_a)
+    assert {row["request_id"] for row in rows_a} == {rid_a}
+    rows_b = _list_audit_rows(client, admin=admin, request_id=rid_b)
+    assert {row["request_id"] for row in rows_b} == {rid_b}
+    # Mutual exclusion — the rid_a filter must not leak rid_b rows.
+    assert all(row["request_id"] == rid_a for row in rows_a)
+    assert all(row["request_id"] == rid_b for row in rows_b)
+
+
+def test_audit_endpoint_filters_by_ip_address(
+    client: TestClient, db_setup: Any
+) -> None:
+    """``?ip_address=...`` returns only rows tagged with that client IP.
+
+    The handler doesn't observe the peer IP directly (TestClient
+    defaults to ``testclient``), so we plant audit rows by calling
+    :func:`audit_service.log` directly with the IP we want to filter
+    on, then verify the endpoint returns only those rows.
+    """
+    admin = db_setup[1]
+    ip_a = "203.0.113.42"
+    ip_b = "198.51.100.7"
+
+    db = SessionLocal()
+    try:
+        for _ in range(3):
+            audit_service.log(
+                db,
+                actor_user_id=admin.id,
+                action=audit_service.ACTION_DATA_SOURCE_CREATE,
+                target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+                target_id=None,
+                ip_address=ip_a,
+            )
+        audit_service.log(
+            db,
+            actor_user_id=admin.id,
+            action=audit_service.ACTION_DATA_SOURCE_CREATE,
+            target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+            target_id=None,
+            ip_address=ip_b,
+        )
+    finally:
+        db.close()
+
+    rows_a = _list_audit_rows(client, admin=admin, ip_address=ip_a)
+    assert len(rows_a) == 3
+    assert all(row["ip_address"] == ip_a for row in rows_a)
+    rows_b = _list_audit_rows(client, admin=admin, ip_address=ip_b)
+    assert len(rows_b) == 1
+    assert rows_b[0]["ip_address"] == ip_b
+    # And an unknown IP returns zero.
+    rows_x = _list_audit_rows(client, admin=admin, ip_address="10.0.0.1")
+    assert rows_x == []
+
+
+def test_purge_old_audit_logs_removes_old_rows(db_setup: Any) -> None:
+    """:func:`purge_old_audit_logs` deletes rows older than the cutoff."""
+    db = SessionLocal()
+    try:
+        # Seed two old + one recent, all by the admin so no FK violation.
+        admin = db_setup[1]
+        old_old = datetime.now(timezone.utc) - timedelta(days=200)
+        old_recent = datetime.now(timezone.utc) - timedelta(days=10)
+        # Insert with explicit ``created_at`` so the cutoff math is
+        # deterministic (default server_now would all be ~today).
+        for ts in (old_old, old_old, old_recent):
+            row = AuditLog(
+                actor_user_id=admin.id,
+                action=audit_service.ACTION_DATA_SOURCE_CREATE,
+                target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+                target_id=None,
+                created_at=ts,
+            )
+            db.add(row)
+        db.commit()
+
+        before = db.query(AuditLog).count()
+        deleted = audit_service.purge_old_audit_logs(db, retention_days=90)
+        db.commit()
+        after = db.query(AuditLog).count()
+    finally:
+        db.close()
+
+    assert deleted == 2
+    assert after == before - 2
+
+
+def test_purge_old_audit_logs_zero_is_noop(db_setup: Any) -> None:
+    """``retention_days <= 0`` disables the sweep — no rows touched."""
+    db = SessionLocal()
+    try:
+        deleted = audit_service.purge_old_audit_logs(db, retention_days=0)
+        deleted_neg = audit_service.purge_old_audit_logs(
+            db, retention_days=-1
+        )
+    finally:
+        db.close()
+    assert deleted == 0
+    assert deleted_neg == 0
+    # Sanity: count unchanged. Tests run in arbitrary order so we just
+    # confirm the no-op really didn't fire a DELETE.

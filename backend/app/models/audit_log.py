@@ -112,6 +112,16 @@ class AuditLog(Base):
     __table_args__ = (
         Index("ix_audit_log_target_type_target_id", "target_type", "target_id"),
         Index("ix_audit_log_created_at", "created_at"),
+        # Composite for the "everything user X did, newest first" query
+        # (`WHERE actor_user_id = X ORDER BY created_at DESC`). Lets
+        # the planner index-scan in order without a sort step once the
+        # table grows past ~100k rows; the single-column ``actor_user_id``
+        # index still exists for filters that don't sort.
+        Index("ix_audit_log_actor_user_id_created_at", "actor_user_id", "created_at"),
+        # `ip_address` filter — "show me everything from 1.2.3.4 in
+        # the last 24h" is the common compliance / probe-trail query.
+        # String column (max 64 chars) so the index is small.
+        Index("ix_audit_log_ip_address", "ip_address"),
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging

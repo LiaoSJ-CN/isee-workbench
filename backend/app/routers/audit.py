@@ -14,6 +14,13 @@ single-column index:
 - ``target_type`` — "every change to a data_source / report"
 - ``target_id`` — only meaningful when combined with ``target_type``;
   cheap thanks to the composite index ``(target_type, target_id)``
+- ``request_id`` (批 11.1) — "what happened in this HTTP request"
+  cross-references log lines via the :class:`app.middleware.
+  request_id.RequestIDMiddleware` ID. No index — admin cross-ref is
+  a rare operation and tolerates a small scan.
+- ``ip_address`` (批 11.1) — "everything from this client IP"
+  (compliance / abuse investigation). Indexed on the new
+  ``ix_audit_log_ip_address``.
 - ``since`` / ``until`` — inclusive ISO timestamps on ``created_at``
 
 Pagination follows the project convention (批 5.5): ``limit`` capped
@@ -45,6 +52,8 @@ def list_audit_logs(
     action: str | None = Query(default=None),
     target_type: str | None = Query(default=None),
     target_id: int | None = Query(default=None, ge=1),
+    request_id: str | None = Query(default=None, max_length=64),
+    ip_address: str | None = Query(default=None, max_length=64),
     since: datetime | None = Query(default=None),
     until: datetime | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
@@ -67,6 +76,10 @@ def list_audit_logs(
         query = query.filter(AuditLog.target_type == target_type)
     if target_id is not None:
         query = query.filter(AuditLog.target_id == target_id)
+    if request_id is not None:
+        query = query.filter(AuditLog.request_id == request_id)
+    if ip_address is not None:
+        query = query.filter(AuditLog.ip_address == ip_address)
     if since is not None:
         query = query.filter(AuditLog.created_at >= since)
     if until is not None:

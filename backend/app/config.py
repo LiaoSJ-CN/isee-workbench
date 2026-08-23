@@ -144,6 +144,15 @@ class Settings(BaseSettings):
     # production sample rate.
     sentry_traces_sample_rate: float = 0.0
 
+    # --- Audit log retention (批 11.1) ---
+    # Drop ``audit_log`` rows older than this many days during the
+    # purge sweep. ``0`` (default) disables the sweep entirely — the
+    # table grows without bound. Set to e.g. ``180`` for a 6-month
+    # compliance window. Operators wire the actual delete call from
+    # system cron or the scheduler sidecar; the config just controls
+    # *which* rows the sweep targets.
+    audit_log_retention_days: int = 0
+
     # --- Email / SMTP (批 8.3) ---
     # Plain SMTP delivery used by ``EmailConfig`` notifications (which
     # subscriptions reach the user through). Configuration follows the

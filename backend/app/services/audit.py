@@ -33,6 +33,7 @@ etc.) out of the audit row.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from pydantic import BaseModel
@@ -327,6 +328,44 @@ def log(
         return None
 
 
+# ---------------------------------------------------------------------------
+# Retention helper (批 11.1)
+# ---------------------------------------------------------------------------
+def purge_old_audit_logs(db: Session, retention_days: int) -> int:
+    """Delete ``audit_log`` rows older than ``retention_days`` days.
+
+    Returns the number of rows deleted. Caller commits the transaction
+    (matches the project convention used by every router — the
+    service method does not commit on the caller's behalf).
+
+    Pass ``retention_days <= 0`` to disable the sweep (returns 0
+    without touching the table). The router is expected to gate on
+    ``settings.audit_log_retention_days > 0`` before calling, but
+    calling here with 0 is safe — no-op.
+
+    Operators wire this to a cron job or scheduler sidecar. The window
+    is "rows whose ``created_at`` is strictly less than
+    ``now - retention_days``"; this keeps the cutoff
+    deterministic across runs regardless of timezone handling
+    differences. :class:`AuditLog.created_at` is stored as
+    timezone-aware (``DateTime(timezone=True)``) so the comparison
+    uses the same offset.
+    """
+    if retention_days <= 0:
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    deleted = (
+        db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete()
+    )
+    logger.info(
+        "audit log purge: retention_days=%d cutoff=%s deleted=%d",
+        retention_days,
+        cutoff.isoformat(),
+        deleted,
+    )
+    return int(deleted)
+
+
 __all__ = [
     # Action constants
     "ACTION_LOGIN",
@@ -376,4 +415,6 @@ __all__ = [
     "ALL_TARGET_TYPES",
     # Writer
     "log",
+    # Retention
+    "purge_old_audit_logs",
 ]

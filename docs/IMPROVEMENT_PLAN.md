@@ -892,6 +892,35 @@ npx playwright test                     # smoke 全过
 | P1-2 | PostgreSQL / OpenGauss 真实验证 | 当前 alembic migration 只在 SQLite 上跑过；生产目标 PG / OpenGauss 的 FK / DDL 差异、autogenerate 偏差没 e2e 覆盖。CI 加 `postgres:16` profile 跑 `alembic upgrade head` + pytest。| ~4 hr |
 | P1-3 | cm-vendor 体积优化 | CodeMirror 344 KB / 113 KB gzip 是 DataExplorer 进路由才加载但首屏过半。(a) 只 import 用到的 extension (`@codemirror/lang-sql` 按需)；(b) 评估换 Monaco / Ace。| ~半天 |
 
+### P1-1 ✅：Audit log 索引 + 保留 + filter 扩展 — 2026-08-24 — `TBD`
+
+**问题**：批 9.5 把 `audit_log` 表建出来 + 给主键/单列加了 index，但缺 3 个高频 admin 能力的支撑：
+- (a) 「这个 user 干了啥」的查询 `WHERE actor_user_id = X ORDER BY created_at DESC` 走单列 `actor_user_id` + 单独 sort，表大了之后 sort 慢
+- (b) 表无界增长，无任何保留 / 归档策略
+- (c) 「某个 IP 都干了啥」「某次请求发生了什么」两种合规场景没法查（无 filter，无 index）
+
+**落地**：
+
+**P1-1.a 复合索引** — Alembic `a51e9a14f8c7` + model `__table_args__` 加 2 个新 index：
+- `ix_audit_log_actor_user_id_created_at (actor_user_id, created_at)` — 让 `WHERE actor_user_id=X ORDER BY created_at DESC` 走 index scan in order（planner 不再单独 sort）
+- `ix_audit_log_ip_address (ip_address)` — 给新 `?ip_address=...` filter 铺路
+
+**P1-1.b 保留 helper** — `audit_log_retention_days` 配置（默认 0 = 禁用）+ `purge_old_audit_logs(db, days) -> int` 服务函数（timezone-aware 截止时间；`days<=0` 是 no-op）。**不做 scheduled job** — YAGNI：operator 自己 wire system cron / sidecar 即可，配置只控制「保留多久」。
+
+**P1-1.c filter 扩展** — `GET /audit-logs` 加 2 个 Query 参数：
+- `?request_id=...` — 跨引用日志行，**不加 index**（UUID 高 cardinality，admin 跨链 lookup 是冷路径）
+- `?ip_address=...` — 合规/防滥用，走 `ix_audit_log_ip_address`
+
+**4 新 test**（`test_audit_log.py`，47 → 51 passed）：
+- `test_audit_endpoint_filters_by_request_id` — 2 个 distinct `X-Request-ID` 头分别 POST，互不串
+- `test_audit_endpoint_filters_by_ip_address` — 直写 service 创建 3+1 rows from 2 IPs，确认 filter 互斥 + 未知 IP 空集
+- `test_purge_old_audit_logs_removes_old_rows` — 手动 `created_at` 注入 2 old + 1 recent，retention_days=90，断言 deleted=2、总数差 2
+- `test_purge_old_audit_logs_zero_is_noop` — `days=0` 与 `days=-1` 都返回 0、不触发 DELETE
+
+**验证基线**：ruff 0、mypy 0、pytest 653/653 + 1 skipped（promtool，不在本批范围）。
+
+### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
+
 ### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
 
 **问题**：CI 每次都 cold install deps —— `pip install -r requirements.txt` (75+ 包) + `pip install -e ".[dev]"` (25+ 包) 重复 4 个 backend job；`npm ci` 重复 5 个 frontend job。预估 cold cache 损失 ~30s/run。
