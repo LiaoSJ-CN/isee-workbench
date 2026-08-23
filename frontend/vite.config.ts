@@ -38,6 +38,22 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined
           // Route-local: only the consumers below need these; pull in
           // with the page chunk rather than the initial bundle.
+          // 批 11.3: split the CodeMirror surface into two route-local
+          // chunks. ``cm-sql`` (the heavy SQL parser + autocompletion,
+          // ~200 KB raw / ~70 KB gzip) is lazy-imported from SqlEditor
+          // via ``import('@codemirror/lang-sql')`` after the editor
+          // shell has rendered. ``cm-vendor`` keeps the editor itself
+          // (state/view/commands/language + lezer highlight core),
+          // ~80-100 KB raw / ~30 KB gzip. Initial /explorer navigation
+          // gets a usable editor in one HTTP round-trip; SQL syntax
+          // highlighting and the autocomplete popup are added ~50-150ms
+          // later as a second chunk.
+          if (
+            id.includes('@codemirror/lang-sql') ||
+            id.includes('@codemirror/autocomplete')
+          ) {
+            return 'cm-sql'
+          }
           if (id.includes('@codemirror') || id.includes('@lezer/highlight')) {
             return 'cm-vendor'
           }
