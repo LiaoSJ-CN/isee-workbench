@@ -318,6 +318,24 @@ def sync_with_database(db: Session) -> None:
 
 **设计意图**：`gunicorn -w N` 下每 worker 独立跑 APScheduler 会导致同一 job 执行 N 次。Sidecar 确保仅一个进程执行定时任务。⚠️ sidecar 必须只跑一个实例。
 
+### 订阅 reconcile（批 8.3）
+
+`ReportSubscription` 复用同一 APScheduler 实例，但有自己的 job-id 命名空间（`sub_<id>` 与 `report_<id>` 隔离）：
+
+```python
+# app/services/subscription.py
+def sync_subscriptions_with_database(db):
+    db.expire_all()
+    active = db.query(ReportSubscription).filter(is_active=True).all()
+    for sub in active:
+        _schedule_subscription(sub)         # sub_<id> 注册
+    for job in scheduler.get_jobs():
+        if job.id.startswith("sub_") and int(job.id[4:]) not in {s.id for s in active}:
+            scheduler.remove_job(job)       # 清理孤儿 sub
+```
+
+调度器 tick 在 `scheduler_runner.py` 和 `main.py` lifespan 里和 `sync_with_database` 串行调用 —— 一个 reconcile 出错不会阻塞另一个。每个订阅 owner-scoped（创建时绑定 `owner_user_id`），触发时调 `_execute_subscription` 用订阅自身的 `parameters` + `notification_config` 生成 Excel 走邮件 / webhook / IM 投递。
+
 ---
 
 ## 10. SSRF 防护策略

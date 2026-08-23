@@ -224,6 +224,14 @@ docker compose --profile postgres up -d
 | `SCHEDULER_DISABLED` | `true` | web 进程跳过调度器（sidecar 模式） |
 | `SCHEDULER_RESYNC_INTERVAL` | `30` | sidecar 从 DB 重读调度的间隔（秒） |
 | `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
+| `SMTP_HOST` | （空） | 邮件服务器主机（**订阅邮件通知需要设置**）；未配置时 EmailConfig 通知会记 `smtp_unconfigured` 指标并不发送 |
+| `SMTP_PORT` | `587` | SMTP 端口（STARTTLS 用 587；implicit SSL 用 465） |
+| `SMTP_USER` | （空） | SMTP 认证用户名；留空 = 匿名（适用于 mailhog/mailpit 等本地测试） |
+| `SMTP_PASSWORD` | （空） | SMTP 认证密码 |
+| `SMTP_FROM_ADDRESS` | （空） | `From:` 邮件地址；空时回落到 `${SMTP_USER}@${SMTP_HOST}` 或 `noreply@${SMTP_HOST}` |
+| `SMTP_FROM_NAME` | （空） | `From:` 显示名；空时回落到 `APP_NAME` |
+| `SMTP_USE_STARTTLS` | `true` | 587 端口明文连接后升级到 TLS；生产环境一般保持 `true` |
+| `SMTP_USE_SSL` | `false` | 465 端口隐式 TLS；与 `SMTP_USE_STARTTLS` 二选一 |
 
 示例 `.env` 文件：
 
@@ -238,6 +246,16 @@ JWT_SECRET_KEY=<生成一个长随机串>
 ENCRYPTION_KEY=<生成一个 Fernet key>
 SCHEDULER_DISABLED=true
 LOG_LEVEL=INFO
+
+# 邮件通知（订阅邮件投递需要；未设置时 EmailConfig 通知仅记录错误）
+# SMTP_HOST=smtp.example.com
+# SMTP_PORT=587
+# SMTP_USER=alerts@example.com
+# SMTP_PASSWORD=<smtp 密码>
+# SMTP_FROM_ADDRESS=alerts@example.com
+# SMTP_FROM_NAME=Alerts Bot
+# SMTP_USE_STARTTLS=true
+# SMTP_USE_SSL=false
 ```
 
 ---
