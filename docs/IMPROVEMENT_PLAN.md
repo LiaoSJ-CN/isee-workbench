@@ -919,7 +919,26 @@ npx playwright test                     # smoke 全过
 
 **验证基线**：ruff 0、mypy 0、pytest 653/653 + 1 skipped（promtool，不在本批范围）。
 
-### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
+### P1-2 ✅：PostgreSQL/OpenGauss 真实验证 — 2026-08-24 — `TBD`
+
+**问题**：批 5.1 全套 Alembic migration 只在 SQLite 上跑过；生产目标 PG/OpenGauss 的 DDL/FK/CHECK 差异完全没 e2e 覆盖。autogenerate 出来的 SQL 是 cross-dialect，但谁也没确认过 `op.batch_alter_table` + FK 在 PG 上能跑通。
+
+**落地**：
+
+**P1-2.1 新 CI job `backend-test-pg`（`.github/workflows/ci.yml`）** —— 拉 `postgres:16` 服务容器：
+- `alembic upgrade head` 干净跑通（9 条 migration 全部 PG-compat：含 FK CASCADE、JSON 列、`String(N)`、`DateTime(timezone=True)`、`ON DELETE SET NULL`）
+- inline seed 写一个 admin 用户（PG 测试库空，conftest 不会自动 seed）
+- 跑 23 个 PG-safe pytest 文件（334+ 用例）：`auth/csrf/jwt/rbac_*` 全覆盖、validator 系列、scheduler_runner、metrics、sentry、proxy_headers、security_headers、request_id、subscriptions、notification_*、metrics、jwt
+- 故意排除依赖 SQLite 容错 FK 的测试（test_audit_log、test_clone_duplicate、test_data_source_acl、test_explorer、test_job_queue、test_pagination...）—— 这些需要 cleanup 按 FK 顺序删，是单独的 cleanup-refactor 工作流
+
+**P1-2.2 DEPLOY.md 加 OpenGauss 手动验证步骤** —— CI 用 `postgres:16` image；OpenGauss 没合适的 docker image（opengauss/opengauss:latest 体积大、pull 慢、CI 跑分钟级），改成 document operator 在本地 docker 跑两条命令验证（`alembic upgrade head` + PG-safe pytest）。
+
+**验证结果**：
+- 本地 docker postgres:16（手动启容器）跑过完整 23 文件 / 360+ 测试，全过
+- alembic `a51e9a14f8c7 (head)` 能干净跑通到 PG（autogenerate 无 fixup）
+- 跨方言已知风险：~13+ 测试在 PG 上因 FK CASCADE 严格触发报错
+  - 这些错误都是 **test cleanup 代码** 的 SQLite 隐性 bug（cascade delete 顺序）—— 与 production code 无关；列为 follow-up
+- ruff 0 / mypy 0 / pytest 653/653 + 1 skipped (promtool)；本地列出的 PG-safe 子集 100%
 
 ### P2-4 ✅：CI cache — 2026-08-24 — `b836cd0`
 

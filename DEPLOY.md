@@ -342,6 +342,38 @@ DATABASE_URL=postgresql+psycopg2://username:password@localhost:5432/dbname
 - OpenGauss
 - DWS (华为云数据仓库)
 
+### PostgreSQL / OpenGauss 兼容性验证（批 11.2）
+
+CI（`.github/workflows/ci.yml` 的 `backend-test-pg`）每次 push 都跑 PG16 容器：
+
+- `alembic upgrade head` — DDL/FK/CHECK 与 Postgres 方言对齐检查
+- 23 个 PG-safe pytest 文件（auth/csrf/jwt/RBAC/validator/scheduler_runner/metrics/sentry/...），不依赖 SQLite 默认宽容的 FK 行为
+- 完整 653 用例仍在 SQLite 上跑（部分 cleanup 路径靠 SQLite 容错，等单独清理）
+
+**手动验证 OpenGauss**（CI 还没接 OpenGauss image，需 operator 自验）：
+
+```bash
+cd backend
+source .venv/bin/activate
+
+# 1. 起一个 openGauss 容器（任一官方镜像，例如 opengauss/opengauss:3.0.0）
+docker run -d --name isee-og -e GS_PASSWORD=isee@123 -p 5432:5432 \
+  opengauss/opengauss:3.0.0
+
+# 2. alembic upgrade head —— 这一步如有 DDL/fk 差异会直接挂
+DATABASE_URL='postgresql+psycopg2://gaussdb:isee@123@localhost:5432/postgres' \
+  alembic upgrade head
+
+# 3. 跑 PG-safe pytest 子集
+DATABASE_URL='postgresql+psycopg2://gaussdb:isee@123@localhost:5432/postgres' \
+  pytest tests/test_db_migrations.py tests/test_jwt.py tests/test_auth.py \
+    tests/test_rbac_auth.py tests/test_rbac_deps.py \
+    tests/test_sql_validator.py tests/test_sql_validator_property.py \
+    -q
+```
+
+OpenGauss 是 PG 9.2 fork，绝大多数 SQL + Alembic 兼容。差异（`ANALYZE` 行为、`PG_PARTITION`）只在 SaaS 扩展用到时才需要修。
+
 ---
 
 ## 数据库迁移（Alembic）
