@@ -10,6 +10,7 @@ Each report has 4 items (metric + chart + table mix).
 Usage:
     python scripts/seed_reports.py
     python scripts/seed_reports.py --keep-existing   # skip delete
+    python scripts/seed_reports.py --data-source-id 200   # target a specific id
 """
 
 from __future__ import annotations
@@ -17,10 +18,13 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from pathlib import Path
 
 META_DB = Path(__file__).resolve().parent.parent / "app.db"
-DATA_SOURCE_ID = 1  # 财务主题域演示库
+# Preferred display name for the finance demo database. If not present, the
+# first available DataSource is used.
+PREFERRED_NAME = "sqlite_demo"
 
 
 def _dump(obj):
@@ -299,26 +303,91 @@ REPORTS = [
 # Seed
 # ---------------------------------------------------------------------------
 
-def seed(keep_existing: bool = False) -> None:
+def _resolve_data_source_id(cur: sqlite3.Cursor, override: int | None) -> int:
+    """Look up the DataSource id to attach sample reports to.
+
+    Priority:
+      1. ``--data-source-id`` CLI override (explicit).
+      2. First DataSource named ``PREFERRED_NAME`` (``sqlite_demo``).
+      3. First DataSource in the table (any dialect that has erp_demo.db).
+
+    Raises SystemExit with a friendly message if no DataSource exists.
+    """
+    if override is not None:
+        row = cur.execute(
+            "SELECT id, name, db_type, database FROM data_sources WHERE id = ?",
+            (override,),
+        ).fetchone()
+        if not row:
+            print(f"--data-source-id {override} not found in data_sources", file=sys.stderr)
+            sys.exit(2)
+        print(f"using --data-source-id={override} (name={row[1]!r})")
+        return row[0]
+
+    row = cur.execute(
+        "SELECT id FROM data_sources WHERE name = ? ORDER BY id LIMIT 1",
+        (PREFERRED_NAME,),
+    ).fetchone()
+    if row:
+        print(f"using DataSource id={row[0]} (matched PREFERRED_NAME={PREFERRED_NAME!r})")
+        return row[0]
+
+    row = cur.execute(
+        "SELECT id, name, db_type, database FROM data_sources ORDER BY id LIMIT 1"
+    ).fetchone()
+    if not row:
+        print(
+            "no DataSource found — create one via /data-sources (or POST /auth/login "
+            "+ POST /data-sources) before seeding reports",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    print(
+        f"using DataSource id={row[0]} (name={row[1]!r}, db_type={row[2]!r}); "
+        f"PREFERRED_NAME {PREFERRED_NAME!r} not present"
+    )
+    return row[0]
+
+
+def seed(keep_existing: bool = False, data_source_id: int | None = None) -> None:
     conn = sqlite3.connect(META_DB)
     conn.execute("PRAGMA foreign_keys = ON")
     cur = conn.cursor()
+
+    ds_id = _resolve_data_source_id(cur, data_source_id)
 
     if not keep_existing:
         deleted = cur.execute("DELETE FROM reports").rowcount
         print(f"deleted {deleted} existing reports (cascaded items)")
 
+    # Look up the admin user id so the seed reports have an owner — the
+    # ``reports.owner_user_id`` column was added by the 批 9.4 migration and
+    # the migration's backfill only ran once at upgrade time. Any reports
+    # inserted by this script afterwards need to set it themselves, or
+    # they come out as ``visibility=public`` orphans with no owner (which
+    # fails ``test_existing_reports_owned_by_admin_after_migration`` and
+    # leaves reports invisible to admin-scoped endpoints).
+    admin_id: int | None = None
+    admin_row = cur.execute(
+        "SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1"
+    ).fetchone()
+    if admin_row:
+        admin_id = int(admin_row[0])
+
     for r in REPORTS:
         cur.execute(
             """INSERT INTO reports
-               (name, description, data_source_id, layout_config,
+               (name, description, data_source_id, owner_user_id,
+                visibility, layout_config,
                 is_scheduled, cron_expression, schedule_description,
                 output_formats, is_active)
-               VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, 1)""",
+               VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, 1)""",
             (
                 r["name"],
                 r["description"],
-                DATA_SOURCE_ID,
+                ds_id,
+                admin_id,
+                "public",
                 _dump({}),
                 _dump(["excel", "html"]),
             ),
@@ -360,8 +429,14 @@ def main() -> None:
         action="store_true",
         help="don't delete existing reports before insert",
     )
+    parser.add_argument(
+        "--data-source-id",
+        type=int,
+        default=None,
+        help="explicit DataSource id (default: by name 'sqlite_demo', else first available)",
+    )
     args = parser.parse_args()
-    seed(keep_existing=args.keep_existing)
+    seed(keep_existing=args.keep_existing, data_source_id=args.data_source_id)
     print(f"\nseeded {META_DB}")
 
 

@@ -158,6 +158,19 @@ def _cleanup_leaked_data_source_rows():
         db.execute(
             text("DELETE FROM data_sources WHERE name LIKE 'debug_%'")
         )
+        # ``test_render_html_error_message_is_html_escaped`` and friends used
+        # to leave scratch ``report_items`` rows with the giveaway shape
+        # ``name='x' AND table_name IN ('t','x')``. Prune anything that looks
+        # like that — they're attached to real reports (by id) so we can't
+        # safely drop by report_id, but the marker combo is unique enough.
+        db.execute(
+            text(
+                "DELETE FROM report_items "
+                "WHERE name = 'x' "
+                "  AND table_name IN ('t', 'x') "
+                "  AND fields = '[\"a\"]'"
+            )
+        )
         db.commit()
     except Exception:
         db.rollback()
