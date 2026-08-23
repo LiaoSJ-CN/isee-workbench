@@ -12,14 +12,21 @@ import {
 } from '../queries/useScheduler';
 import { useReports } from '../queries/useReports';
 
-type NotificationType = 'none' | 'webhook' | 'email';
+type NotificationType = 'none' | 'webhook' | 'email' | 'feishu' | 'wechatwork';
 
 function buildNotificationConfig(
   values: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const t = values.notification_type as NotificationType | undefined;
-  if (t === 'webhook') {
-    return { type: 'webhook', webhook_url: values.webhook_url ?? '' };
+  if (t === 'webhook' || t === 'feishu') {
+    return {
+      type: t,
+      webhook_url: values.webhook_url ?? '',
+      secret: values.secret ?? '',
+    };
+  }
+  if (t === 'wechatwork') {
+    return { type: 'wechatwork', webhook_url: values.webhook_url ?? '' };
   }
   if (t === 'email') {
     return { type: 'email' };
@@ -55,6 +62,7 @@ export default function SchedulerPage() {
       schedule_description: `定时生成 ${report.name}`,
       notification_type: 'none',
       webhook_url: '',
+      secret: '',
     });
     setModalVisible(true);
   };
@@ -251,6 +259,8 @@ export default function SchedulerPage() {
                 { value: 'none', label: '不通知' },
                 { value: 'webhook', label: 'Webhook' },
                 { value: 'email', label: 'Email (占位)' },
+                { value: 'feishu', label: '飞书' },
+                { value: 'wechatwork', label: '企业微信' },
               ]}
             />
           </Form.Item>
@@ -261,24 +271,53 @@ export default function SchedulerPage() {
               prev.notification_type !== curr.notification_type
             }
           >
-            {({ getFieldValue }) =>
-              getFieldValue('notification_type') === 'webhook' ? (
-                <Form.Item
-                  name="webhook_url"
-                  label="Webhook URL"
-                  rules={[
-                    {
-                      validator: (_, v) =>
-                        !v || String(v).startsWith('http')
-                          ? Promise.resolve()
-                          : Promise.reject(new Error('URL 必须以 http 开头')),
-                    },
-                  ]}
-                >
-                  <Input placeholder="https://example.com/webhook" />
-                </Form.Item>
-              ) : null
-            }
+            {({ getFieldValue }) => {
+              const t = getFieldValue('notification_type') as NotificationType;
+              if (t === 'webhook' || t === 'feishu' || t === 'wechatwork') {
+                return (
+                  <>
+                    <Form.Item
+                      name="webhook_url"
+                      label={
+                        t === 'feishu'
+                          ? '飞书 Webhook URL'
+                          : t === 'wechatwork'
+                            ? '企业微信 Webhook URL'
+                            : 'Webhook URL'
+                      }
+                      rules={[
+                        {
+                          validator: (_, v) =>
+                            !v || String(v).startsWith('http')
+                              ? Promise.resolve()
+                              : Promise.reject(new Error('URL 必须以 http 开头')),
+                        },
+                      ]}
+                    >
+                      <Input
+                        placeholder={
+                          t === 'feishu'
+                            ? 'https://open.feishu.cn/open-apis/bot/v2/hook/...'
+                            : t === 'wechatwork'
+                              ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
+                              : 'https://example.com/webhook'
+                        }
+                      />
+                    </Form.Item>
+                    {t === 'feishu' && (
+                      <Form.Item
+                        name="secret"
+                        label="飞书签名密钥 (可选)"
+                        tooltip="开启签名校验后，飞书会在 JSON body 里追加 timestamp + sign 字段"
+                      >
+                        <Input.Password placeholder="SEC..." />
+                      </Form.Item>
+                    )}
+                  </>
+                );
+              }
+              return null;
+            }}
           </Form.Item>
 
           <Alert
