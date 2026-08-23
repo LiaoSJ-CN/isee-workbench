@@ -144,6 +144,36 @@ class Settings(BaseSettings):
     # production sample rate.
     sentry_traces_sample_rate: float = 0.0
 
+    # --- Email / SMTP (批 8.3) ---
+    # Plain SMTP delivery used by ``EmailConfig`` notifications (which
+    # subscriptions reach the user through). Configuration follows the
+    # ``smtplib`` standard library — supports STARTTLS on 587 and
+    # implicit TLS on 465 via ``smtp_use_ssl``.
+    #
+    # Defaults are empty so the server boots without an SMTP backend
+    # configured; ``_send_email`` raises an actionable error if any
+    # dispatch attempts to send before the operator sets these. Local
+    # dev typically points at mailhog / mailpit
+    # (``SMTP_HOST=localhost SMTP_PORT=1025``) without auth.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    # ``From:`` header used for outbound mail. Falls back to
+    # ``{smtp_user}@{smtp_host}`` when unset (with a log warning).
+    smtp_from_address: str = ""
+    # Display name shown in the ``From:`` header. Falls back to
+    # ``settings.app_name``.
+    smtp_from_name: str = ""
+    # STARTTLS upgrade on the plaintext SMTP connection (port 587 path).
+    # Most modern SMTP servers require this; only disable for trusted
+    # local relays (mailhog, in-cluster SMTP).
+    smtp_use_starttls: bool = True
+    # Implicit TLS — set True for SMTPS on port 465. Mutually exclusive
+    # with ``smtp_use_starttls``; if both are on, STARTTLS wins (the
+    # connection has already been encrypted before STARTTLS would run).
+    smtp_use_ssl: bool = False
+
 
 class ConfigurationError(RuntimeError):
     """Fatal configuration error — app cannot start safely."""

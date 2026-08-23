@@ -42,6 +42,7 @@ from app.routers import (
 from app.services.job_queue import shutdown_executor
 from app.services.password import hash_password
 from app.services.scheduler import get_scheduler
+from app.services.subscription import sync_subscriptions_with_database
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -173,6 +174,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db = SessionLocal()
         try:
             scheduler.sync_with_database(db)
+            # Subscriptions reuse the same APScheduler instance but live
+            # on the ``sub_<id>`` namespace; reconciling them here
+            # keeps single-process dev (``SCHEDULER_DISABLED=false``)
+            # self-sufficient without depending on the sidecar.
+            sync_subscriptions_with_database(db)
             scheduler.start()
         finally:
             db.close()

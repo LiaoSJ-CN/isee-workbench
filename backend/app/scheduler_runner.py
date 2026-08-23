@@ -23,6 +23,7 @@ from types import FrameType
 from app.config import settings
 from app.database import SessionLocal
 from app.services.scheduler import get_scheduler
+from app.services.subscription import sync_subscriptions_with_database
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,12 @@ def run(
         db = SessionLocal()
         try:
             scheduler.sync_with_database(db)
+            # Subscriptions live on the same APScheduler instance but
+            # carry their own job-id namespace (``sub_<id>`` vs
+            # ``report_<id>``); reconciling them in lockstep with the
+            # report jobs means a subscription created via the web API
+            # lands on the sidecar's tick loop within one interval.
+            sync_subscriptions_with_database(db)
         except Exception as exc:  # never let the loop die on a transient DB error
             logger.error("Sync iteration failed: %s", exc)
         finally:

@@ -5,7 +5,9 @@ import hashlib
 import hmac
 import logging
 import os
+import smtplib
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from typing import Any, cast
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -369,7 +371,12 @@ def _send_notification(
             file_paths=file_paths,
         )
     elif isinstance(notification_config, EmailConfig):
-        logger.info(f"Email notification for report {report.id} (not implemented)")
+        _send_email(
+            to=list(notification_config.to),
+            subject=notification_config.subject,
+            report=report,
+            file_paths=file_paths,
+        )
     else:
         # Pydantic should make this unreachable — the union only has
         # the documented variants. Log and bail rather than silently
@@ -519,6 +526,147 @@ def _send_wechatwork(
             f"Failed to send WeChat Work notification for report {report.id}: {exc}"
         )
         webhook_delivery_attempts_total.labels(outcome="http_error").inc()
+
+
+def _send_email(
+    to: list[str],
+    subject: str,
+    report: Report,
+    file_paths: list[str],
+) -> None:
+    """Email notification delivery (批 8.3).
+
+    Uses the stdlib :mod:`smtplib` + :mod:`email.message` — no extra
+    dependency, supports STARTTLS on port 587 (``smtp_use_starttls``)
+    and implicit TLS on port 465 (``smtp_use_ssl``). Configuration
+    lives on ``Settings`` (``SMTP_HOST`` / ``SMTP_PORT`` /
+    ``SMTP_USER`` / ``SMTP_PASSWORD`` / ``SMTP_FROM_ADDRESS`` /
+    ``SMTP_USE_STARTTLS`` / ``SMTP_USE_SSL``).
+
+    Each ``file_path`` becomes an attachment — basenames only (SEC-8,
+    same convention as the webhook senders; the receiver has no
+    business knowing the server's filesystem layout). Empty
+    ``file_paths`` produces a body-only email.
+
+    Body template is intentionally short: a single line with the
+    report name + generation timestamp, plus a list of basenames. The
+    attachment itself carries the actual report content; we don't
+    inline huge tables in the email body.
+    """
+    if not settings.smtp_host:
+        logger.error(
+            f"Refusing email notification for report {report.id}: "
+            f"SMTP_HOST is not configured. Set SMTP_HOST/SMTP_PORT/"
+            f"SMTP_USER/SMTP_PASSWORD in backend/.env."
+        )
+        webhook_delivery_attempts_total.labels(outcome="smtp_unconfigured").inc()
+        return
+
+    # Resolve From — fall back to user@host when no explicit address is
+    # pinned. We only append ``@host`` when ``smtp_user`` is a bare
+    # username (no ``@``); an SMTP ``user`` that's already a full
+    # address (``ops@example.com``) would otherwise glue into the
+    # malformed ``ops@example.com@smtp.example.com``.
+    def _derive_from_addr() -> str:
+        if settings.smtp_user and "@" not in settings.smtp_user:
+            return f"{settings.smtp_user}@{settings.smtp_host}"
+        if settings.smtp_user:
+            return settings.smtp_user
+        return f"noreply@{settings.smtp_host}"
+
+    from_address = settings.smtp_from_address or _derive_from_addr()
+    from_name = settings.smtp_from_name or settings.app_name
+
+    # --- Build the message ---
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"{from_name} <{from_address}>"
+    msg["To"] = ", ".join(to)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    safe_files = [os.path.basename(p) for p in file_paths]
+    body_lines = [
+        f"报表「{report.name}」已生成",
+        f"生成时间: {timestamp}",
+        "",
+        "附件:",
+    ]
+    if safe_files:
+        body_lines.extend(f"- {name}" for name in safe_files)
+    else:
+        body_lines.append("(no files attached)")
+    msg.set_content("\n".join(body_lines))
+
+    # --- Attachments ---
+    # ``EmailMessage`` infers MIME type from the filename + a magic
+    # number sniff; we just need to read the bytes. Files that don't
+    # exist (e.g. transient cleanup race) are skipped with a warning
+    # rather than aborting the whole send.
+    for path in file_paths:
+        basename = os.path.basename(path)
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError as exc:
+            logger.warning(
+                f"Skipping attachment {basename!r} for report {report.id}: {exc}"
+            )
+            continue
+        msg.add_attachment(
+            data,
+            maintype="application",
+            subtype="octet-stream",
+            filename=basename,
+        )
+
+    # --- Send ---
+    # Two TLS modes: implicit (smtp_use_ssl=True, typically port 465)
+    # uses SMTP_SSL directly; explicit (STARTTLS on port 587) connects
+    # plaintext and upgrades. We don't try both — pick one based on
+    # the explicit settings.smtp_use_ssl flag.
+    try:
+        # ``client`` is assigned in exactly one branch — separate
+        # names per branch keep mypy from narrowing to a single
+        # ``SMTP`` / ``SMTP_SSL`` type and rejecting the other branch.
+        if settings.smtp_use_ssl:
+            smtp_client: smtplib.SMTP | smtplib.SMTP_SSL = smtplib.SMTP_SSL(
+                settings.smtp_host,
+                settings.smtp_port,
+                timeout=30,
+            )
+        else:
+            smtp_client = smtplib.SMTP(
+                settings.smtp_host,
+                settings.smtp_port,
+                timeout=30,
+            )
+        with smtp_client as client:
+            # ehlo is called implicitly by SMTP/SMTP_SSL; STARTTLS
+            # upgrades the connection before auth.
+            if settings.smtp_use_starttls and not settings.smtp_use_ssl:
+                client.starttls()
+            if settings.smtp_user:
+                client.login(settings.smtp_user, settings.smtp_password)
+            client.send_message(msg)
+        logger.info(
+            f"Sent email notification for report {report.id} to "
+            f"{len(to)} recipient(s)"
+        )
+        webhook_delivery_attempts_total.labels(outcome="success").inc()
+    except smtplib.SMTPAuthenticationError as exc:
+        # 535-class — credentials wrong / account locked. Operators
+        # need to know the user/secret didn't take.
+        logger.error(
+            f"Email authentication failed for report {report.id}: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="smtp_auth").inc()
+    except (smtplib.SMTPException, OSError) as exc:
+        # Catch-all SMTP transport / network error. Keeps the report
+        # tick moving even if the mail server is down — the user
+        # sees the file in the run logs and we don't lose the report.
+        logger.error(
+            f"Failed to send email notification for report {report.id}: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="email_error").inc()
 
 
 def _send_webhook(

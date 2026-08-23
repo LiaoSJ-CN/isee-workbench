@@ -111,14 +111,28 @@ def _reset_rate_limit_table():
 
 @pytest.fixture(autouse=True)
 def _cleanup_leaked_data_source_rows():
-    """Delete any ``port=0`` ``data_sources`` rows between tests.
+    """Delete leaked ``data_sources`` rows between tests.
 
     Belt-and-braces against tests that insert a DataSource row to set
-    up a scenario but never tear it down. Without this, port-0 SQLite
-    rows accumulate in the dev ``app.db`` and eventually fail
-    ``GET /data-sources`` response validation (the
-    ``DataSourceResponse`` schema enforces ``port >= 1`` — port-0 is
-    only valid for SQLite in-flight, never on the wire).
+    up a scenario but never tear it down. We prune everything that
+    looks like test pollution:
+
+    * ``port = 0`` — SQLite in-flight rows. ``DataSourceResponse``
+      enforces ``port >= 1`` so these silently 422 ``GET
+      /data-sources`` responses when accumulated.
+    * ``name LIKE 'bad-test-source-%'`` — rows inserted by
+      ``test_schema_introspection`` to drive unreachable-service
+      tests.
+    * ``name LIKE 'pytest_%'`` — every ``_make_ds`` helper across the
+      suite uses a ``pytest_<scenario>_ds_<uuid>`` prefix. Without a
+      global prune the dev ``app.db`` grows past ``limit=500`` (the
+      route's documented cap) and the ACL list test stops seeing
+      its own freshly-inserted row.
+    * ``name LIKE 'happy-sqlite-source-%'`` — rows inserted by
+      ``test_schema_introspection`` happy-path tests; each points
+      at a temp ``happy.db`` that pytest cleans up between runs,
+      so the dangling DB row opens against a non-existent file.
+    * ``name LIKE 'debug_%'`` — interactive scratch rows.
 
     Individual tests that create DataSource rows should still call
     the local ``_delete_ds`` (or equivalent) helper as their primary
@@ -132,6 +146,18 @@ def _cleanup_leaked_data_source_rows():
     db = SessionLocal()
     try:
         db.execute(text("DELETE FROM data_sources WHERE port = 0"))
+        db.execute(
+            text("DELETE FROM data_sources WHERE name LIKE 'bad-test-source-%'")
+        )
+        db.execute(
+            text("DELETE FROM data_sources WHERE name LIKE 'pytest\\_%' ESCAPE '\\'")
+        )
+        db.execute(
+            text("DELETE FROM data_sources WHERE name LIKE 'happy-sqlite-source-%'")
+        )
+        db.execute(
+            text("DELETE FROM data_sources WHERE name LIKE 'debug_%'")
+        )
         db.commit()
     except Exception:
         db.rollback()
