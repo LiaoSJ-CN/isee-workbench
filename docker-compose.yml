@@ -79,11 +79,61 @@ services:
   #   profiles:
   #     - postgres
 
+  # Optional: Prometheus + Grafana for /metrics dashboards.
+  # Brings up Prometheus (scraping backend:8000/metrics) and a Grafana
+  # instance with the ``isee-workbench`` dashboard pre-loaded via the
+  # provisioning files under deploy/grafana/. Operator login is
+  # ``admin`` / ``admin`` by default — change GF_SECURITY_ADMIN_PASSWORD
+  # (or the compose env override) for any non-local use.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: isee-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9091}:9090"
+    depends_on:
+      - backend
+    networks:
+      - isee-net
+    profiles:
+      - observability
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: isee-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/isee-workbench-dashboard.json:/var/lib/grafana/dashboards/isee-workbench.json:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - isee-net
+    profiles:
+      - observability
+
 volumes:
   isee-data:
 
   # Uncomment if using PostgreSQL
   # pgdata:
+  prometheus-data:
+  grafana-data:
 
 networks:
   isee-net:

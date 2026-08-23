@@ -1,0 +1,30 @@
+# Prometheus scrape config for the isee-workbench stack.
+#
+# Mounted at /etc/prometheus/prometheus.yml in the prometheus
+# container via docker-compose. The ``backend:8000`` target uses the
+# docker-compose service name ``backend`` so it resolves on the
+# ``isee-net`` network regardless of the container IP.
+#
+# Scrape interval is 15s — matches Grafana's ``timeInterval`` in
+# datasources/prometheus.yml so panels never show "no data" right
+# after a refresh.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: isee-workbench
+
+scrape_configs:
+  - job_name: isee-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - backend:8000
+        labels:
+          service: isee-backend
+          tier: api
+
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090

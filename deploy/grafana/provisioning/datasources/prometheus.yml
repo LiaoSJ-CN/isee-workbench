@@ -1,0 +1,22 @@
+# Auto-provisioned Prometheus datasource for the isee-workbench
+# dashboard. The ``uid`` here MUST match the ``DS_PROMETHEUS`` template
+# variable in deploy/grafana/isee-workbench-dashboard.json — if you
+# change one, change the other.
+#
+# The scrape target ``http://prometheus:9090`` only resolves inside
+# the docker-compose ``isee-net`` network (the prometheus service
+# lives in the same stack). Operators wiring an external Prometheus
+# should override this URL via the ``Prometheus`` datasource's
+# settings UI after first boot.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s

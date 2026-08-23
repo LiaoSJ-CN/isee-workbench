@@ -168,6 +168,23 @@ docker compose down
 docker compose --profile scheduler up -d
 ```
 
+#### 启动 Prometheus + Grafana（可选）
+
+后端通过 `prometheus-fastapi-instrumentator` 暴露 `/metrics`（默认 HTTP latency / status histogram）+ 4 个自定义 metric（`report_generate_*` / `webhook_delivery_*` / `sql_validator_*`）。`observability` profile 拉起 Prometheus 抓取 `/metrics` 并附带一个预置 dashboard 的 Grafana：
+
+```bash
+docker compose --profile observability up -d
+```
+
+| 服务 | 端口（容器内 / 主机映射） | 用途 |
+|---|---|---|
+| Prometheus | `9090` / `${PROMETHEUS_PORT:-9091}` | 抓取 `backend:8000/metrics`，默认 15s 间隔 |
+| Grafana | `3000` / `${GRAFANA_PORT:-3001}` | 预置 `isee-workbench` dashboard（9 面板：HTTP RPS / 错误率 / 延迟 p50-p99 / Top 路由 / 报表生成 / SQL 校验 / Webhook 投递） |
+
+首次访问 `http://localhost:3001`，用 `admin` / `admin` 登录（`GF_SECURITY_ADMIN_PASSWORD` 改成自己的）。Dashboard 在 Home → "iSee数据分析工作台"。
+
+如果已有外部 Prometheus 实例，只需要把 `deploy/prometheus/prometheus.yml` 的 `scrape_configs` 段贴进它的配置里，然后 `deploy/grafana/isee-workbench-dashboard.json` 通过 UI "Import dashboard" 导入。
+
 #### 使用 PostgreSQL（可选）
 
 编辑 `backend/.env`，设置 `DATABASE_URL` 为 PostgreSQL 连接串，然后取消 `docker-compose.yml` 中 `db` 服务的注释：
