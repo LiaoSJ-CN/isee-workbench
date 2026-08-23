@@ -315,6 +315,12 @@ export interface Report {
   owner_user_id?: number | null;
   org_id?: number | null;
   visibility?: ReportVisibility;
+  // 批 10 demo-badge: True iff the row was inserted by
+  // scripts/seed_reports.py. ReportList renders a "示例" Tag when true
+  // so operators can tell seed scaffolding apart from reports they
+  // authored themselves. Backend never exposes a write path for this
+  // flag, so end-users can't tag their own reports as demos.
+  is_demo?: boolean;
   created_at?: string;
   updated_at?: string;
   items: ReportItem[];

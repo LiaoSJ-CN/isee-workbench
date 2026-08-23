@@ -247,6 +247,13 @@ class ReportResponse(ReportBase):
     notification_config: NotificationConfig | None = None
     owner_user_id: int | None = None
     org_id: int | None = None
+    # 批 10 demo-badge: True iff the row was inserted by
+    # ``scripts/seed_reports.py``. The frontend ReportList renders a
+    # "示例" Tag when this is true so operators can tell seed scaffolding
+    # apart from reports they authored themselves. Read-only on the API —
+    # no create/update field exposes the toggle, so the column can only
+    # be flipped by editing the seed script + re-running it.
+    is_demo: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

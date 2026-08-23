@@ -47,6 +47,18 @@ class Report(Base):
     # Status
     is_active = Column(Boolean, default=True)
 
+    # 批 10 demo-badge: marks rows inserted by ``scripts/seed_reports.py``
+    # so the ReportList page can tag them with a "示例" badge — a visual
+    # cue for new operators that these are seed-time scaffolding, not
+    # user-authored reports. Always False for ordinary CRUD; no UI
+    # exposes the toggle so end-users can't flag their own reports.
+    is_demo = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+
     # 批 9.4: per-user ownership + visibility. ``visibility`` is the
     # coarse gate; private reports require an explicit grant or
     # ownership. Existing rows default to ``public`` for back-compat

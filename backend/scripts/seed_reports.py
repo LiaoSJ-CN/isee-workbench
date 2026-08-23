@@ -380,8 +380,8 @@ def seed(keep_existing: bool = False, data_source_id: int | None = None) -> None
                (name, description, data_source_id, owner_user_id,
                 visibility, layout_config,
                 is_scheduled, cron_expression, schedule_description,
-                output_formats, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, 1)""",
+                output_formats, is_active, is_demo)
+               VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, 1, 1)""",
             (
                 r["name"],
                 r["description"],

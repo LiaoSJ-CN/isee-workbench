@@ -250,9 +250,24 @@ export default function ReportList() {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 240,
       render: (name, record) => (
-        <Button type="link" onClick={() => navigate(`/reports/${record.id}`)}>{name}</Button>
+        // 批 10 demo-badge: rows seeded by scripts/seed_reports.py get
+        // a "示例" Tag so operators can tell seed scaffolding apart
+        // from reports they authored themselves. The Tag is non-interactive
+        // — clicking it does nothing — but the tooltip explains the
+        // origin so first-time users aren't confused about a row they
+        // didn't create.
+        <Space size={6} align="center">
+          <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/reports/${record.id}`)}>
+            {name}
+          </Button>
+          {record.is_demo && (
+            <Tag color="blue" title="由 seed 脚本预置的示例报表 — 可正常编辑/删除">
+              示例
+            </Tag>
+          )}
+        </Space>
       ),
     },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
