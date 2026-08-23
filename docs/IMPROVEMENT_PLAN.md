@@ -33,12 +33,12 @@
 | 批 8.2 Schema 浏览器 | ✅ 完成 — commit `70c3adb`（后端 `GET /data-sources/{id}/schema` + SchemaTree + DataExplorer Sider 布局） |
 | 批 8.5 jobs/{id}/download + ReportList async | ✅ 完成 — commits `a87e295` + `724ac90`（worker 产物直接下载 + ReportList 行内 Excel 异步化 + 顶部任务卡片 + `downloadBlob` helper 抽取） |
 | **TODO-8 NotificationConfig 数据迁移** | ✅ **完成** — alembic 迁移 `c0a2b1d4e5f6` + `app/services/notification_migration.py` + 16 tests（4 类旧 shape normalize）。Dev `app.db` 已跑 migration，pytest 478/478 全过 |
-| 下一批：批 8.1 PDF 导出（weasyprint） | ⏳ **下次会话从这里开始**（按已重排顺序：8.1 → 8.3 → 8.4 → 9 → 10） |
+| 下一批：批 8.1 PDF 导出（weasyprint） | ⏳ **下次会话从这里开始**（按已重排顺序：8.1 → 8.3 → 9 → 10 — 8.4 已完成） |
 
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
-2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂（**当前基线：pytest 462/462、coverage 83.9%、lint 0、tsc 0、vitest 29/29**）
+2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂（**当前基线：pytest 478/478、coverage 83.9%、lint 0、tsc 0、vitest 29/29**）
 3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` § 8.1（weasyprint PDF 导出，复用 8.5 异步队列）
 4. 建 TaskCreate 覆盖批 8.1 子项，开始干
 5. 注意 `useEnqueueReportJob` 的 `reportId` 闭包陷阱（见 session-checkpoint-2026-08-16-post-8.5 gotcha #1）—— 别在 PDF 改造里破坏这个
@@ -122,7 +122,7 @@
 | TODO-8 数据迁移 | ✅ 已完成 (2026-08-16) | (pending) | alembic `c0a2b1d4e5f6` + `app/services/notification_migration.py` + 16 tests |
 | 批 8.1 | 未开始 | — | weasyprint PDF 导出（下次会话从这里开始） |
 | 批 8.3 | 未开始 | — | 报表订阅 |
-| 批 8.4 | 未开始 | — | IM 通知（飞书/企微） |
+| 批 8.4 | ✅ 已完成 (2026-08-23) | `47ca3c9` | IM 通知：FeishuConfig/WeChatWorkConfig schema + `_send_feishu`/`_send_wechatwork` HMAC/JSON dispatch + Scheduler.tsx Form 飞书/企业微信 选项 + `test_notification_im.py` 8 tests |
 | 批 9.1 | ✅ 已完成 (2026-08-17) | `900c062` | User 加 `role`/`org_id` + JWT 携带 `uid`/`role`/`oid` + `/auth/me` 返回新字段 |
 | 批 9.2 | ✅ 已完成 (2026-08-17) | `d42c5f1` | `deps.require_role` + `admin_required`/`editor_required` 原语 |
 | 批 9.3 | ✅ 已完成 (2026-08-17) | `164d07d` | DataSource ACL (owner + grants) + explorer/report/jobs 联动 + DataSourceShareModal |
