@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.crypto import encrypt as crypto_encrypt
@@ -21,6 +21,7 @@ from app.schemas.data_source import (
     GrantCreate,
     GrantResponse,
 )
+from app.services import audit as audit_service
 from app.services.connection import ConnectionError, test_connection
 from app.services.data_source import (
     PERMISSION_WRITE,
@@ -56,6 +57,13 @@ def _not_found() -> HTTPException:
     )
 
 
+def _client_ip(request: Request) -> str:
+    """Peer IP for the audit log. ``ProxyHeadersMiddleware`` has
+    already rewritten ``request.client.host`` when the request came
+    through a trusted proxy, so this is the real client IP."""
+    return request.client.host if request.client else "unknown"
+
+
 @router.get("", response_model=list[DataSourceResponse])
 def list_data_sources(
     response: Response,
@@ -79,6 +87,7 @@ def list_data_sources(
 @router.post("", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
 def create_data_source(
     payload: DataSourceCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DataSource:
@@ -98,6 +107,18 @@ def create_data_source(
     db.add(source)
     db.commit()
     db.refresh(source)
+    # 批 9.5: audit successful create. ``before`` is None (no pre-image).
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_DATA_SOURCE_CREATE,
+        target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+        target_id=cast(int, source.id),
+        before=None,
+        after=source,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return source
 
 
@@ -118,6 +139,7 @@ def get_data_source(
 def update_data_source(
     source_id: int,
     payload: DataSourceUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DataSource:
@@ -130,6 +152,11 @@ def update_data_source(
     if ds is None:
         raise _not_found()
 
+    # 批 9.5: snapshot before mutation so the audit row carries a
+    # before/after diff. ``ds.password`` is already ciphertext from the
+    # DB, but _redact() in the service layer still blanks it.
+    before_snapshot = audit_service._snapshot(ds)
+
     update_data = payload.model_dump(exclude_unset=True)
     if "password" in update_data and update_data["password"] is not None:
         update_data["password"] = crypto_encrypt(update_data["password"])
@@ -141,12 +168,24 @@ def update_data_source(
     # Connection URL may have changed (host/port/user/password/db) — drop the
     # cached engine so the next call rebuilds it against the new config.
     evict_engine(source_id)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_DATA_SOURCE_UPDATE,
+        target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+        target_id=cast(int, ds.id),
+        before=before_snapshot,
+        after=ds,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return ds
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_data_source(
     source_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -155,10 +194,23 @@ def delete_data_source(
     ds = get_data_source_for_user(db, source_id, user)
     if ds is None or not (is_admin(user) or is_owner(user, ds)):
         raise _not_found()
+    # 批 9.5: capture the row before delete so we know what was removed.
+    before_snapshot = audit_service._snapshot(ds)
     db.delete(ds)
     db.commit()
     # Free any pooled connections that were bound to the now-deleted source.
     evict_engine(source_id)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_DATA_SOURCE_DELETE,
+        target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
+        target_id=source_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
 
 
@@ -227,6 +279,7 @@ def get_data_source_schema(
 def create_grant_endpoint(
     source_id: int,
     payload: GrantCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DataSourceAccess:
@@ -255,6 +308,21 @@ def create_grant_endpoint(
         permission=payload.permission,
         granted_by=cast(int, user.id),
     )
+    # 批 9.5: target_type=data_source_grant so the admin UI can filter
+    # "show every grant action" by target_type. before=None because
+    # upsert either created a fresh row or refreshed an existing one
+    # (the service doesn't return the previous permission).
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_DATA_SOURCE_GRANT,
+        target_type=audit_service.TARGET_TYPE_DATA_SOURCE_GRANT,
+        target_id=cast(int, grant.id),
+        before=None,
+        after=grant,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return grant
 
 
@@ -282,6 +350,7 @@ def list_grants_endpoint(
 )
 def revoke_grant_endpoint(
     grant_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -303,5 +372,19 @@ def revoke_grant_endpoint(
     ds = get_data_source_for_user(db, grant.data_source_id, user)
     if ds is None or not (is_admin(user) or is_owner(user, ds)):
         raise _not_found()
+    before_snapshot = audit_service._snapshot(grant)
     revoke_grant(db, grant)
+    # 批 9.5: capture the grant row before revoke so the audit trail
+    # shows who lost access.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_DATA_SOURCE_REVOKE,
+        target_type=audit_service.TARGET_TYPE_DATA_SOURCE_GRANT,
+        target_id=grant_id,
+        before=before_snapshot,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return None
