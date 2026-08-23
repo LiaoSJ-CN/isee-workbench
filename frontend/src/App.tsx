@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Button, Spin } from 'antd';
+import { Layout, Menu, Button } from 'antd';
 import {
   AuditOutlined,
   DatabaseOutlined,
@@ -11,19 +11,26 @@ import {
   FundOutlined,
   BellOutlined,
 } from '@ant-design/icons';
-import {
-  AuditLogPage,
-  DataSourceList,
-  ReportList,
-  ReportEditor,
-  ReportPreview,
-  SchedulerPage,
-  DataExplorer,
-  Login,
-  MySubscriptionsPage,
-} from './pages';
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
+import { PageSkeleton } from './components/Skeleton';
+
+// 批 10 — every page is loaded lazily so the initial bundle only carries
+// the AppShell + shared vendor chunks (react/antd/router/rq). The page
+// chunks (and route-local vendors like @dnd-kit, @codemirror) are
+// fetched on first navigation. Login stays eager because (a) it's the
+// entry point of the unauthenticated flow and (b) wrapping it in a
+// Suspense that resolves to a spinner before login is silly.
+import Login from './pages/Login';
+
+const DataSourceList = lazy(() => import('./pages/DataSourceList'));
+const ReportList = lazy(() => import('./pages/ReportList'));
+const ReportEditor = lazy(() => import('./pages/ReportEditor'));
+const ReportPreview = lazy(() => import('./pages/ReportPreview'));
+const SchedulerPage = lazy(() => import('./pages/Scheduler'));
+const DataExplorer = lazy(() => import('./pages/DataExplorer'));
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
+const MySubscriptionsPage = lazy(() => import('./pages/MySubscriptions'));
 
 const { Header, Content } = Layout;
 
@@ -88,11 +95,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const me = useMe();
 
   if (me.isPending) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <PageSkeleton />;
   }
   if (me.isError) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
@@ -116,11 +119,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const me = useMe();
   if (me.isPending) {
-    return (
-      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <PageSkeleton />;
   }
   if (!me.data || me.data.role !== 'admin') {
     // Non-admin (and unlikely "no user at all") — bounce back to the
@@ -166,24 +165,26 @@ function AppShell() {
         </Button>
       </Header>
       <Content>
-        <Routes>
-          <Route path="/" element={<ReportList />} />
-          <Route path="/data-sources" element={<DataSourceList />} />
-          <Route path="/explorer" element={<DataExplorer />} />
-          <Route path="/reports" element={<ReportList />} />
-          <Route path="/reports/:id" element={<ReportEditor />} />
-          <Route path="/reports/:id/preview" element={<ReportPreview />} />
-          <Route path="/scheduler" element={<SchedulerPage />} />
-          <Route path="/my-subscriptions" element={<MySubscriptionsPage />} />
-          <Route
-            path="/audit-logs"
-            element={
-              <RequireAdmin>
-                <AuditLogPage />
-              </RequireAdmin>
-            }
-          />
-        </Routes>
+        <Suspense fallback={<PageSkeleton />}>
+          <Routes>
+            <Route path="/" element={<ReportList />} />
+            <Route path="/data-sources" element={<DataSourceList />} />
+            <Route path="/explorer" element={<DataExplorer />} />
+            <Route path="/reports" element={<ReportList />} />
+            <Route path="/reports/:id" element={<ReportEditor />} />
+            <Route path="/reports/:id/preview" element={<ReportPreview />} />
+            <Route path="/scheduler" element={<SchedulerPage />} />
+            <Route path="/my-subscriptions" element={<MySubscriptionsPage />} />
+            <Route
+              path="/audit-logs"
+              element={
+                <RequireAdmin>
+                  <AuditLogPage />
+                </RequireAdmin>
+              }
+            />
+          </Routes>
+        </Suspense>
       </Content>
     </Layout>
   );

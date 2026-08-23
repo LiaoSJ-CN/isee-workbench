@@ -1,4 +1,4 @@
-import { Skeleton as AntdSkeleton, Card } from 'antd';
+import { Skeleton as AntdSkeleton, Card, Spin } from 'antd';
 
 /**
  * Shared loading skeletons. Replaces the bare `<Spin />` placeholders with
@@ -42,4 +42,28 @@ export function CardSkeleton({ rows = 3 }: CardSkeletonProps) {
 /** Spinner-style fallback for tight spaces (e.g. inline button area). */
 export function InlineSkeleton() {
   return <AntdSkeleton.Input active size="small" style={{ width: 120 }} />;
+}
+
+/**
+ * Full-viewport centered spinner for route-level fallbacks.
+ *
+ * 批 10: this is the Suspense fallback for ``React.lazy()`` page chunks,
+ * and also replaces the inline ``<div minHeight + Spin />`` blocks that
+ * previously lived in ``App.tsx`` for ``RequireAuth`` and
+ * ``RequireAdmin``. The minHeight matches the auth/admin gates' previous
+ * visual height so existing pages don't shift on first paint.
+ */
+export function PageSkeleton() {
+  return (
+    <div
+      style={{
+        minHeight: '60vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Spin size="large" />
+    </div>
+  );
 }
