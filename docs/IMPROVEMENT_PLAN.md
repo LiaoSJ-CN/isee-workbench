@@ -877,3 +877,42 @@ npx playwright test                     # smoke 全过
 **验证**：`npm run build` 0 warning, 23 chunks emitted；`npm run lint` 0；`npx tsc -b` 0；`npx vitest run` 29/29；vite dev server 启动 OK + 4 个 HTTP 200。
 
 下一个批次：盘点新方向（demo-driven / 用户反馈驱动）。
+
+---
+
+## 后续待办（2026-08-24 盘点 — 无 P0 任务，全部标 P1+）
+
+按优先级排序，建议起步：`P1-1` (audit log 索引) + `P1-4` (Playwright e2e 扩展)。
+
+### P1 — 影响生产稳定性或用户感知
+
+| ID | 主题 | 说明 | 估计 |
+|---|---|---|---|
+| P1-1 | Audit log 保留策略 + 索引 | `audit_log` 表无界增长；admin 查历史无快速过滤路径。(a) 加 `(actor_user_id, created_at)` 复合索引；(b) TTL 任务或按月归档；(c) `GET /audit-logs` 支持 `request_id` / 时间段 / IP filter。| ~3 hr |
+| P1-2 | PostgreSQL / OpenGauss 真实验证 | 当前 alembic migration 只在 SQLite 上跑过；生产目标 PG / OpenGauss 的 FK / DDL 差异、autogenerate 偏差没 e2e 覆盖。CI 加 `postgres:16` profile 跑 `alembic upgrade head` + pytest。| ~4 hr |
+| P1-3 | cm-vendor 体积优化 | CodeMirror 344 KB / 113 KB gzip 是 DataExplorer 进路由才加载但首屏过半。(a) 只 import 用到的 extension (`@codemirror/lang-sql` 按需)；(b) 评估换 Monaco / Ace。| ~半天 |
+
+### P2 — code quality / developer experience
+
+| ID | 主题 | 说明 | 估计 |
+|---|---|---|---|
+| P2-1 | Playwright e2e 扩展 | `frontend/e2e/smoke.spec.ts` 只 3 个 smoke (login + DataSourceList + ReportList)。报表创建→预览→导出 Excel→下载 端到端没覆盖。| ~半天 |
+| P2-2 | scheduler reconcile 集成测试 | `scheduler_runner` sidecar 有 5 个单测，但 web 进程里 `scheduler.start()` + `sync_with_database()` reconcile 路径没覆盖。批 8.3 / 9.x 都加在这条路径上。| ~2 hr |
+| P2-3 | Alembic migration 重放验证 | `alembic upgrade head` 干净跑过；`downgrade -1` 再 `upgrade head` 循环没测过。`env.py` 不再 `fileConfig()` 可能藏坑。| ~1 hr |
+| P2-4 | CI cache | `.github/workflows/ci.yml` 每次 lint + test + build 都重装。`actions/cache` 加 npm + pip cache 提速 ~30s。| ~30 min |
+
+### P3 — 锦上添花
+
+| ID | 主题 | 说明 |
+|---|---|---|
+| P3-1 | Audit log UI 快速链接 | `/audit-logs` 加 request_id / 时间段 / IP 快速 filter；request_id 已在日志 + audit row 里 |
+| P3-2 | ReportEditor import path 统一 | `pages/ReportEditor/` 7 文件用混相对/绝对路径，统一 |
+| P3-3 | DEPLOY.md 同步 | SMTP / Prometheus / SubscriptionModal 加完后部署文档没跟进 |
+| P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |
+| P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
+
+### 决策项 — 需要拍板
+- **要不要新增 P1 批次？**（上面 P1-1/2/3 建议起步先做 P1-1 + P1-2）
+- **现有 plan 收尾后**是继续按需修 bug + 加 feature，还是开新一轮 audit
+- **P1-3 cm-vendor 优化** vs **P1-2 PG 验证** vs **P2-1 Playwright e2e** 哪个优先
+
