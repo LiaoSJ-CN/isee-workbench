@@ -33,6 +33,7 @@ from app.database import get_db
 from app.deps import get_current_token, get_current_user, get_refresh_token_from_request
 from app.middleware.rate_limit import RateLimiter
 from app.models.user import User
+from app.services import audit as audit_service
 from app.services.auth_state import is_jti_revoked, revoke_jti
 from app.services.jwt_auth import (
     create_access_token,
@@ -165,6 +166,25 @@ def login(
     )
     refresh = create_refresh_token(cast(str, user.username))
     _set_auth_cookies(response, access, refresh)
+    # 批 9.5: audit successful login (failed logins aren't audited to
+    # avoid a side-channel on usernames). User snapshot is hand-built
+    # rather than going through the ORM schema because User has no
+    # *Response schema and ``user.password_hash`` must never land here.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_LOGIN,
+        target_type=audit_service.TARGET_TYPE_SESSION,
+        target_id=None,
+        before=None,
+        after={
+            "id": cast(int, user.id),
+            "username": cast(str, user.username),
+            "role": cast(str, user.role),
+        },
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return TokenPair(access_token=access, refresh_token=refresh, token_type="bearer")
 
 
@@ -228,12 +248,31 @@ def refresh(
     )
     new_refresh = create_refresh_token(subject)
     _set_auth_cookies(response, access, new_refresh)
+    # 批 9.5: audit successful token rotation. Same hand-built user
+    # snapshot as login — never dump the full ORM row.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_TOKEN_REFRESH,
+        target_type=audit_service.TARGET_TYPE_SESSION,
+        target_id=None,
+        before=None,
+        after={
+            "id": cast(int, user.id),
+            "username": cast(str, user.username),
+            "role": cast(str, user.role),
+        },
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return TokenPair(access_token=access, refresh_token=new_refresh, token_type="bearer")
 
 
 @router.post("/logout")
 def logout(
     token: Annotated[str, Depends(get_current_token)],
+    user: Annotated[User, Depends(get_current_user)],
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ) -> dict[str, bool]:
@@ -245,6 +284,20 @@ def logout(
     if payload and payload.get("jti") is not None and payload.get("exp") is not None:
         revoke_jti(db, cast(str, payload["jti"]), cast(int, payload["exp"]))
     _clear_auth_cookies(response)
+    # 批 9.5: audit logout so we can answer "who signed out when".
+    # ``user`` is added as an explicit dep (the endpoint used to rely
+    # only on the token) so the audit row has an actor_user_id.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_LOGOUT,
+        target_type=audit_service.TARGET_TYPE_SESSION,
+        target_id=None,
+        before=None,
+        after=None,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return {"ok": True}
 
 
