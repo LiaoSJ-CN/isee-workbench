@@ -378,3 +378,87 @@ def test_download_unknown_format_uses_octet_stream(
         if target.exists():
             target.unlink()
         db.close()
+
+
+# -------------------- sync GET /reports/{id}/export/pdf --------------------
+# Regression guard for batch 8.1: the sync export route was extended
+# to accept "pdf" alongside "excel" and "html". A future refactor
+# that reverts the path regex (or the MIME map) would 422 the route
+# silently for users who hit it directly. Pin both edges.
+
+
+def test_sync_export_pdf_serves_application_pdf(
+    monkeypatch: Any,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    db_setup: Any,
+    stub_report: Report,
+) -> None:
+    """``GET /reports/{id}/export/pdf`` returns ``Content-Type:
+    application/pdf`` with a ``%PDF-``-prefixed body.
+
+    Avoids invoking the real ``generate_report`` (and thus the
+    weasyprint native libs) by patching the renderer to return a
+    known magic-bytes payload. The MIME is what we're asserting —
+    the renderer correctness is covered by
+    :func:`test_render_pdf_invokes_weasyprint_with_html_string` and
+    the ``test_render_pdf_missing_*`` failure-mode tests above.
+    """
+    fake_pdf = b"%PDF-1.4\n%fake-pdf-bytes-for-mime-dispatch\n%%EOF"
+
+    def fake_generate(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        # Write into the real ``generated_reports_dir`` so the route's
+        # ``FileResponse(path=file_path)`` can find it — same pattern
+        # the production ``generate_report`` uses.
+        from app.config import settings
+
+        target_dir = Path(str(settings.generated_reports_dir))
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"pytest_sync_pdf_{uuid.uuid4().hex[:8]}.pdf"
+        target.write_bytes(fake_pdf)
+        return {"file_path": str(target)}
+
+    monkeypatch.setattr(
+        "app.routers.report.generate_report", fake_generate
+    )
+
+    try:
+        r = client.get(
+            f"/reports/{stub_report.id}/export/pdf",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("application/pdf")
+        # Magic-bytes prefix — a real PDF starts with ``%PDF-``. The
+        # patched renderer emits the same prefix so any future
+        # regression that swaps the body (e.g. streams HTML by
+        # accident) gets caught here.
+        assert r.content[:5] == b"%PDF-"
+    finally:
+        # Best-effort cleanup — the route accepts whatever path the
+        # fake_generate hands back, so we can't tie these to a known
+        # id. Use a glob + suffix to find ours.
+        for orphan in Path("generated_reports").glob("pytest_sync_pdf_*.pdf"):
+            try:
+                orphan.unlink()
+            except OSError:
+                pass
+
+
+def test_sync_export_rejects_unknown_format(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    db_setup: Any,
+    stub_report: Report,
+) -> None:
+    """The path regex on ``GET /reports/{id}/export/{format}``
+    rejects anything outside ``^(excel|html|pdf)$`` with 422.
+
+    Companion to :func:`test_sync_export_pdf_serves_application_pdf`
+    — together they pin both edges of the format dispatch.
+    """
+    r = client.get(
+        f"/reports/{stub_report.id}/export/docx",
+        headers=auth_headers,
+    )
+    assert r.status_code == 422

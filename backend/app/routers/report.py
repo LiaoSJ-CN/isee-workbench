@@ -622,13 +622,18 @@ def preview_report(
 @router.get("/{report_id}/export/{format}", response_class=FileResponse)
 def export_report(
     report_id: int,
-    format: str = Path(..., pattern="^(excel|html)$"),
+    format: str = Path(..., pattern="^(excel|html|pdf)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     """Export a generated report file.
 
     批 9.4: read ACL on the report itself.
+    批 8.1: ``pdf`` joins ``excel`` and ``html`` as a sync export
+    format — the async worker path (POST /reports/{id}/jobs) also
+    accepts ``output_format="pdf"`` and routes through the same
+    :func:`generate_report` pipeline, so both entry points use the
+    same renderer.
     """
     report = get_report_for_user(db, report_id, user)
     if report is None:
@@ -651,11 +656,15 @@ def export_report(
                 detail="Generated file not found",
             )
 
-        media_type = (
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            if format == "excel"
-            else "text/html"
-        )
+        # Keep the MIME map exhaustive — a missing branch on a brand-
+        # new format would 500 here. See JobOutputFormat for the
+        # canonical list; the async /jobs/{id}/download route uses
+        # the same dict via _media_type_for() in routers/jobs.py.
+        media_type = {
+            "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "html": "text/html",
+            "pdf": "application/pdf",
+        }[format]
         return FileResponse(
             path=file_path,
             filename=f"{filename}.{format}",
