@@ -17,6 +17,7 @@ Surface (all auth-gated; HTML preview stays synchronous on the existing
 from __future__ import annotations
 
 import os
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -35,6 +36,7 @@ from app.schemas.job import (
     ReportJobCreate,
     ReportJobResponse,
 )
+from app.services import audit as audit_service
 from app.services.data_source import get_data_source_for_user
 from app.services.job_queue import enqueue_report_job
 from app.services.report import get_report_for_user
@@ -151,6 +153,21 @@ def create_report_job(
             detail=str(exc),
         ) from exc
 
+    # 批 9.5: audit successful job enqueue. ``before`` is None (no
+    # pre-image — the job row was just created). The job's own state
+    # transitions (pending → running → done) are tracked in the
+    # report_jobs table itself, not the audit log.
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_JOB_ENQUEUE,
+        target_type=audit_service.TARGET_TYPE_REPORT_JOB,
+        target_id=cast(int, job.id),
+        before=None,
+        after=job,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
     return _serialize(job)
 
 
