@@ -127,7 +127,7 @@
 | 批 9.2 | ✅ 已完成 (2026-08-17) | `d42c5f1` | `deps.require_role` + `admin_required`/`editor_required` 原语 |
 | 批 9.3 | ✅ 已完成 (2026-08-17) | `164d07d` | DataSource ACL (owner + grants) + explorer/report/jobs 联动 + DataSourceShareModal |
 | 批 9.4 | ✅ 已完成 (2026-08-17) | `02177d0` | Report owner + visibility + 共享 + 分层 DS/Report ACL + ReportShareModal |
-| 批 9.5 | 未开始 | — | Audit log（下次会话从这里开始） |
+| 批 9.5 | ✅ 已完成 (2026-08-23) | `334f36e`+`3f178ae`+`523d283`+`8fc1fb1`+`0670260`+`ee1d6c7`+`d7150c0`+`5affcd8`+`cc77cfe`+`2c5d81d`+`eab7975`+`489b72b` (12 commits) | Audit log: model + Alembic + service + schemas + admin-only GET `/audit-logs` + 33 mutating 端点钩子 + 47 tests |
 | 批 9.6 | 未开始 | — | 前端 RBAC UI |
 | 批 10 | 未开始 | — | code-split + prettier |
 
@@ -658,6 +658,53 @@ npx playwright test                     # smoke 全过
 **lint 0、tsc 0、vitest 29/29、build 0、pytest 561/561（2 个 pre-existing test_explorer 失败无关）。**
 
 下一个批次：批 9.5 Audit log。
+
+### 批 9.5：Audit log — 2026-08-23 — 12 commits — 实际 ~3 hr
+
+**问题**：批 9.1–9.4 把 RBAC 推进到「per-user ACL + grant」。系统有精细「谁能读写什么资源」模型，但**没有审计追溯**——admin 无法回答「过去 24h 谁修改了哪个 DS 的密码」「谁把某个 report 从 public 改成了 private」「哪个用户批量触发了哪些 explorer 查询」。批 9.5 给所有 mutating 端点加一层 append-only 审计日志：who / did what / to which resource / from where / when / before vs after。
+
+**设计取舍（plan + 用户选）**：
+- **写入策略**：显式 hook（每个 endpoint 末尾手动调 `audit_service.log(...)`），不用中间件/装饰器——因为 PUT 路径需要 before snapshot（`get_*_for_user` 返回的 ORM 行），中间件/装饰器要么拍不到 ORM 对象、要么得把 ACL helper 拆成两段调用，复杂度上升一档；显式 hook 是 30 行 boilerplate 换审计的核心价值。
+- **覆盖范围**：全集 mutating（auth 3 + DS 5 + Report 13 + Scheduler 3 + Subscription 5 + Jobs 1 + Explorer 1 = **33 钩子**）。GET 不审计（list/get/preview/export/download/schema）。
+- **失败兜底**：`audit_service.log` 内 `try/except Exception` + `logger.exception` 但**不 raise**——审计故障不阻塞业务 endpoint。
+- **append-only**：no UPDATE / DELETE endpoint；actor FK `ON DELETE SET NULL`（用户被删不级联删 audit）。
+- **不写 4xx / 5xx**：404 探测会成 side-channel；显式不写。
+
+**子项落地**：
+
+**9.5.1 `app/models/audit_log.py` + Alembic `6e3ed720f397`** — 11 列（`id, actor_user_id FK SET NULL, action, target_type, target_id, before JSON, after JSON, request_id, ip_address, user_agent, created_at`）+ 5 单列 + 1 复合索引 `(target_type, target_id)` 给「查某资源所有变更」关键路径。Bug fix：移除 `actor: "User | None" = None` 行（被 SQLAlchemy 当 Mapped annotation 报 `MappedAnnotationError`）。
+
+**9.5.2 `app/services/audit.py`** — 31 个 `ACTION_*` 常量（login/logout/token_refresh + ds CRUD/grant/revoke + report CRUD/item CRUD/reorder + report param CRUD + share/revoke + generate + job.enqueue + subscription CRUD/pause/resume + scheduler.job CRUD/sync + explorer.query）+ 11 个 `TARGET_TYPE_*` 常量。`log(...)` 签名强制 keyword-only，独立 commit + `try/except Exception` 兜底。`_snapshot(obj)` 用 `_SCHEMA_FOR_TYPE` 注册表把 ORM 行走 Pydantic Response schema `model_dump(mode="json")`（自动处理 datetime / JSON 列）+ `_redact()` 滤 password + `_truncate()` 4KB 截断。
+
+**9.5.3 `app/schemas/audit.py`** — `AuditLogResponse` (11 字段 `from_attributes=True`) + `AuditLogListResponse` (items + total + limit + offset)。
+
+**9.5.4 `app/routers/audit.py` + main.py 接线** — `GET /audit-logs` admin-only (`Depends(admin_required)`)，filter 参数：`actor_user_id / action / target_type / target_id / since / until / limit(1-500) / offset`，`ORDER BY created_at DESC, id DESC`（id 作 tie-breaker 防同毫秒翻页），`X-Total-Count` header + body.total。无 POST/PUT/DELETE endpoint（immutable log）。
+
+**9.5.5 auth.py 3 钩子 + logout 加 `user: User = Depends(get_current_user)`** — login / refresh 用手动 `{"id", "username", "role"}` 最小 dict（避免 dump `password_hash`）。logout 原本只有 token dep，加 user dep 让 audit 有 actor。
+
+**9.5.6 data_source.py 5 钩子** — create/update/delete/grant/revoke。update + delete 用 `audit_service._snapshot(ds)` 在 setattr / db.delete 之前 snapshot。
+
+**9.5.7 report.py 13 钩子** — items CRUD/reorder (4) + report CRUD (3) + generate (1，success + failure 都审计在 try/except 两段) + params CRUD (3) + shares (2)。reorder 用手动 `{"order": [(id, idx), ...]}` 字典（整 list 重排太碎 snapshot 单 row），generate 用手动 `{"report_id", "output_format", "success", "item_errors" / "error"}`（生成文件是 ORM 之外副作用）。
+
+**9.5.8 scheduler.py 3 钩子 + sync 加 admin_required** — create_or_update_job / delete_job snapshot 报告行的 schedule 字段（cron + notification_config）。**`/scheduler/sync` 顺手 admin-only**：之前无 user dep，加 `Depends(admin_required)` + `_user` 参数让 audit 有 actor——sync 是高副作用操作（rebuild scheduler 任务表），应 admin-only。
+
+**9.5.9 subscription.py 5 钩子** — CRUD + pause + resume。pause/resume 各自独立 action 常量（ACTION_SUBSCRIPTION_PAUSE / _RESUME），admin UI 能区分「谁 toggle 了」 vs 「谁改了 cron」。
+
+**9.5.10 jobs.py 1 钩子** — create_report_job。Job 自身的 pending → running → done 状态机已经在 `report_jobs` 表里跟踪，audit 只记 user-initiated enqueue。
+
+**9.5.11 explorer.py 1 钩子 — 4 个分支都审计** — unsafe-SQL blocked（带原始 SQL + validator 错误）、success（带 SQL + row_count）、ConnectionError、unexpected error。SQL 自动走 `_truncate(4096)` 防长 query 撑爆 JSON 列。
+
+**9.5.12 `tests/test_audit_log.py` 47 tests** — 每个 ACTION_* 一个 happy path + admin bypass + filter/pagination + password redact（schema 不暴露 password 字段 = 第一道防线，_redact 是第二道）+ request_id/ip/user_agent 捕获 + audit failure 不阻塞业务（monkey-patch `AuditLog.__init__` raise）+ unauthorized 不审计（关 side-channel）+ failed login 不审计（防 username 枚举）。Generate tests 用 monkey-patch route 层的 `generate_report` 让 success/failure 分支可达，避免依赖外部 DS。
+
+**关键 trade-off**：
+- **审计 vs 业务同 session**：`audit_service.log` 用同一 `db: Session` 写 audit 行。hook 位置统一在业务 `commit()` **之后**——业务 commit 成功 = audit 才有意义记录；audit 自己 commit 失败时回滚不影响业务（业务已 commit）。
+- **`actor_user_id` 可空**：NULL 比写 fake user_id 更诚实（拿不到 user 对象时 = None）。
+- **JSON 列体积**：`before/after` 可能 KB 级；当前规模（per-resource 写操作）不撞 limit；百万级后需要归档/分区，那是 batch 10+ 之后的事。
+- **`User` 不在 `_SCHEMA_FOR_TYPE` 注册表**：手动 dict（login/refresh）— 避免 `password_hash` 泄漏。
+
+**lint 0、tsc 0、vitest 29/29、build 0、pytest 605/605（pre-existing 5 fail 仍是 dev DB 脏数据引起的，9.5 自身 47/47 全过）。**
+
+下一个批次：批 9.6 前端 RBAC UI。
 
 ### TODO-8：NotificationConfig 数据迁移 — 2026-08-16 — `c0a2b1d4e5f6` — 实际 ~2 hr
 
