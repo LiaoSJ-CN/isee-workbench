@@ -6,7 +6,9 @@ FRONTEND_DIR := frontend
 PYTHON := cd $(BACKEND_DIR) && source .venv/bin/activate &&
 
 .PHONY: help dev-backend dev-frontend dev-scheduler test test-fast lint \
-        typecheck build format clean docker-up docker-down
+        typecheck build format format-frontend format-all \
+        format-check format-check-frontend format-check-all \
+        clean docker-up docker-down
 
 help: ## Show this help (default target)
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -52,8 +54,24 @@ build: ## Build frontend production bundle
 # Maintenance
 # ----------------------------------------------------------------------
 
-format: ## Auto-format backend with ruff
-	$(PYTHON) ruff check . --fix
+format: ## Auto-format backend with ruff format
+	$(PYTHON) ruff format .
+
+format-frontend: ## Auto-format frontend with prettier
+	cd $(FRONTEND_DIR) && npm run format
+
+format-all: format format-frontend ## Auto-format backend + frontend
+	@echo "All formatted."
+
+# CI uses these — read-only, exits non-zero if anything drifts.
+format-check: ## Verify backend formatting (CI)
+	$(PYTHON) ruff format --check .
+
+format-check-frontend: ## Verify frontend formatting (CI)
+	cd $(FRONTEND_DIR) && npm run format:check
+
+format-check-all: format-check format-check-frontend ## Verify all formatting (CI)
+	@echo "All formatting clean."
 
 clean: ## Remove build artifacts and Python caches
 	rm -rf $(FRONTEND_DIR)/dist $(FRONTEND_DIR)/node_modules/.vite

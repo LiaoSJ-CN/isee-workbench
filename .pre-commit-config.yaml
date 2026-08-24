@@ -41,9 +41,10 @@ repos:
       - id: ruff-format
         files: ^backend/
 
-  # Frontend: ESLint with `--fix` against the existing config. We don't
-  # run Prettier here — the project hasn't adopted it yet (planned for
-  # 批 10). ESLint catches the same formatting issues for now.
+  # Frontend: ESLint with `--fix` against the existing config, then
+  # Prettier as a separate hook so the codebase stays consistently
+  # formatted. ESLint handles lint rules; Prettier owns whitespace /
+  # quotes / trailing commas (matches `npm run format:check` in CI).
   - repo: https://github.com/pre-commit/mirrors-eslint
     rev: v9.13.0
     hooks:
@@ -58,3 +59,10 @@ repos:
           - eslint-plugin-react-refresh@^0.5
           - globals@^17
         # `npm ci` before this hook so the deps above resolve.
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0
+    hooks:
+      - id: prettier
+        files: ^frontend/src/.*\.(ts|tsx|css|json|md)$
+        additional_dependencies:
+          - prettier@^3.3

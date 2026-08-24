@@ -22,6 +22,8 @@ jobs:
       - run: pip install ruff
       # Scan app + tests so CI matches `make lint` (which scans `.`).
       - run: ruff check .
+      - name: ruff format check (no edits, exit non-zero on drift)
+        run: ruff format --check .
 
   backend-typecheck:
     runs-on: ubuntu-latest
@@ -80,6 +82,8 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run lint
+      - name: prettier check (no edits, exit non-zero on drift)
+        run: npm run format:check
 
   frontend-typecheck:
     runs-on: ubuntu-latest
@@ -127,6 +131,30 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm test
+
+  docs-vs-code:
+    # Drift guard: parses backend/app/config.py (Settings fields) and
+    # backend/app/routers/*.py (@router.X paths) and checks them against
+    # DEPLOY.md's env-var table and README.md's API table. Fails if any
+    # declared field/route isn't documented.
+    #
+    # Designed to be cheap (no DB, no pytest, no frontend build). Runs
+    # on every push; exit code = 0 only when docs and code are in sync.
+    # See scripts/diff_docs_vs_code.py for the implementation.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt pyproject.toml
+      - run: pip install -r requirements.txt
+      - name: Verify Settings fields + router paths are documented
+        run: python ../scripts/diff_docs_vs_code.py --strict
 
   backend-test-pg:
     # Cross-dialect smoke against PostgreSQL 16 (批 11.2 / P1-2).
