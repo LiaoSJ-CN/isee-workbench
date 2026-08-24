@@ -230,6 +230,18 @@ export default function AuditLogPage() {
           onFinish={handleSearch}
           initialValues={{}}
         >
+          {/* Filter form order mirrors the table column order top-to-bottom
+              (时间 → 操作者 → 操作 → 对象 → IP → 请求 ID) so an admin can
+              scan both in the same direction. P3-1 originally inserted
+              ``请求 ID`` / ``IP`` *before* 时间范围 and in the reverse of
+              the table; this realignment landed after the user review. */}
+          <Form.Item name="range" label="时间范围" style={{ width: 320 }}>
+            <RangePicker
+              showTime={{ format: 'HH:mm' }}
+              format="YYYY-MM-DD HH:mm"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
           <Form.Item name="actor_user_id" label="操作者 ID" style={{ width: 160 }}>
             <InputNumber
               placeholder="用户 ID"
@@ -258,18 +270,11 @@ export default function AuditLogPage() {
           <Form.Item name="target_id" label="对象 ID" style={{ width: 160 }}>
             <InputNumber placeholder="对象 ID" min={1} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="request_id" label="请求 ID" style={{ width: 200 }}>
-            <Input placeholder="如 abc12345..." allowClear />
-          </Form.Item>
           <Form.Item name="ip_address" label="客户端 IP" style={{ width: 180 }}>
             <Input placeholder="如 10.0.0.5" allowClear />
           </Form.Item>
-          <Form.Item name="range" label="时间范围" style={{ width: 320 }}>
-            <RangePicker
-              showTime={{ format: 'HH:mm' }}
-              format="YYYY-MM-DD HH:mm"
-              style={{ width: '100%' }}
-            />
+          <Form.Item name="request_id" label="请求 ID" style={{ width: 200 }}>
+            <Input placeholder="如 abc12345..." allowClear />
           </Form.Item>
           <Form.Item>
             <Space>

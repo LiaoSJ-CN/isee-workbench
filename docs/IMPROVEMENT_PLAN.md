@@ -1297,6 +1297,45 @@ npx playwright test                     # smoke 全过
 - `npx vitest run` 45/45（之前 41 + P3-1 新增 4）
 - 后端未动，pytest 仍 674 + 4 skipped
 
+### P3-1 后续：filter form order 与 table 列顺序对齐 — 2026-08-24
+
+**问题**：P3-1 commit `03e60e9` 把 `请求 ID` / `客户端 IP` 两个 Form.Item 插在 `时间范围` *之前*，顺序是 `请求 ID → 客户端 IP`。但 table 列顺序是 `IP → 请求 ID`（table 早于 P3-1 就这样排了）。Admin 用 filter 时眼要从左扫到右再回到上面 filter form，方向反转 + 字段顺序反转——对齐反了。
+
+**修法**：把 filter form 重排成 mirror table column order：
+
+| Filter form 顺序 | Table 列顺序 |
+|---|---|
+| 时间范围 (320) | 时间 (180) |
+| 操作者 ID (160) | 操作者 (140) |
+| 操作 (220) | 操作 (200) |
+| 对象类型 (200) | 对象 (220) |
+| 对象 ID (160) |  |
+| 客户端 IP (180) | IP (130) |
+| 请求 ID (200) | 请求 ID (140) |
+
+`操作者 ID` / `对象 ID` 在 filter 是拆成两个 Form.Item（一个 number input），在 table 合成一个 column，但概念顺序一致。`时间范围` 从末位移到首位——admin 排查时第一反应"什么时间段的日志"，跟 table 第一列 `时间` 对齐。
+
+**`frontend/src/pages/AuditLogPage.tsx`** — Form.Item 块重排。Form.Item 属性 / width / placeholder 一字未改，只动 `Form.Item` 在 `<Form>` 里的物理位置。Width 总和不变（1440px），inline layout 视觉宽度分配不变。
+
+**为什么不动 test**：4 个 vitest 用 `getByPlaceholderText(/abc12345/)` / `getByPlaceholderText(/10\.0\.0\.5/)` 锁定两个新字段的 placeholder——和顺序无关，重排后 4/4 仍过。
+
+**Sweep 确认其他 list 页无同类问题**：
+
+| Page | 有 filter form? | 问题? |
+|---|---|---|
+| DataSourceList | 无（只有 Table + 新建按钮） | n/a |
+| ReportList | 无（Table + 新建按钮） | n/a |
+| Scheduler | 无（双 Card + Table） | n/a |
+| MySubscriptions | 无（owner-scoped 列表，不需要 client filter） | n/a |
+| DataExplorer | 1 个 Select（history 按数据源过滤），放在 Card `extra` 槽 | 单字段，antd 规范位置，无对齐问题 |
+| AuditLogPage | **7 inline Form.Item** | **本次修** |
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45（4 AuditLog 测试无改动仍过）
+- 后端未动
+
 ### P3-2 ✅ (no-op)：ReportEditor import path 统一 — 2026-08-24
 
 **问题**：plan 描述 `pages/ReportEditor/` 7 文件混相对/绝对路径，要统一。
