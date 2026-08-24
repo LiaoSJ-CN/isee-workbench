@@ -229,12 +229,25 @@ export default function AuditLogPage() {
           layout="inline"
           onFinish={handleSearch}
           initialValues={{}}
+          // Uniform label width across the whole filter form so labels
+          // right-align at the same x and inputs left-align at the same
+          // x — earlier varying ``Form.Item width`` (160 / 180 / 200 / 220
+          // / 320) made labels and inputs stagger as the row wrapped.
+          labelCol={{ style: { width: 80 } }}
         >
           {/* Filter form order mirrors the table column order top-to-bottom
               (时间 → 操作者 → 操作 → 对象 → IP → 请求 ID) so an admin can
-              scan both in the same direction. P3-1 originally inserted
-              ``请求 ID`` / ``IP`` *before* 时间范围 and in the reverse of
-              the table; this realignment landed after the user review. */}
+              scan both in the same direction. Layout:
+                Row 1: 时间范围 (320px, owns the row because the
+                  showTime range picker is unreadable below ~300px).
+                Row 2..: 6 filters + buttons, all width 240, so every
+                  label right-aligns at x=80 and every input left-aligns
+                  at x=88 across wrapped sub-rows.
+              The empty ``flexBasis: 100%`` div is a flexbox row-break
+              that forces the next Form.Item onto a new line — without it
+              the 320-wide range would sit next to a 240-wide filter and
+              the wrapping point would shift around as the viewport
+              resized. */}
           <Form.Item name="range" label="时间范围" style={{ width: 320 }}>
             <RangePicker
               showTime={{ format: 'HH:mm' }}
@@ -242,14 +255,15 @@ export default function AuditLogPage() {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="actor_user_id" label="操作者 ID" style={{ width: 160 }}>
+          <div style={{ flexBasis: '100%', height: 0 }} />
+          <Form.Item name="actor_user_id" label="操作者 ID" style={{ width: 240 }}>
             <InputNumber
               placeholder="用户 ID"
               min={1}
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="action" label="操作" style={{ width: 220 }}>
+          <Form.Item name="action" label="操作" style={{ width: 240 }}>
             <Select
               allowClear
               showSearch
@@ -258,7 +272,7 @@ export default function AuditLogPage() {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="target_type" label="对象类型" style={{ width: 200 }}>
+          <Form.Item name="target_type" label="对象类型" style={{ width: 240 }}>
             <Select
               allowClear
               showSearch
@@ -267,13 +281,13 @@ export default function AuditLogPage() {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="target_id" label="对象 ID" style={{ width: 160 }}>
+          <Form.Item name="target_id" label="对象 ID" style={{ width: 240 }}>
             <InputNumber placeholder="对象 ID" min={1} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="ip_address" label="客户端 IP" style={{ width: 180 }}>
+          <Form.Item name="ip_address" label="客户端 IP" style={{ width: 240 }}>
             <Input placeholder="如 10.0.0.5" allowClear />
           </Form.Item>
-          <Form.Item name="request_id" label="请求 ID" style={{ width: 200 }}>
+          <Form.Item name="request_id" label="请求 ID" style={{ width: 240 }}>
             <Input placeholder="如 abc12345..." allowClear />
           </Form.Item>
           <Form.Item>

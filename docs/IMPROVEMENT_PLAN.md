@@ -1336,6 +1336,34 @@ npx playwright test                     # smoke 全过
 - `npx vitest run` 45/45（4 AuditLog 测试无改动仍过）
 - 后端未动
 
+### P3-1 后续 2：filter form width 对齐 — 2026-08-24
+
+**问题**：上一个修 (`565e752`) 只调了字段顺序，但 Form.Item 宽度还是各异（160 / 180 / 200 / 220 / 320）。Inline form 里每个 Form.Item 是独立 inline-block，宽度不一 → label 右边缘 + input 左边缘在 row wrap 后位置错开（"还是歪的"反馈）。
+
+**修法**：
+
+1. **`<Form>` 加 `labelCol={{ style: { width: 80 } }}`** —— 所有 label 在同一 x 位置右对齐（label 容器固定 80px）。
+2. **6 个非 range 字段统一 `style.width: 240`** —— label(80) + input(~144) + gap(16) = 240。同一 row wrap 后，label / input 的 x 位置在每个 sub-row 一样。
+3. **`时间范围` 单独占第一行** —— 加 `<div style={{ flexBasis: '100%', height: 0 }} />` 在 RangePicker 后强制换行。RangePicker with `showTime` + `format="YYYY-MM-DD HH:mm"` 至少要 ~300px 才不裁字，没法压到 240 跟其他对齐。
+
+**最终 layout**：
+
+```
+Row 1: [时间范围 320px ──────────────────]            ← 强调时间窗
+Row 2: [操作者 ID 240] [操作 240] [对象类型 240]     ← 6 个同宽 filter
+Row 3: [对象 ID 240] [IP 240] [请求 ID 240] [按钮]    ← 对应 240 栅格
+（窄屏下 Row 2/3 会再 wrap，但同 row 内 240px 一致，label / input 仍在同 x）
+```
+
+**为什么不用 `<Row>` + `<Col>` 重写整个 form**：surgical 原则——inline form + flex-basis row break 是 antd v5 标准的窄 / 单行表单做法，不引入 Grid 子系统。`getByPlaceholderText` 测试不受影响。
+
+**`frontend/src/pages/AuditLogPage.tsx`** — `Form` props + 7 个 `Form.Item.style.width` + 1 个 `<div>` row-break。Test 4 个 0 改动全过。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45（4 AuditLog 测试 0 改动仍过）
+
 ### P3-2 ✅ (no-op)：ReportEditor import path 统一 — 2026-08-24
 
 **问题**：plan 描述 `pages/ReportEditor/` 7 文件混相对/绝对路径，要统一。
