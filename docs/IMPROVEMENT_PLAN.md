@@ -1223,7 +1223,43 @@ npx playwright test                     # smoke 全过
 - ruff / mypy 全 0
 - 手动跑两个脚本：`seed_erp_demo.py` 完成 12 表 + ~400 行；`seed_reports.py` 完成 DataSource 'sqlite_demo' (id=200) + 3 张示例报表
 
-| P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
+### P3-5 ✅ (no-op)：antd-vendor chunk 阈值 — 2026-08-24
+
+**问题**：plan 描述 "antd-vendor 1.22 MB raw / 372 KB gzip 单独超 500 KB，按 chunk 单独设阈值更合理"。
+
+**根因分析**：plan 条目基于一个错误假设——以为 Vite 可以按 chunk 单独配 threshold 或按 chunk filter onwarn。实际查 Vite 8 源码（`node_modules/vite/dist/node/chunks/node.js:2585` `chunkLimit: env.config.build.chunkSizeWarningLimit` + `:2588` `warnLargeChunks: env.config.build.minify && ...`）：
+
+- **reporter 是 native binding (`native:reporter`)**——不是 JS plugin，没有 `code` 字段
+- **只发一条 aggregate warning**："(!) Some chunks are larger than {chunkSizeWarningLimit} kB..." + 3 行建议
+- **message 里没有 chunk 列表**——onwarn 拿到的只是一个字符串，无法按 chunk 区分
+- `rollupOptions.onwarn` 存在（`node.js:33374`），但接收的是 normalized `{ message }` 对象，过滤只能看字符串匹配
+
+**所以"按 chunk 单独设阈值"在这个版本不可行**——要么用 single threshold 静默所有超限 chunk，要么不过滤。两者都不是 plan 想要的。
+
+**当前实现 `chunkSizeWarningLimit: 1300`（批 10 `f871fb9`）其实是最优解**：
+
+| Chunk | Size (raw / gzip) | vs 1300 KB |
+|---|---|---|
+| `antd-vendor` | 1224.93 KB / 372.40 KB | 沉默 ✓ (intentional shared dep) |
+| `cm-sql` | 365.53 KB / 116.50 KB | 沉默 ✓ (route-local, lazy) |
+| 其他 vendor chunks | < 60 KB | 沉默 ✓ |
+| **未来任何 chunk > 1300 KB** | — | **触发 warning** ✓ (real regression signal) |
+
+1300 KB 的边界选得很合理：
+- 远大于 `antd-vendor` 实际尺寸（1225 KB），所以已知的 intentional 大 chunk 不报警
+- 远小于 SPA 批 10 之前的 main bundle（1.88 MB raw），所以"unintentional 大 chunk 出现"一定会报警
+- 接近"单 chunk 上限"——任何 split 失败的 chunk 都会触发
+
+**为什么 1300 比"500 + onwarn 静默 antd-vendor"好**：
+- 后者要么静默全部（失去 regression signal），要么用字符串匹配 `message.includes('antd-vendor')` 但 message 根本没这个关键词
+- 1300 是 quantitative bound——不需要 name-based filtering
+
+**做了什么**：0 行代码改动。`vite.config.ts` 现状保留（threshold=1300 + 注释已经解释过原因，在 commit `f871fb9` 加的）。本批只核查"plan 假设是否成立"+ 加本条 ✅ 让后续 audit 知道"已经分析过 Vite 8 不支持 per-chunk threshold"。
+
+**验证基线**：
+- `npm run build` 0 warning ✓（实测）
+- vite.config.ts 未动
+- 没有新代码 / 没有新测试
 
 ### P3-1 ✅：Audit log UI 快速链接 — 2026-08-24
 
