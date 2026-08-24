@@ -93,13 +93,9 @@ def render_pdf(
     """
     weasyprint = _load_weasyprint()
 
-    html_content = render_html(
-        data, report, base_url=base_url, errors=errors
-    )
+    html_content = render_html(data, report, base_url=base_url, errors=errors)
     try:
         pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
     except (ValueError, OSError) as exc:
-        raise ReportGeneratorError(
-            f"Failed to render PDF: {exc}"
-        ) from exc
+        raise ReportGeneratorError(f"Failed to render PDF: {exc}") from exc
     return bytes(pdf_bytes)

@@ -240,9 +240,7 @@ def test_enqueue_rejects_html_format(db_setup: Any, stub_report: Report) -> None
         )
 
 
-def test_enqueue_rejects_unknown_format(
-    db_setup: Any, stub_report: Report
-) -> None:
+def test_enqueue_rejects_unknown_format(db_setup: Any, stub_report: Report) -> None:
     """Anything outside 'excel' / 'pdf' raises ValueError (router → 400)."""
     db, user = db_setup
     with pytest.raises(ValueError):
@@ -418,9 +416,7 @@ def test_sync_export_pdf_serves_application_pdf(
         target.write_bytes(fake_pdf)
         return {"file_path": str(target)}
 
-    monkeypatch.setattr(
-        "app.routers.report.generate_report", fake_generate
-    )
+    monkeypatch.setattr("app.routers.report.generate_report", fake_generate)
 
     try:
         r = client.get(

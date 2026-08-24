@@ -56,8 +56,7 @@ def temp_data_source_for_reports():
             db.add(r)
         db.commit()
         report_ids = [
-            row.id
-            for row in db.query(Report).filter(Report.data_source_id == ds_id).all()
+            row.id for row in db.query(Report).filter(Report.data_source_id == ds_id).all()
         ]
         yield ds_id, report_ids
     finally:
@@ -196,9 +195,7 @@ def test_list_data_sources_limit_offset(
         assert body2[0]["id"] != body1[0]["id"]
 
 
-def test_list_data_sources_offset_past_end_is_empty(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_list_data_sources_offset_past_end_is_empty(client: TestClient, auth_headers: dict) -> None:
     r = client.get(
         "/data-sources",
         headers=auth_headers,
@@ -208,17 +205,13 @@ def test_list_data_sources_offset_past_end_is_empty(
     assert r.json() == []
 
 
-def test_list_data_sources_invalid_limit_is_422(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_list_data_sources_invalid_limit_is_422(client: TestClient, auth_headers: dict) -> None:
     r1 = client.get("/data-sources", headers=auth_headers, params={"limit": 0})
     assert r1.status_code == 422
     r2 = client.get("/data-sources", headers=auth_headers, params={"limit": 501})
     assert r2.status_code == 422
 
 
-def test_list_data_sources_invalid_offset_is_422(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_list_data_sources_invalid_offset_is_422(client: TestClient, auth_headers: dict) -> None:
     r = client.get("/data-sources", headers=auth_headers, params={"offset": -1})
     assert r.status_code == 422

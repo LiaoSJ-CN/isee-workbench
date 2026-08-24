@@ -167,13 +167,9 @@ def _make_report(
 
 def _cleanup(db: Session, report_id: int, ds_id: int) -> None:
     db.query(ReportJob).filter(ReportJob.report_id == report_id).delete()
-    db.query(ReportAccess).filter(
-        ReportAccess.report_id == report_id
-    ).delete()
+    db.query(ReportAccess).filter(ReportAccess.report_id == report_id).delete()
     db.query(Report).filter(Report.id == report_id).delete()
-    db.query(DataSourceAccess).filter(
-        DataSourceAccess.data_source_id == ds_id
-    ).delete()
+    db.query(DataSourceAccess).filter(DataSourceAccess.data_source_id == ds_id).delete()
     db.query(DataSource).filter(DataSource.id == ds_id).delete()
     db.commit()
 
@@ -214,9 +210,7 @@ def test_existing_reports_owned_by_admin_after_migration(
     pre-existing report and check both fields."""
     # Grab any existing report from the dev DB (we don't seed any
     # ourselves — there are leftovers from earlier test runs).
-    r = client.get(
-        "/reports", headers=auth_headers, params={"limit": 1}
-    )
+    r = client.get("/reports", headers=auth_headers, params={"limit": 1})
     assert r.status_code == 200
     rows = r.json()
     if not rows:
@@ -244,7 +238,9 @@ def test_private_report_invisible_to_other_user(
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     _grant_ds_read(db, a_ds, user_b)
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     rep_name = str(a_rep.name)
@@ -273,7 +269,9 @@ def test_public_report_visible_to_anyone(
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     _grant_ds_read(db, a_ds, user_b)
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="public",
     )
     rep_name = str(a_rep.name)
@@ -299,13 +297,13 @@ def test_get_private_returns_404_for_other_user(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
-        r = client.get(
-            f"/reports/{a_rep.id}", headers=_auth_for(user_b)
-        )
+        r = client.get(f"/reports/{a_rep.id}", headers=_auth_for(user_b))
         assert r.status_code == 404
         assert r.json()["detail"] == "Report not found"
     finally:
@@ -327,13 +325,13 @@ def test_public_visible_to_other_user_but_readonly(
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     _grant_ds_read(db, a_ds, user_b)
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="public",
     )
     try:
-        r_get = client.get(
-            f"/reports/{a_rep.id}", headers=_auth_for(user_b)
-        )
+        r_get = client.get(f"/reports/{a_rep.id}", headers=_auth_for(user_b))
         assert r_get.status_code == 200
 
         r_put = client.put(
@@ -356,13 +354,13 @@ def test_admin_can_get_any_report(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
-        r = client.get(
-            f"/reports/{a_rep.id}", headers=auth_headers
-        )
+        r = client.get(f"/reports/{a_rep.id}", headers=auth_headers)
         assert r.status_code == 200
     finally:
         _cleanup(db, int(a_rep.id), int(a_ds.id))
@@ -383,7 +381,9 @@ def test_read_grant_lets_user_get_but_not_update(
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     _grant_ds_read(db, a_ds, user_b)
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
@@ -393,9 +393,7 @@ def test_read_grant_lets_user_get_but_not_update(
             headers=_auth_for(user_a),
         )
 
-        r_get = client.get(
-            f"/reports/{a_rep.id}", headers=_auth_for(user_b)
-        )
+        r_get = client.get(f"/reports/{a_rep.id}", headers=_auth_for(user_b))
         assert r_get.status_code == 200
 
         r_put = client.put(
@@ -430,7 +428,9 @@ def test_write_grant_lets_user_update_but_not_delete(
     )
     db.commit()
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
@@ -448,9 +448,7 @@ def test_write_grant_lets_user_update_but_not_delete(
         assert r_put.status_code == 200
         assert r_put.json()["description"] == "B updated"
 
-        r_del = client.delete(
-            f"/reports/{a_rep.id}", headers=_auth_for(user_b)
-        )
+        r_del = client.delete(f"/reports/{a_rep.id}", headers=_auth_for(user_b))
         assert r_del.status_code == 404
     finally:
         _cleanup(db, int(a_rep.id), int(a_ds.id))
@@ -465,16 +463,16 @@ def test_owner_can_delete_their_own_report(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     rid = int(a_rep.id)
     r = client.delete(f"/reports/{rid}", headers=_auth_for(user_a))
     assert r.status_code == 204
     # Cleanup DS (report already gone via DELETE).
-    db.query(DataSourceAccess).filter(
-        DataSourceAccess.data_source_id == int(a_ds.id)
-    ).delete()
+    db.query(DataSourceAccess).filter(DataSourceAccess.data_source_id == int(a_ds.id)).delete()
     db.query(DataSource).filter(DataSource.id == int(a_ds.id)).delete()
     db.commit()
 
@@ -493,13 +491,13 @@ def test_share_endpoint_owner_only(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     other_username = _unique("pytest_rpt_target")
-    target = User(
-        username=other_username, password_hash="x", role=ROLE_VIEWER
-    )
+    target = User(username=other_username, password_hash="x", role=ROLE_VIEWER)
     db.add(target)
     db.commit()
     db.refresh(target)
@@ -531,7 +529,9 @@ def test_share_endpoint_rejects_nonexistent_target_user(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
@@ -557,7 +557,9 @@ def test_share_upsert_same_pair_overwrites_permission(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
@@ -591,7 +593,9 @@ def test_revoke_share_owner_or_admin_only(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
@@ -602,9 +606,7 @@ def test_revoke_share_owner_or_admin_only(
         )
         sid = r_grant.json()["id"]
 
-        r_del = client.delete(
-            f"/reports/shares/{sid}", headers=_auth_for(user_b)
-        )
+        r_del = client.delete(f"/reports/shares/{sid}", headers=_auth_for(user_b))
         assert r_del.status_code == 404
     finally:
         _cleanup(db, int(a_rep.id), int(a_ds.id))
@@ -623,7 +625,9 @@ def test_scheduler_requires_report_write_acl(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     try:
@@ -665,7 +669,9 @@ def test_jobs_get_requires_report_read_acl(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_rep = _make_report(
-        db, owner_user_id=int(user_a.id), ds_id=int(a_ds.id),
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
         visibility="private",
     )
     job = ReportJob(

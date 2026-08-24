@@ -43,9 +43,22 @@ _SAFE_ID = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,15}", fullmatch=True)
 # reject anything that starts with these, regardless of what follows.
 _FORBIDDEN_KEYWORDS = st.sampled_from(
     [
-        "DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE",
-        "ALTER", "CREATE", "GRANT", "REVOKE", "COPY",
-        "CALL", "SET", "PRAGMA", "LOCK", "VACUUM", "REINDEX",
+        "DROP",
+        "DELETE",
+        "UPDATE",
+        "INSERT",
+        "TRUNCATE",
+        "ALTER",
+        "CREATE",
+        "GRANT",
+        "REVOKE",
+        "COPY",
+        "CALL",
+        "SET",
+        "PRAGMA",
+        "LOCK",
+        "VACUUM",
+        "REINDEX",
     ]
 )
 
@@ -154,10 +167,7 @@ def test_validate_select_only_never_raises_non_unsafe_error(s: str) -> None:
     except UnsafeSQLError:
         pass  # Expected rejection.
     except Exception as exc:  # noqa: BLE001 — intentional broad catch
-        pytest.fail(
-            f"validate_select_only raised unexpected exception "
-            f"{type(exc).__name__}: {exc}"
-        )
+        pytest.fail(f"validate_select_only raised unexpected exception {type(exc).__name__}: {exc}")
 
 
 @given(_FORBIDDEN_KEYWORDS, _SQL_TAIL)
@@ -168,12 +178,16 @@ def test_validate_select_only_rejects_forbidden_keywords(kw: str, tail: str) -> 
         validate_select_only(sql)
 
 
-@given(st.sampled_from([
-    "SELECT 1",
-    "SELECT a, b FROM t",
-    "WITH x AS (SELECT 1) SELECT * FROM x",
-    "SELECT 1 UNION SELECT 2",
-]))
+@given(
+    st.sampled_from(
+        [
+            "SELECT 1",
+            "SELECT a, b FROM t",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "SELECT 1 UNION SELECT 2",
+        ]
+    )
+)
 def test_validate_select_only_accepts_basic_selects(sql: str) -> None:
     """Sanity: canonical safe SELECTs are accepted."""
     # validate_select_only returns None on success; no exception means OK.
@@ -197,9 +211,7 @@ def test_validate_select_only_accepts_basic_selects(sql: str) -> None:
         max_size=3,
     ),
 )
-def test_substitute_parameters_never_raises_non_unsafe_error(
-    sql: str, params: dict
-) -> None:
+def test_substitute_parameters_never_raises_non_unsafe_error(sql: str, params: dict) -> None:
     """For any (sql, params) input, returns a (str, dict) tuple OR raises
     ``UnsafeSQLError``; no other exception type may leak out.
     """
@@ -211,8 +223,7 @@ def test_substitute_parameters_never_raises_non_unsafe_error(
         pass
     except Exception as exc:  # noqa: BLE001 — intentional broad catch
         pytest.fail(
-            f"substitute_parameters raised unexpected exception "
-            f"{type(exc).__name__}: {exc}"
+            f"substitute_parameters raised unexpected exception {type(exc).__name__}: {exc}"
         )
 
 

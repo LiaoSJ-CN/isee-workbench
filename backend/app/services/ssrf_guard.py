@@ -88,16 +88,12 @@ def validate_webhook_url(url: str) -> None:
     try:
         infos = socket.getaddrinfo(hostname, None)
     except socket.gaierror as exc:
-        raise SSRFBlocked(
-            f"DNS resolution failed for {hostname!r}: {exc}"
-        ) from exc
+        raise SSRFBlocked(f"DNS resolution failed for {hostname!r}: {exc}") from exc
 
     for info in infos:
         addr = str(info[4][0])
         if _ip_is_blocked(addr):
-            raise SSRFBlocked(
-                f"hostname {hostname!r} resolves to blocked address {addr}"
-            )
+            raise SSRFBlocked(f"hostname {hostname!r} resolves to blocked address {addr}")
 
 
 # ---------------------------------------------------------------------------

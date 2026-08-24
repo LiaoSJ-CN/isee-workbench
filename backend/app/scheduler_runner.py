@@ -42,9 +42,7 @@ def run(
 
     stop = stop_event or threading.Event()
     interval = (
-        resync_interval
-        if resync_interval is not None
-        else settings.scheduler_resync_interval
+        resync_interval if resync_interval is not None else settings.scheduler_resync_interval
     )
     logger.info("Scheduler sidecar started; re-syncing every %ss", interval)
 

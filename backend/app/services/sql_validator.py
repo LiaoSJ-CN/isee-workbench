@@ -47,6 +47,7 @@ def _reject(rule: str, message: str) -> NoReturn:
     sql_validator_rejections_total.labels(rule=rule).inc()
     raise UnsafeSQLError(message)
 
+
 # ---------- public error type ----------
 
 
@@ -59,11 +60,23 @@ class UnsafeSQLError(ValueError):
 
 ALLOWED_WHERE_OPERATORS: Final[frozenset[str]] = frozenset(
     {
-        "=", "!=", "<>", "<", "<=", ">", ">=",
-        "LIKE", "ILIKE", "NOT LIKE", "NOT ILIKE",
-        "IN", "NOT IN",
-        "IS NULL", "IS NOT NULL",
-        "BETWEEN", "NOT BETWEEN",
+        "=",
+        "!=",
+        "<>",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "LIKE",
+        "ILIKE",
+        "NOT LIKE",
+        "NOT ILIKE",
+        "IN",
+        "NOT IN",
+        "IS NULL",
+        "IS NOT NULL",
+        "BETWEEN",
+        "NOT BETWEEN",
     }
 )
 
@@ -78,19 +91,32 @@ ALLOWED_WHERE_OPERATORS: Final[frozenset[str]] = frozenset(
 # ``CALL my_proc``, ``EXPLAIN ANALYZE …``) — the only safe default
 # is to reject it because we can't verify what it would execute.
 _FORBIDDEN_NODE_KINDS: Final[frozenset[str]] = frozenset(
-    k.lower() for k in (
+    k.lower()
+    for k in (
         # DML
-        "Insert", "Update", "Delete", "Merge",
+        "Insert",
+        "Update",
+        "Delete",
+        "Merge",
         # DDL
-        "Drop", "TruncateTable",
-        "Alter", "Create",
-        "Grant", "Revoke",
+        "Drop",
+        "TruncateTable",
+        "Alter",
+        "Create",
+        "Grant",
+        "Revoke",
         # admin / session
-        "Copy", "Call",
-        "Set", "Pragma", "Lock",
-        "Vacuum", "Reindex",
+        "Copy",
+        "Call",
+        "Set",
+        "Pragma",
+        "Lock",
+        "Vacuum",
+        "Reindex",
         # sqlglot fallbacks
-        "Command", "Describe", "Use",
+        "Command",
+        "Describe",
+        "Use",
     )
 )
 
@@ -359,9 +385,7 @@ def build_safe_where_clause(
     return f"{field} {op_upper} :{name}", param_index
 
 
-def substitute_parameters(
-    sql: str, parameters: dict[str, Any]
-) -> tuple[str, dict[str, Any]]:
+def substitute_parameters(sql: str, parameters: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Replace ``{key}`` placeholders in ``sql`` with ``:key`` binds.
 
     The values from ``parameters`` are returned in a params dict for

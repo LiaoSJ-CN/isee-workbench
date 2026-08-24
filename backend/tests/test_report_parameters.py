@@ -278,9 +278,7 @@ def test_delete_param_204_then_get_404(
     client: TestClient, auth_headers: dict, temp_report_with_params
 ) -> None:
     rep_id, param_ids = temp_report_with_params
-    r = client.delete(
-        f"/reports/{rep_id}/parameters/{param_ids[2]}", headers=auth_headers
-    )
+    r = client.delete(f"/reports/{rep_id}/parameters/{param_ids[2]}", headers=auth_headers)
     assert r.status_code == 204
     r = client.get(f"/reports/{rep_id}/parameters", headers=auth_headers)
     assert r.status_code == 200
@@ -291,14 +289,20 @@ def test_delete_param_204_then_get_404(
 def test_param_endpoints_require_auth(client: TestClient) -> None:
     # No auth headers → 401 across all four endpoints.
     assert client.get("/reports/1/parameters").status_code == 401
-    assert client.post(
-        "/reports/1/parameters",
-        json={"type": "string", "name": "x", "label": "X"},
-    ).status_code == 401
-    assert client.put(
-        "/reports/1/parameters/1",
-        json={"label": "X"},
-    ).status_code == 401
+    assert (
+        client.post(
+            "/reports/1/parameters",
+            json={"type": "string", "name": "x", "label": "X"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.put(
+            "/reports/1/parameters/1",
+            json={"label": "X"},
+        ).status_code
+        == 401
+    )
     assert client.delete("/reports/1/parameters/1").status_code == 401
 
 

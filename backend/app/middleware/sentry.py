@@ -88,9 +88,7 @@ def _filter_event(event: Any, _hint: dict[str, Any]) -> Any:
     return event
 
 
-def _filter_transaction(
-    event: Any, _hint: dict[str, Any]
-) -> Any:
+def _filter_transaction(event: Any, _hint: dict[str, Any]) -> Any:
     """Stamp request_id on performance transactions too."""
     _stamp_request_id(event)
     return event

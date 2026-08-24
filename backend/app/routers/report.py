@@ -144,9 +144,11 @@ def update_report_item(
     if report is None:
         raise _report_not_found()
 
-    item = db.query(ReportItem).filter(
-        ReportItem.id == item_id, ReportItem.report_id == report_id
-    ).first()
+    item = (
+        db.query(ReportItem)
+        .filter(ReportItem.id == item_id, ReportItem.report_id == report_id)
+        .first()
+    )
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report item not found")
 
@@ -185,9 +187,11 @@ def delete_report_item(
     if report is None:
         raise _report_not_found()
 
-    item = db.query(ReportItem).filter(
-        ReportItem.id == item_id, ReportItem.report_id == report_id
-    ).first()
+    item = (
+        db.query(ReportItem)
+        .filter(ReportItem.id == item_id, ReportItem.report_id == report_id)
+        .first()
+    )
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report item not found")
 
@@ -253,17 +257,13 @@ def reorder_report_items(
     # new order_index) so the audit row captures the full reordering,
     # not per-row changes. ``target_type`` is the report (not item)
     # because the resource being acted on is the report's order.
-    before_order = sorted(
-        (cast(int, row.id), cast(int, row.order_index)) for row in rows
-    )
+    before_order = sorted((cast(int, row.id), cast(int, row.order_index)) for row in rows)
 
     index_by_id = {e.item_id: e.order_index for e in payload.items}
     for row in rows:
         row.order_index = index_by_id[cast(int, row.id)]
     db.commit()
-    after_order = sorted(
-        (cast(int, row.id), cast(int, row.order_index)) for row in rows
-    )
+    after_order = sorted((cast(int, row.id), cast(int, row.order_index)) for row in rows)
     audit_service.log(
         db,
         actor_user_id=cast(int, user.id),
@@ -300,9 +300,7 @@ def list_reports(
     filters. ``X-Total-Count`` reports the post-ACL total so the
     frontend can drive a pager.
     """
-    rows = list_accessible_reports(
-        db, user, is_active=is_active, data_source_id=data_source_id
-    )
+    rows = list_accessible_reports(db, user, is_active=is_active, data_source_id=data_source_id)
     response.headers["X-Total-Count"] = str(len(rows))
     # Stable order so offset+limit produces consistent pages.
     return rows[offset : offset + limit]
@@ -410,15 +408,11 @@ def duplicate_report_endpoint(
     """
     body = payload or ReportDuplicateRequest()
     try:
-        original, clone = duplicate_report(
-            db, report_id, user, new_name=body.name
-        )
+        original, clone = duplicate_report(db, report_id, user, new_name=body.name)
     except LookupError:
         raise _report_not_found()
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     db.commit()
     db.refresh(clone)
     # 批 9.5: audit the duplicate. ``before`` = original (a fresh

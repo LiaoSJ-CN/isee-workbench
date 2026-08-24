@@ -15,6 +15,7 @@ from app.services.report_generator import ReportGenerator, _safe_filename
 
 # ---------- _safe_filename (path traversal prevention) ----------
 
+
 @pytest.mark.parametrize(
     "raw,must_contain",
     [
@@ -49,6 +50,7 @@ def test_safe_filename_length_capped() -> None:
 # mirrors these field names; if anyone flips Pydantic to populate_by_name=True
 # or extra='allow', these assertions will fail instead of silently accepting
 # camelCase keys (which used to drop chart toggles on save — see #12).
+
 
 def test_display_config_accepts_snake_case_fields() -> None:
     cfg = DisplayConfig(
@@ -87,6 +89,7 @@ def test_display_config_extra_keys_present_in_model_dump() -> None:
 
 
 # ---------- build_query ----------
+
 
 def _gen() -> ReportGenerator:
     """Build a generator without touching DB / network."""
@@ -216,7 +219,7 @@ def test_build_query_custom_sql_uses_substitution() -> None:
 # ---------- render_html (XSS escaping surface) ----------
 
 SCRIPT_TAG = "<script>alert(1)</script>"
-IMG_TAG = '<img src=x onerror=alert(2)>'
+IMG_TAG = "<img src=x onerror=alert(2)>"
 QUOTES = "<'\"&>"
 
 

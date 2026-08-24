@@ -48,9 +48,7 @@ def validate_cron_expression(expression: str) -> None:
     """
     parts = expression.split()
     if len(parts) != 6:
-        raise InvalidCronExpression(
-            "Cron expression must have 6 fields: min hour dom mon dow year"
-        )
+        raise InvalidCronExpression("Cron expression must have 6 fields: min hour dom mon dow year")
     try:
         CronTrigger(
             minute=parts[0],
@@ -190,11 +188,15 @@ class ReportScheduler:
         db.expire_all()
 
         # Get all active scheduled reports from database
-        reports = db.query(Report).filter(
-            Report.is_scheduled == True,  # noqa: E712
-            Report.is_active == True,  # noqa: E712
-            Report.cron_expression.isnot(None),  # noqa: E712
-        ).all()
+        reports = (
+            db.query(Report)
+            .filter(
+                Report.is_scheduled == True,  # noqa: E712
+                Report.is_active == True,  # noqa: E712
+                Report.cron_expression.isnot(None),  # noqa: E712
+            )
+            .all()
+        )
         active_ids = {r.id for r in reports}
 
         failed = 0
@@ -222,7 +224,7 @@ class ReportScheduler:
             if not job_id.startswith("report_"):
                 continue
             try:
-                report_id = int(job_id[len("report_"):])
+                report_id = int(job_id[len("report_") :])
             except ValueError:
                 continue
             if report_id not in active_ids:
@@ -286,8 +288,7 @@ def _execute_scheduled_report(
             _send_notification(notification_config, report, generated_files)
 
         logger.info(
-            f"Completed scheduled report {report_id}, "
-            f"generated {len(generated_files)} files"
+            f"Completed scheduled report {report_id}, generated {len(generated_files)} files"
         )
 
     except Exception as exc:
@@ -383,7 +384,8 @@ def _send_notification(
         # swallow.
         logger.error(
             "Unknown notification_config type for report %s: %r",
-            report.id, notification_config,
+            report.id,
+            notification_config,
         )
 
 
@@ -435,8 +437,7 @@ def _send_feishu(
         validate_webhook_url(webhook_url)
     except SSRFBlocked as exc:
         logger.error(
-            f"Refusing Feishu webhook for report {report.id}: "
-            f"URL blocked by SSRF guard: {exc}"
+            f"Refusing Feishu webhook for report {report.id}: URL blocked by SSRF guard: {exc}"
         )
         webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
         return
@@ -465,9 +466,7 @@ def _send_feishu(
         logger.info(f"Sent Feishu notification for report {report.id}")
         webhook_delivery_attempts_total.labels(outcome="success").inc()
     except Exception as exc:
-        logger.error(
-            f"Failed to send Feishu notification for report {report.id}: {exc}"
-        )
+        logger.error(f"Failed to send Feishu notification for report {report.id}: {exc}")
         webhook_delivery_attempts_total.labels(outcome="http_error").inc()
 
 
@@ -500,8 +499,7 @@ def _send_wechatwork(
         validate_webhook_url(webhook_url)
     except SSRFBlocked as exc:
         logger.error(
-            f"Refusing WeChat Work webhook for report {report.id}: "
-            f"URL blocked by SSRF guard: {exc}"
+            f"Refusing WeChat Work webhook for report {report.id}: URL blocked by SSRF guard: {exc}"
         )
         webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
         return
@@ -522,9 +520,7 @@ def _send_wechatwork(
         logger.info(f"Sent WeChat Work notification for report {report.id}")
         webhook_delivery_attempts_total.labels(outcome="success").inc()
     except Exception as exc:
-        logger.error(
-            f"Failed to send WeChat Work notification for report {report.id}: {exc}"
-        )
+        logger.error(f"Failed to send WeChat Work notification for report {report.id}: {exc}")
         webhook_delivery_attempts_total.labels(outcome="http_error").inc()
 
 
@@ -607,9 +603,7 @@ def _send_email(
             with open(path, "rb") as fh:
                 data = fh.read()
         except OSError as exc:
-            logger.warning(
-                f"Skipping attachment {basename!r} for report {report.id}: {exc}"
-            )
+            logger.warning(f"Skipping attachment {basename!r} for report {report.id}: {exc}")
             continue
         msg.add_attachment(
             data,
@@ -647,25 +641,18 @@ def _send_email(
             if settings.smtp_user:
                 client.login(settings.smtp_user, settings.smtp_password)
             client.send_message(msg)
-        logger.info(
-            f"Sent email notification for report {report.id} to "
-            f"{len(to)} recipient(s)"
-        )
+        logger.info(f"Sent email notification for report {report.id} to {len(to)} recipient(s)")
         webhook_delivery_attempts_total.labels(outcome="success").inc()
     except smtplib.SMTPAuthenticationError as exc:
         # 535-class — credentials wrong / account locked. Operators
         # need to know the user/secret didn't take.
-        logger.error(
-            f"Email authentication failed for report {report.id}: {exc}"
-        )
+        logger.error(f"Email authentication failed for report {report.id}: {exc}")
         webhook_delivery_attempts_total.labels(outcome="smtp_auth").inc()
     except (smtplib.SMTPException, OSError) as exc:
         # Catch-all SMTP transport / network error. Keeps the report
         # tick moving even if the mail server is down — the user
         # sees the file in the run logs and we don't lose the report.
-        logger.error(
-            f"Failed to send email notification for report {report.id}: {exc}"
-        )
+        logger.error(f"Failed to send email notification for report {report.id}: {exc}")
         webhook_delivery_attempts_total.labels(outcome="email_error").inc()
 
 
@@ -732,9 +719,7 @@ def _send_webhook(
     if effective_secret:
         timestamp = str(int(datetime.now(timezone.utc).timestamp()))
         headers["X-Webhook-Timestamp"] = timestamp
-        headers["X-Webhook-Signature"] = _sign_payload(
-            payload, effective_secret, timestamp
-        )
+        headers["X-Webhook-Signature"] = _sign_payload(payload, effective_secret, timestamp)
 
     # --- Send with IP-pinned transport (PY-4) ---
     try:

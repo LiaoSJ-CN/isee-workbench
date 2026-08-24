@@ -111,11 +111,7 @@ def _wait_for_terminal(job_id: int, timeout: float = 5.0) -> ReportJob | None:
     try:
         while time.monotonic() < deadline:
             db.expire_all()
-            row = (
-                db.query(ReportJob)
-                .filter(ReportJob.id == job_id)
-                .one_or_none()
-            )
+            row = db.query(ReportJob).filter(ReportJob.id == job_id).one_or_none()
             if row is not None and row.status in (JOB_STATUS_DONE, JOB_STATUS_FAILED):
                 return row
             time.sleep(0.05)
@@ -135,9 +131,7 @@ def test_enqueue_creates_pending_row_and_submits(
     rid = temp_report_with_sqlite
     _futures.clear()
 
-    job = enqueue_report_job(
-        db=db, report_id=rid, output_format="excel", user=user, parameters={}
-    )
+    job = enqueue_report_job(db=db, report_id=rid, output_format="excel", user=user, parameters={})
     try:
         assert job.status == JOB_STATUS_PENDING
         assert job.report_id == rid
@@ -178,9 +172,7 @@ def test_enqueue_rejects_html_format(db_setup: Any) -> None:
         )
 
 
-def test_enqueue_submits_to_executor(
-    temp_report_with_sqlite: int, db_setup: Any
-) -> None:
+def test_enqueue_submits_to_executor(temp_report_with_sqlite: int, db_setup: Any) -> None:
     """End-to-end: executor actually picks up the task and finishes it.
 
     Uses a real :class:`ThreadPoolExecutor` so a wiring bug (e.g.
@@ -194,9 +186,7 @@ def test_enqueue_submits_to_executor(
     rid = temp_report_with_sqlite
     _futures.clear()
 
-    job = enqueue_report_job(
-        db=db, report_id=rid, output_format="excel", user=user, parameters={}
-    )
+    job = enqueue_report_job(db=db, report_id=rid, output_format="excel", user=user, parameters={})
 
     final = _wait_for_terminal(job.id)
     assert final is not None, "executor did not finish job within timeout"
@@ -231,9 +221,7 @@ def test_run_job_marks_failed_when_report_missing(db_setup: Any) -> None:
     assert job.finished_at is not None
 
 
-def test_run_job_records_started_and_finished(
-    temp_report_with_sqlite: int, db_setup: Any
-) -> None:
+def test_run_job_records_started_and_finished(temp_report_with_sqlite: int, db_setup: Any) -> None:
     """Running a job populates started_at / finished_at on the row."""
     db, _ = db_setup
     rid = temp_report_with_sqlite
@@ -267,11 +255,7 @@ def test_run_job_success_path(temp_report_with_sqlite: int, db_setup: Any) -> No
     # Text items skip the SQL pipeline so the renderer always succeeds.
     from app.models.report import ReportItem
 
-    db.add(
-        ReportItem(
-            report_id=rid, name="hello", item_type="text", order_index=0
-        )
-    )
+    db.add(ReportItem(report_id=rid, name="hello", item_type="text", order_index=0))
     db.commit()
 
     job = ReportJob(
@@ -297,9 +281,7 @@ def test_run_job_success_path(temp_report_with_sqlite: int, db_setup: Any) -> No
 # ----------------- HTTP endpoints -----------------
 
 
-def test_post_jobs_requires_auth(
-    client: TestClient, temp_report_with_sqlite: int
-) -> None:
+def test_post_jobs_requires_auth(client: TestClient, temp_report_with_sqlite: int) -> None:
     r = client.post(f"/reports/{temp_report_with_sqlite}/jobs", json={})
     assert r.status_code == 401
 
@@ -324,17 +306,14 @@ def test_post_jobs_creates_pending_job(
     _wait_for_terminal(body["id"])
 
 
-def test_post_jobs_404_for_missing_report(
-    client: TestClient, auth_headers: dict
-) -> None:
-    r = client.post(
-        "/reports/99999999/jobs", json={}, headers=auth_headers
-    )
+def test_post_jobs_404_for_missing_report(client: TestClient, auth_headers: dict) -> None:
+    r = client.post("/reports/99999999/jobs", json={}, headers=auth_headers)
     assert r.status_code == 404
 
 
-def test_post_jobs_rejects_html(client: TestClient, temp_report_with_sqlite: int,
-                                 auth_headers: dict) -> None:
+def test_post_jobs_rejects_html(
+    client: TestClient, temp_report_with_sqlite: int, auth_headers: dict
+) -> None:
     """output_format=html fails — the enum only exposes 'excel'."""
     r = client.post(
         f"/reports/{temp_report_with_sqlite}/jobs",
@@ -362,9 +341,7 @@ def test_get_job_returns_row(
     assert r.json()["id"] == job_id
 
 
-def test_get_job_404_for_unknown_id(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_get_job_404_for_unknown_id(client: TestClient, auth_headers: dict) -> None:
     r = client.get("/jobs/99999999", headers=auth_headers)
     assert r.status_code == 404
 
@@ -427,9 +404,7 @@ def test_list_jobs_pagination(
     assert len(r.json()) <= 1
 
 
-def test_list_jobs_404_for_missing_report(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_list_jobs_404_for_missing_report(client: TestClient, auth_headers: dict) -> None:
     r = client.get("/reports/99999999/jobs", headers=auth_headers)
     assert r.status_code == 404
 
@@ -511,9 +486,7 @@ def test_download_job_serves_worker_file(
     assert "report_42.xlsx" in r.headers.get("content-disposition", "")
 
 
-def test_download_job_404_for_unknown_id(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_download_job_404_for_unknown_id(client: TestClient, auth_headers: dict) -> None:
     r = client.get("/jobs/99999999/download", headers=auth_headers)
     assert r.status_code == 404
 
@@ -527,9 +500,7 @@ def test_download_job_404_when_pending(
     db = SessionLocal()
     try:
         rid = temp_report_with_sqlite
-        job = _make_done_job(
-            db, rid, file_path=None, status=JOB_STATUS_PENDING
-        )
+        job = _make_done_job(db, rid, file_path=None, status=JOB_STATUS_PENDING)
         job_id = job.id
     finally:
         db.close()
@@ -548,9 +519,7 @@ def test_download_job_404_when_failed(
     db = SessionLocal()
     try:
         rid = temp_report_with_sqlite
-        job = _make_done_job(
-            db, rid, file_path=None, status=JOB_STATUS_FAILED
-        )
+        job = _make_done_job(db, rid, file_path=None, status=JOB_STATUS_FAILED)
         job_id = job.id
     finally:
         db.close()

@@ -109,8 +109,7 @@ def create_report_job(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
-                f"Too many job enqueues. Limit: "
-                f"{settings.reports_generate_rate_limit}/min/IP."
+                f"Too many job enqueues. Limit: {settings.reports_generate_rate_limit}/min/IP."
             ),
             headers={"Retry-After": "60"},
         )

@@ -53,9 +53,9 @@ REPORTS = [
                 "display_config": {"title": "本月关键指标"},
                 "custom_sql": (
                     "SELECT "
-                    "  ROUND(revenue / 10000, 2) AS \"本月营收(万元)\", "
-                    "  ROUND(operating_profit / 10000, 2) AS \"营业利润(万元)\", "
-                    "  ROUND(net_profit / 10000, 2) AS \"净利润(万元)\" "
+                    '  ROUND(revenue / 10000, 2) AS "本月营收(万元)", '
+                    '  ROUND(operating_profit / 10000, 2) AS "营业利润(万元)", '
+                    '  ROUND(net_profit / 10000, 2) AS "净利润(万元)" '
                     "FROM ads_fin_pl_monthly ORDER BY year_month DESC LIMIT 1"
                 ),
             },
@@ -104,12 +104,12 @@ REPORTS = [
                 "display_config": {"title": "月度利润表"},
                 "custom_sql": (
                     "SELECT "
-                    "  year_month AS \"月份\", "
-                    "  ROUND(revenue / 10000, 2) AS \"营收(万元)\", "
-                    "  ROUND(cost / 10000, 2) AS \"成本(万元)\", "
-                    "  ROUND(expense / 10000, 2) AS \"费用(万元)\", "
-                    "  ROUND(operating_profit / 10000, 2) AS \"营业利润(万元)\", "
-                    "  ROUND(net_profit / 10000, 2) AS \"净利润(万元)\" "
+                    '  year_month AS "月份", '
+                    '  ROUND(revenue / 10000, 2) AS "营收(万元)", '
+                    '  ROUND(cost / 10000, 2) AS "成本(万元)", '
+                    '  ROUND(expense / 10000, 2) AS "费用(万元)", '
+                    '  ROUND(operating_profit / 10000, 2) AS "营业利润(万元)", '
+                    '  ROUND(net_profit / 10000, 2) AS "净利润(万元)" '
                     "FROM ads_fin_pl_monthly ORDER BY year_month"
                 ),
             },
@@ -171,17 +171,17 @@ REPORTS = [
                 "display_config": {"title": "客户应收余额排行 Top 20"},
                 "custom_sql": (
                     "SELECT "
-                    "  c.customer_name AS \"客户名称\", "
-                    "  c.industry AS \"行业\", "
-                    "  c.region AS \"区域\", "
-                    "  COUNT(*) AS \"账单数\", "
-                    "  ROUND(SUM(a.orig_amount), 2) AS \"应收原额\", "
-                    "  ROUND(SUM(a.paid_amount), 2) AS \"已收款\", "
-                    "  ROUND(SUM(a.balance), 2) AS \"应收余额\" "
+                    '  c.customer_name AS "客户名称", '
+                    '  c.industry AS "行业", '
+                    '  c.region AS "区域", '
+                    '  COUNT(*) AS "账单数", '
+                    '  ROUND(SUM(a.orig_amount), 2) AS "应收原额", '
+                    '  ROUND(SUM(a.paid_amount), 2) AS "已收款", '
+                    '  ROUND(SUM(a.balance), 2) AS "应收余额" '
                     "FROM dwd_fin_ar_balance a "
                     "JOIN dim_customer c ON a.customer_id = c.customer_id "
                     "GROUP BY c.customer_name, c.industry, c.region "
-                    "ORDER BY \"应收余额\" DESC LIMIT 20"
+                    'ORDER BY "应收余额" DESC LIMIT 20'
                 ),
             },
             {
@@ -237,7 +237,9 @@ REPORTS = [
                 "item_type": "chart",
                 "table_name": "dwd_fin_payment",
                 "fields": [],
-                "where_conditions": [{"field": "payment_type", "operator": "=", "value": "payment"}],
+                "where_conditions": [
+                    {"field": "payment_type", "operator": "=", "value": "payment"}
+                ],
                 "group_by": ["payment_method"],
                 "order_by": [{"field": "total", "direction": "DESC"}],
                 "limit": 100,
@@ -302,6 +304,7 @@ REPORTS = [
 # ---------------------------------------------------------------------------
 # Seed
 # ---------------------------------------------------------------------------
+
 
 def _resolve_data_source_id(cur: sqlite3.Cursor, override: int | None) -> int:
     """Look up the DataSource id to attach sample reports to.

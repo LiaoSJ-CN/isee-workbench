@@ -120,9 +120,9 @@ def scheduled_report_factory():
                     synchronize_session=False
                 )
             if created_data_sources:
-                db.query(DataSource).filter(
-                    DataSource.id.in_(created_data_sources)
-                ).delete(synchronize_session=False)
+                db.query(DataSource).filter(DataSource.id.in_(created_data_sources)).delete(
+                    synchronize_session=False
+                )
             db.commit()
         finally:
             db.close()
@@ -319,8 +319,7 @@ def test_sync_skips_invalid_cron_without_blocking_others(
     assert f"report_{bad['report_id']}" not in jobs
     # And the failure was logged so an operator can find it.
     assert any(
-        f"Failed to schedule report {bad['report_id']}" in rec.message
-        for rec in caplog.records
+        f"Failed to schedule report {bad['report_id']}" in rec.message for rec in caplog.records
     ), "operator-visible error must name the failed report id"
 
 

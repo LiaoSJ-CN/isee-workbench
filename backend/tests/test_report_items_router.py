@@ -84,9 +84,7 @@ def test_reorder_requires_auth(client: TestClient, temp_report_with_items) -> No
     assert r.status_code == 401
 
 
-def test_reorder_happy_path(
-    client: TestClient, auth_headers: dict, temp_report_with_items
-) -> None:
+def test_reorder_happy_path(client: TestClient, auth_headers: dict, temp_report_with_items) -> None:
     """Reverse 3 items: [A,B,C] -> [C,B,A] should land as order_index 0,1,2 in that order."""
     rid, item_ids = temp_report_with_items
     # Original: item_ids[0]=0, item_ids[1]=1, item_ids[2]=2

@@ -168,9 +168,7 @@ def _generate_report_impl(
     preview_only: bool = False,
     base_url: str | None = None,
 ) -> dict[str, Any]:
-    data_source = (
-        db.query(DataSource).filter(DataSource.id == report.data_source_id).first()
-    )
+    data_source = db.query(DataSource).filter(DataSource.id == report.data_source_id).first()
     if not data_source:
         # Bucket this separately from generator errors — it means the
         # operator deleted the data source underneath the report.
@@ -212,26 +210,18 @@ def _generate_report_impl(
             # (SEC-19).
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
             rand = secrets.token_hex(4)
-            filename = (
-                output_dir
-                / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.html"
-            )
+            filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.html"
             try:
                 filename.write_text(html_content, encoding="utf-8")
             except OSError as exc:
-                raise ReportGeneratorError(
-                    f"Failed to write HTML report: {exc}"
-                ) from exc
+                raise ReportGeneratorError(f"Failed to write HTML report: {exc}") from exc
             return {"file_path": str(filename), "errors": errors}
 
         if output_format == "excel":
             # Random suffix also prevents enumeration of stored files.
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
             rand = secrets.token_hex(4)
-            filename = (
-                output_dir
-                / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.xlsx"
-            )
+            filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.xlsx"
             render_excel(filename, report, results)
             return {"file_path": str(filename), "errors": errors}
 
@@ -242,17 +232,12 @@ def _generate_report_impl(
             # unguessable.
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
             rand = secrets.token_hex(4)
-            filename = (
-                output_dir
-                / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.pdf"
-            )
+            filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}_{rand}.pdf"
             pdf_bytes = render_pdf(results, report, errors=errors)
             try:
                 filename.write_bytes(pdf_bytes)
             except OSError as exc:
-                raise ReportGeneratorError(
-                    f"Failed to write PDF report: {exc}"
-                ) from exc
+                raise ReportGeneratorError(f"Failed to write PDF report: {exc}") from exc
             return {"file_path": str(filename), "errors": errors}
 
     raise ReportGeneratorError(f"Unsupported output format: {output_format}")

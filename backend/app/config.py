@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     admin_password: str = "admin"
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
-    access_token_minutes: int = 60 * 24       # 1 day
+    access_token_minutes: int = 60 * 24  # 1 day
     refresh_token_days: int = 7
 
     # --- Brute-force protection ---

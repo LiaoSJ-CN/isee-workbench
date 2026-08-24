@@ -115,9 +115,7 @@ def _patch_webhook_client(
 
     from app.services import scheduler as scheduler_module
 
-    monkeypatch.setattr(
-        scheduler_module, "create_webhook_client", factory
-    )
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", factory)
     return factory
 
 
@@ -167,13 +165,9 @@ def test_feishu_with_secret_signs_body(monkeypatch: Any) -> None:
     assert "timestamp" in payload
     assert "sign" in payload
     # Header count = 0 for Feishu (signing is in-body, per protocol).
-    assert "headers" not in kwargs or "X-Webhook-Signature" not in kwargs.get(
-        "headers", {}
-    )
+    assert "headers" not in kwargs or "X-Webhook-Signature" not in kwargs.get("headers", {})
 
-    expected_sign = _expected_feishu_signature(
-        payload["timestamp"], "shared-secret"
-    )
+    expected_sign = _expected_feishu_signature(payload["timestamp"], "shared-secret")
     assert payload["sign"] == expected_sign
 
 
@@ -212,9 +206,7 @@ def test_feishu_blocked_by_ssrf_guard(monkeypatch: Any, caplog: Any) -> None:
     def _explode(*args: Any, **kw: Any) -> None:
         raise AssertionError("create_webhook_client must NOT be called")
 
-    monkeypatch.setattr(
-        scheduler_module, "create_webhook_client", _explode
-    )
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", _explode)
 
     with caplog.at_level(logging.ERROR, logger="app.services.scheduler"):
         scheduler_module._send_feishu(
@@ -271,9 +263,7 @@ def test_wechatwork_blocked_by_ssrf_guard(monkeypatch: Any) -> None:
     def _explode(*args: Any, **kw: Any) -> None:
         raise AssertionError("create_webhook_client must NOT be called")
 
-    monkeypatch.setattr(
-        scheduler_module, "create_webhook_client", _explode
-    )
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", _explode)
 
     scheduler_module._send_wechatwork(
         webhook_url="http://10.0.0.5/cgi-bin/webhook/send?key=x",
@@ -481,9 +471,7 @@ def test_webhook_falls_back_to_global_secret_when_per_config_is_none(
     from app.services.scheduler import _sign_payload
 
     timestamp = headers["X-Webhook-Timestamp"]
-    assert headers["X-Webhook-Signature"] == _sign_payload(
-        body, "GLOBAL", timestamp
-    )
+    assert headers["X-Webhook-Signature"] == _sign_payload(body, "GLOBAL", timestamp)
 
 
 def test_dingtalk_uses_per_config_secret(monkeypatch: Any) -> None:
@@ -539,6 +527,4 @@ def test_dingtalk_uses_per_config_secret(monkeypatch: Any) -> None:
     from app.services.scheduler import _sign_payload
 
     timestamp = headers["X-Webhook-Timestamp"]
-    assert headers["X-Webhook-Signature"] == _sign_payload(
-        body, "DINGTALK_KEY", timestamp
-    )
+    assert headers["X-Webhook-Signature"] == _sign_payload(body, "DINGTALK_KEY", timestamp)

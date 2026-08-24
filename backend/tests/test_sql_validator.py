@@ -195,9 +195,9 @@ def test_validate_select_only_rejects_comment_bypass(sql: str) -> None:
 @pytest.mark.parametrize(
     "sql",
     [
-        "SELEC 1",                # typo
-        "SELECT FROM",            # missing target
-        "((",                     # unmatched
+        "SELEC 1",  # typo
+        "SELECT FROM",  # missing target
+        "((",  # unmatched
     ],
 )
 def test_validate_select_only_rejects_unparseable(sql: str) -> None:
@@ -219,13 +219,13 @@ def test_is_safe_identifier_accepts_plain(name: str) -> None:
     "name",
     [
         "",
-        "1users",        # leading digit
+        "1users",  # leading digit
         "users;",
         "users--",
-        "users.name",    # dot is not allowed in single identifier
-        "'users'",       # quoted string
-        '"users"',       # quoted identifier
-        "`users`",       # MySQL backtick
+        "users.name",  # dot is not allowed in single identifier
+        "'users'",  # quoted string
+        '"users"',  # quoted identifier
+        "`users`",  # MySQL backtick
         "users OR 1=1",
         "users;DROP",
         "users\nFROM",
@@ -296,7 +296,7 @@ def test_is_safe_select_expression_accepts(expr: str) -> None:
         "id -- comment",
         "id /* comment */",
         # Quoted identifier wrapping a statement
-        '`id`',
+        "`id`",
         # DML inside an "expression"
         "(DELETE FROM x RETURNING id) AS sub",
     ],
@@ -327,9 +327,7 @@ def test_build_safe_where_clause_string_value_binds() -> None:
 
 def test_build_safe_where_clause_in_list_expands_params() -> None:
     params: dict = {}
-    frag, next_idx = build_safe_where_clause(
-        "id", "IN", [1, 2, 3], params, param_index=0
-    )
+    frag, next_idx = build_safe_where_clause("id", "IN", [1, 2, 3], params, param_index=0)
     assert frag == "id IN (:p0, :p1, :p2)"
     assert next_idx == 3
     assert params == {"p0": 1, "p1": 2, "p2": 3}
@@ -337,9 +335,7 @@ def test_build_safe_where_clause_in_list_expands_params() -> None:
 
 def test_build_safe_where_clause_is_null_emits_no_param() -> None:
     params: dict = {}
-    frag, next_idx = build_safe_where_clause(
-        "deleted_at", "IS NULL", None, params, param_index=0
-    )
+    frag, next_idx = build_safe_where_clause("deleted_at", "IS NULL", None, params, param_index=0)
     assert frag == "deleted_at IS NULL"
     assert params == {}
     assert next_idx == 0
@@ -347,18 +343,14 @@ def test_build_safe_where_clause_is_null_emits_no_param() -> None:
 
 def test_build_safe_where_clause_is_not_null_emits_no_param() -> None:
     params: dict = {}
-    frag, _ = build_safe_where_clause(
-        "email", "IS NOT NULL", None, params, param_index=0
-    )
+    frag, _ = build_safe_where_clause("email", "IS NOT NULL", None, params, param_index=0)
     assert frag == "email IS NOT NULL"
     assert params == {}
 
 
 def test_build_safe_where_clause_between_binds_two_params() -> None:
     params: dict = {}
-    frag, next_idx = build_safe_where_clause(
-        "amount", "BETWEEN", [10, 100], params, param_index=0
-    )
+    frag, next_idx = build_safe_where_clause("amount", "BETWEEN", [10, 100], params, param_index=0)
     assert frag == "amount BETWEEN :p0 AND :p1"
     assert next_idx == 2
     assert params == {"p0": 10, "p1": 100}
@@ -366,12 +358,8 @@ def test_build_safe_where_clause_between_binds_two_params() -> None:
 
 def test_build_safe_where_clause_param_index_increments_across_calls() -> None:
     params: dict = {}
-    _, idx = build_safe_where_clause(
-        "a", "=", 1, params, param_index=0, param_prefix="w"
-    )
-    _, idx = build_safe_where_clause(
-        "b", ">", 2, params, param_index=idx, param_prefix="w"
-    )
+    _, idx = build_safe_where_clause("a", "=", 1, params, param_index=0, param_prefix="w")
+    _, idx = build_safe_where_clause("b", ">", 2, params, param_index=idx, param_prefix="w")
     assert params == {"w0": 1, "w1": 2}
     assert idx == 2
 
@@ -391,9 +379,7 @@ def test_build_safe_where_clause_rejects_bad_operator() -> None:
 
 def test_build_safe_where_clause_rejects_bad_field() -> None:
     with pytest.raises(UnsafeSQLError):
-        build_safe_where_clause(
-            "id; DROP TABLE x", "=", 1, {}, param_index=0
-        )
+        build_safe_where_clause("id; DROP TABLE x", "=", 1, {}, param_index=0)
 
 
 def test_build_safe_where_clause_rejects_in_with_non_list() -> None:
@@ -424,9 +410,7 @@ def test_allowed_where_operators_is_a_frozenset() -> None:
 
 
 def test_substitute_parameters_replaces_braces_with_bind() -> None:
-    sql, params = substitute_parameters(
-        "SELECT * FROM users WHERE id = {user_id}", {"user_id": 5}
-    )
+    sql, params = substitute_parameters("SELECT * FROM users WHERE id = {user_id}", {"user_id": 5})
     assert sql == "SELECT * FROM users WHERE id = :user_id"
     assert params == {"user_id": 5}
 
@@ -435,9 +419,7 @@ def test_substitute_parameters_leaves_unbound_placeholders_literal() -> None:
     # The template uses {name} but `parameters` doesn't supply it;
     # the placeholder stays as a literal and validate_select_only is
     # the safety net.
-    sql, params = substitute_parameters(
-        "SELECT * FROM users WHERE name = {name}", {}
-    )
+    sql, params = substitute_parameters("SELECT * FROM users WHERE name = {name}", {})
     assert sql == "SELECT * FROM users WHERE name = {name}"
     assert params == {}
 
@@ -447,9 +429,7 @@ def test_substitute_parameters_validates_result() -> None:
     # validated after substitution. A custom_sql template that hides
     # a DML after a {param} should be rejected.
     with pytest.raises(UnsafeSQLError):
-        substitute_parameters(
-            "SELECT 1; DROP TABLE x; -- {x}", {"x": 1}
-        )
+        substitute_parameters("SELECT 1; DROP TABLE x; -- {x}", {"x": 1})
 
 
 def test_substitute_parameters_rejects_template_with_dml_cte() -> None:

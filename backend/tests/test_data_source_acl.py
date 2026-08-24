@@ -137,9 +137,7 @@ def _make_ds(
 
 def _cleanup_ds(db: Session, ds_id: int) -> None:
     db.query(Report).filter(Report.data_source_id == ds_id).delete()
-    db.query(DataSourceAccess).filter(
-        DataSourceAccess.data_source_id == ds_id
-    ).delete()
+    db.query(DataSourceAccess).filter(DataSourceAccess.data_source_id == ds_id).delete()
     db.query(DataSource).filter(DataSource.id == ds_id).delete()
     db.commit()
 
@@ -167,9 +165,7 @@ def test_create_data_source_sets_owner_to_caller(
     assert r.status_code == 201, r.text
     assert r.json()["owner_user_id"] == user_a.id
     # Cleanup
-    db.query(DataSource).filter(
-        DataSource.name == payload["name"]
-    ).delete()
+    db.query(DataSource).filter(DataSource.name == payload["name"]).delete()
     db.commit()
 
 
@@ -212,9 +208,7 @@ def test_admin_bypasses_acl_for_list(
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     a_name = str(a_ds.name)
     try:
-        r = client.get(
-            "/data-sources", headers=auth_headers, params={"limit": 500}
-        )
+        r = client.get("/data-sources", headers=auth_headers, params={"limit": 500})
         assert r.status_code == 200
         names = {row["name"] for row in r.json()}
         assert a_name in names
@@ -277,9 +271,7 @@ def test_read_grant_lets_user_get_but_not_update(
         assert r_grant.status_code == 201, r_grant.text
 
         # B can GET.
-        r_get = client.get(
-            f"/data-sources/{a_ds.id}", headers=_auth_for(user_b)
-        )
+        r_get = client.get(f"/data-sources/{a_ds.id}", headers=_auth_for(user_b))
         assert r_get.status_code == 200
 
         # B cannot PUT.
@@ -321,9 +313,7 @@ def test_write_grant_lets_user_update_but_not_delete(
         assert r_put.json()["description"] == "B updated"
 
         # B cannot DELETE.
-        r_del = client.delete(
-            f"/data-sources/{a_ds.id}", headers=_auth_for(user_b)
-        )
+        r_del = client.delete(f"/data-sources/{a_ds.id}", headers=_auth_for(user_b))
         assert r_del.status_code == 404
     finally:
         _cleanup_ds(db, int(a_ds.id))
@@ -343,9 +333,7 @@ def test_owner_can_delete_their_own_data_source(
     assert r.status_code == 204
     # Cleanup already happened via the DELETE; drop residual grants
     # from any earlier test runs that left orphans.
-    db.query(DataSourceAccess).filter(
-        DataSourceAccess.data_source_id == ds_id
-    ).delete()
+    db.query(DataSourceAccess).filter(DataSourceAccess.data_source_id == ds_id).delete()
     db.commit()
 
 
@@ -360,9 +348,7 @@ def test_non_owner_without_grant_cannot_delete(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     try:
-        r = client.delete(
-            f"/data-sources/{a_ds.id}", headers=_auth_for(user_b)
-        )
+        r = client.delete(f"/data-sources/{a_ds.id}", headers=_auth_for(user_b))
         assert r.status_code == 404
     finally:
         _cleanup_ds(db, int(a_ds.id))
@@ -383,9 +369,7 @@ def test_grant_endpoint_owner_only(
     db, _ = db_setup
     a_ds = _make_ds(db, owner_user_id=int(user_a.id))
     other_username = _unique("pytest_acl_target")
-    target = User(
-        username=other_username, password_hash="x", role=ROLE_VIEWER
-    )
+    target = User(username=other_username, password_hash="x", role=ROLE_VIEWER)
     db.add(target)
     db.commit()
     db.refresh(target)
@@ -487,9 +471,7 @@ def test_revoke_grant_endpoint_owner_or_admin_only(
         )
         gid = r_grant.json()["id"]
 
-        r_del = client.delete(
-            f"/data-sources/grants/{gid}", headers=_auth_for(user_b)
-        )
+        r_del = client.delete(f"/data-sources/grants/{gid}", headers=_auth_for(user_b))
         assert r_del.status_code == 404
     finally:
         _cleanup_ds(db, int(a_ds.id))
@@ -512,15 +494,11 @@ def test_revoke_grant_owner_succeeds(
         )
         gid = r_grant.json()["id"]
 
-        r_del = client.delete(
-            f"/data-sources/grants/{gid}", headers=_auth_for(user_a)
-        )
+        r_del = client.delete(f"/data-sources/grants/{gid}", headers=_auth_for(user_a))
         assert r_del.status_code == 204
 
         # B no longer has access.
-        r_get = client.get(
-            f"/data-sources/{a_ds.id}", headers=_auth_for(user_b)
-        )
+        r_get = client.get(f"/data-sources/{a_ds.id}", headers=_auth_for(user_b))
         assert r_get.status_code == 404
     finally:
         _cleanup_ds(db, int(a_ds.id))

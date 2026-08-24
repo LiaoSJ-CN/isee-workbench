@@ -141,9 +141,7 @@ def report_with_sqlite() -> int:
     try:
         yield rid
     finally:
-        db.query(ReportSubscription).filter(
-            ReportSubscription.report_id == rid
-        ).delete()
+        db.query(ReportSubscription).filter(ReportSubscription.report_id == rid).delete()
         db.commit()
         db.delete(rep)
         db.commit()
@@ -340,9 +338,7 @@ def test_execute_subscription_writes_file_and_stamps_last_run(
     sid = int(sub.id)
 
     # Direct the report generator into tmp_path so cleanup is easy.
-    monkeypatch.setattr(
-        "app.config.settings.generated_reports_dir", tmp_path
-    )
+    monkeypatch.setattr("app.config.settings.generated_reports_dir", tmp_path)
 
     # ``generate_report`` needs at least one item-less Report; ours
     # has no items → a no-item render raises. Use a real Excel path
@@ -353,9 +349,7 @@ def test_execute_subscription_writes_file_and_stamps_last_run(
         called.append(kwargs)
         return {"file_path": str(tmp_path / f"sub_{sid}.xlsx")}
 
-    monkeypatch.setattr(
-        "app.services.subscription.generate_report", _stub_generate
-    )
+    monkeypatch.setattr("app.services.subscription.generate_report", _stub_generate)
 
     try:
         before = datetime.now(timezone.utc)
@@ -374,9 +368,7 @@ def test_execute_subscription_writes_file_and_stamps_last_run(
         assert called[0]["output_format"] == "excel"
     finally:
         get_scheduler().scheduler.remove_job(f"sub_{sid}")
-        db.query(ReportSubscription).filter(
-            ReportSubscription.id == sid
-        ).delete()
+        db.query(ReportSubscription).filter(ReportSubscription.id == sid).delete()
         db.commit()
 
 
@@ -583,9 +575,7 @@ def test_get_endpoint_returns_404_for_other_user(
         assert resp.status_code == 404
     finally:
         get_scheduler().scheduler.remove_job(f"sub_{sid}")
-        db.query(ReportSubscription).filter(
-            ReportSubscription.id == sid
-        ).delete()
+        db.query(ReportSubscription).filter(ReportSubscription.id == sid).delete()
         db.delete(other)
         db.commit()
         db.close()
@@ -620,9 +610,7 @@ def test_pause_resume_endpoints_toggle_is_active(
         assert get_scheduler().scheduler.get_job(f"sub_{sid}") is not None
     finally:
         get_scheduler().scheduler.remove_job(f"sub_{sid}")
-        db.query(ReportSubscription).filter(
-            ReportSubscription.id == sid
-        ).delete()
+        db.query(ReportSubscription).filter(ReportSubscription.id == sid).delete()
         db.commit()
         db.close()
 

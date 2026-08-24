@@ -129,9 +129,7 @@ def test_query_param_token_fallback_rejected(client: TestClient, auth_headers: d
 # ---------------------------------------------------------------------------
 
 
-def test_login_uses_stored_bcrypt_hash_not_settings(
-    client: TestClient, admin_user: User
-) -> None:
+def test_login_uses_stored_bcrypt_hash_not_settings(client: TestClient, admin_user: User) -> None:
     """Rotating the stored hash must rotate what password logs in.
 
     Strongly implies bcrypt is being verified: a plaintext-compare path
@@ -152,9 +150,7 @@ def test_login_uses_stored_bcrypt_hash_not_settings(
         "login is not consulting the users table"
     )
     # New password must work.
-    r_new = client.post(
-        "/auth/login", json={"username": "admin", "password": "rotated-secret"}
-    )
+    r_new = client.post("/auth/login", json={"username": "admin", "password": "rotated-secret"})
     assert r_new.status_code == 200, r_new.text
 
 
@@ -191,9 +187,7 @@ def test_login_updates_last_login_at(client: TestClient, admin_user: User) -> No
         db.close()
 
 
-def test_malformed_stored_hash_is_500_not_401(
-    client: TestClient, admin_user: User
-) -> None:
+def test_malformed_stored_hash_is_500_not_401(client: TestClient, admin_user: User) -> None:
     """A non-bcrypt hash in users.password_hash is an ops issue, not a
     user error — must surface as 500, not 401 (which would mask it)."""
     db = SessionLocal()
@@ -218,9 +212,7 @@ def test_malformed_stored_hash_is_500_not_401(
 
 def test_logout_revokes_access_token(client: TestClient) -> None:
     """After logout, the same access token must be rejected with 401."""
-    login_body = client.post(
-        "/auth/login", json={"username": "admin", "password": "admin"}
-    ).json()
+    login_body = client.post("/auth/login", json={"username": "admin", "password": "admin"}).json()
     token = login_body["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -247,9 +239,7 @@ def test_logout_requires_auth(client: TestClient) -> None:
 
 def test_refresh_rotates_and_revokes_old(client: TestClient) -> None:
     """Refresh must (a) issue a new pair, (b) revoke the old refresh jti."""
-    login_body = client.post(
-        "/auth/login", json={"username": "admin", "password": "admin"}
-    ).json()
+    login_body = client.post("/auth/login", json={"username": "admin", "password": "admin"}).json()
     old_refresh = login_body["refresh_token"]
 
     r = client.post("/auth/refresh", json={"refresh_token": old_refresh})
@@ -269,16 +259,12 @@ def test_refresh_rotates_and_revokes_old(client: TestClient) -> None:
 def test_refresh_rejects_revoked_jti_directly(client: TestClient) -> None:
     """A refresh that was explicitly logged-out (i.e. its jti is in the
     deny-list) must not be honored, even on its first use."""
-    login_body = client.post(
-        "/auth/login", json={"username": "admin", "password": "admin"}
-    ).json()
+    login_body = client.post("/auth/login", json={"username": "admin", "password": "admin"}).json()
     refresh_tok = login_body["refresh_token"]
     access_tok = login_body["access_token"]
 
     # Logout to revoke the access jti; refresh jti is independent.
-    client.post(
-        "/auth/logout", headers={"Authorization": f"Bearer {access_tok}"}
-    )
+    client.post("/auth/logout", headers={"Authorization": f"Bearer {access_tok}"})
 
     # The refresh token should still be valid (different jti), but
     # rotating it should work — old refresh jti gets revoked, new pair
@@ -354,9 +340,7 @@ def test_get_current_user_rejects_disabled_user(
 
     try:
         r = client.get("/auth/me", headers=auth_headers)
-        assert r.status_code == 401, (
-            f"expected 401 for disabled user, got {r.status_code}"
-        )
+        assert r.status_code == 401, f"expected 401 for disabled user, got {r.status_code}"
         assert "no longer active" in r.json()["detail"]
     finally:
         # Restore so subsequent tests aren't poisoned.
@@ -393,9 +377,7 @@ def test_get_current_user_rejects_token_for_deleted_user(
 
     try:
         r = client.get("/auth/me", headers=auth_headers)
-        assert r.status_code == 401, (
-            f"expected 401 for deleted user, got {r.status_code}"
-        )
+        assert r.status_code == 401, f"expected 401 for deleted user, got {r.status_code}"
         assert "no longer active" in r.json()["detail"]
     finally:
         # Re-seed so subsequent tests aren't poisoned — the lifespan

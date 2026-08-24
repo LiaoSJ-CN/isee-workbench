@@ -106,9 +106,7 @@ def enqueue_report_job(
         # HTML stays synchronous (preview needs an immediate response).
         # If someone hits this with "html", reject rather than silently
         # route — the queue exists precisely because sync Excel is too slow.
-        raise ValueError(
-            f"output_format must be 'excel' or 'pdf' (got {output_format!r})"
-        )
+        raise ValueError(f"output_format must be 'excel' or 'pdf' (got {output_format!r})")
 
     # Confirm FK target exists; save the caller a 4xx round-trip if not.
     report = db.query(Report).filter(Report.id == report_id).first()
@@ -134,13 +132,14 @@ def enqueue_report_job(
     # Don't hold the future forever — once the task finishes, the Future
     # sticks around in our dict but nobody reads it (the row in DB has
     # the truth). Periodic cleanup on submit keeps the dict bounded.
-    future.add_done_callback(
-        lambda _f: _futures.pop(job_id_value, None)
-    )
+    future.add_done_callback(lambda _f: _futures.pop(job_id_value, None))
 
     logger.info(
         "Enqueued report job id=%s report_id=%s format=%s by=%s",
-        job.id, report_id, output_format, user.username,
+        job.id,
+        report_id,
+        output_format,
+        user.username,
     )
     return job
 

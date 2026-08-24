@@ -22,9 +22,7 @@ class ParameterValidationError(Exception):
     """
 
 
-def validate_parameters(
-    spec: list[ReportParameter], values: dict[str, Any]
-) -> dict[str, Any]:
+def validate_parameters(spec: list[ReportParameter], values: dict[str, Any]) -> dict[str, Any]:
     """Return ``values`` with defaults filled in for missing optional params.
 
     Raises ``ParameterValidationError`` on:
@@ -38,16 +36,13 @@ def validate_parameters(
     # SQLAlchemy Mapped[str] is typed as `str | None` even though the
     # column is NOT NULL — narrow by filtering, so we can use these as
     # dict keys below without `str | None` indexing.
-    by_name: dict[str, ReportParameter] = {
-        p.name: p for p in spec if p.name is not None
-    }
+    by_name: dict[str, ReportParameter] = {p.name: p for p in spec if p.name is not None}
 
     # Unknown keys — fail fast on typos before doing per-value coercion.
     unknown = set(values) - set(by_name)
     if unknown:
         raise ParameterValidationError(
-            f"unknown parameter(s): {sorted(unknown)!r} "
-            f"(declared: {sorted(by_name)!r})"
+            f"unknown parameter(s): {sorted(unknown)!r} (declared: {sorted(by_name)!r})"
         )
 
     result: dict[str, Any] = {}
@@ -83,9 +78,7 @@ def _coerce(param: ReportParameter, value: Any) -> Any:
         # bool is a subclass of int in Python — reject explicitly to avoid
         # ``True`` silently satisfying a number parameter.
         if isinstance(value, bool) or type(value) is bool:
-            raise ParameterValidationError(
-                f"parameter {param.name!r}: expected number, got bool"
-            )
+            raise ParameterValidationError(f"parameter {param.name!r}: expected number, got bool")
         if isinstance(value, (int, float)):
             return value
         if isinstance(value, str):
@@ -115,8 +108,7 @@ def _coerce(param: ReportParameter, value: Any) -> Any:
         if hasattr(value, "isoformat"):
             return value.isoformat()
         raise ParameterValidationError(
-            f"parameter {param.name!r}: expected ISO-8601 date string, "
-            f"got {type(value).__name__}"
+            f"parameter {param.name!r}: expected ISO-8601 date string, got {type(value).__name__}"
         )
 
     if kind == "enum":
@@ -124,9 +116,7 @@ def _coerce(param: ReportParameter, value: Any) -> Any:
         if not options:
             # Should be caught at the schema layer (EnumParam requires
             # non-empty options), but defend in depth.
-            raise ParameterValidationError(
-                f"parameter {param.name!r}: enum has no options"
-            )
+            raise ParameterValidationError(f"parameter {param.name!r}: enum has no options")
         if value not in options:
             raise ParameterValidationError(
                 f"parameter {param.name!r}: {value!r} not in options {options!r}"

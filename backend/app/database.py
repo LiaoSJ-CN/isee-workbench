@@ -40,9 +40,9 @@ def _receive_connect(dbapi_connection, connection_record) -> None:  # type: igno
     if pool is not None:
         logger.debug(
             "DB connection checked out — pool size=%s overflow=%s checked_in=%s",
-            pool.size(),      # type: ignore[attr-defined]
+            pool.size(),  # type: ignore[attr-defined]
             pool.overflow(),  # type: ignore[attr-defined]
-            pool.checkedin(), # type: ignore[attr-defined]
+            pool.checkedin(),  # type: ignore[attr-defined]
         )
 
 

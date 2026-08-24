@@ -105,9 +105,7 @@ class AuditLog(Base):
     ip_address = Column(String(64), nullable=True)
     user_agent = Column(String(512), nullable=True)
 
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_audit_log_target_type_target_id", "target_type", "target_id"),

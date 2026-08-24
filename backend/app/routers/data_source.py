@@ -148,15 +148,11 @@ def clone_data_source_endpoint(
     """
     body = payload or DataSourceCloneRequest()
     try:
-        original, clone = clone_data_source(
-            db, source_id, user, new_name=body.name
-        )
+        original, clone = clone_data_source(db, source_id, user, new_name=body.name)
     except LookupError:
         raise _not_found()
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     db.commit()
     db.refresh(clone)
     # 批 9.5: audit the clone. ``before`` = original (with password
@@ -313,9 +309,7 @@ def get_data_source_schema(
     except SchemaIntrospectionError as exc:
         # Upstream DB unreachable / permission denied / schema missing —
         # surface as 502 because we're a proxy to it.
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     return DataSourceSchemaResponse(tables=tables)
 

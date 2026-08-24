@@ -30,9 +30,7 @@ def _fake_sqlite_source(source_id: int, db_path: str) -> Any:
     )
 
 
-def test_repeated_lookup_returns_same_engine(
-    engine_cache_cleanup, tmp_sqlite_path
-) -> None:
+def test_repeated_lookup_returns_same_engine(engine_cache_cleanup, tmp_sqlite_path) -> None:
     ds = _fake_sqlite_source(90001, tmp_sqlite_path)
     e1 = _get_or_create_engine(ds)
     e2 = _get_or_create_engine(ds)
@@ -42,9 +40,7 @@ def test_repeated_lookup_returns_same_engine(
     assert 90001 in _engine_cache
 
 
-def test_different_sources_get_different_engines(
-    engine_cache_cleanup, tmp_sqlite_path
-) -> None:
+def test_different_sources_get_different_engines(engine_cache_cleanup, tmp_sqlite_path) -> None:
     ds_a = _fake_sqlite_source(90010, tmp_sqlite_path)
     ds_b = _fake_sqlite_source(90011, tmp_sqlite_path + "_b")
     e_a = _get_or_create_engine(ds_a)
@@ -53,9 +49,7 @@ def test_different_sources_get_different_engines(
     assert {90010, 90011} <= set(_engine_cache.keys())
 
 
-def test_cached_engine_actually_runs_queries(
-    engine_cache_cleanup, tmp_sqlite_path
-) -> None:
+def test_cached_engine_actually_runs_queries(engine_cache_cleanup, tmp_sqlite_path) -> None:
     ds = _fake_sqlite_source(90020, tmp_sqlite_path)
     eng = _get_or_create_engine(ds)
     from sqlalchemy import text
@@ -68,9 +62,7 @@ def test_cached_engine_actually_runs_queries(
     assert total == 6
 
 
-def test_report_generator_reuses_cached_engine(
-    engine_cache_cleanup, tmp_sqlite_path
-) -> None:
+def test_report_generator_reuses_cached_engine(engine_cache_cleanup, tmp_sqlite_path) -> None:
     """The whole point of the cache: ReportGenerator open/close must
     NOT create or dispose engines per call."""
     ds = _fake_sqlite_source(90030, tmp_sqlite_path)
@@ -100,9 +92,7 @@ def test_evict_engine_drops_entry_and_triggers_rebuild(
     assert e1 is not e2, "after eviction, next lookup must build a fresh engine"
 
 
-def test_evict_engine_unknown_id_is_noop(
-    engine_cache_cleanup, tmp_sqlite_path
-) -> None:
+def test_evict_engine_unknown_id_is_noop(engine_cache_cleanup, tmp_sqlite_path) -> None:
     ds = _fake_sqlite_source(90050, tmp_sqlite_path)
     _get_or_create_engine(ds)
     before = set(_engine_cache.keys())
@@ -110,9 +100,7 @@ def test_evict_engine_unknown_id_is_noop(
     assert set(_engine_cache.keys()) == before
 
 
-def test_evict_engine_calls_dispose(
-    engine_cache_cleanup, tmp_sqlite_path
-) -> None:
+def test_evict_engine_calls_dispose(engine_cache_cleanup, tmp_sqlite_path) -> None:
     """evict_engine must dispose the engine so pooled connections are
     released (matters for the CRUD path where the source is being
     deleted and we want no leaked file handles)."""

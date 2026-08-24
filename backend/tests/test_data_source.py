@@ -198,9 +198,7 @@ def test_delete_data_source_evicts_cached_engine(
         pass
 
 
-def test_test_connection_endpoint(
-    client: TestClient, auth_headers: dict, temp_data_source
-) -> None:
+def test_test_connection_endpoint(client: TestClient, auth_headers: dict, temp_data_source) -> None:
     sid, _ = temp_data_source
     r = client.post(f"/data-sources/{sid}/test", headers=auth_headers)
     # :memory: sqlite test should succeed.

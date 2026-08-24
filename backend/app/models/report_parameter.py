@@ -60,9 +60,7 @@ class ReportParameter(Base):
     report: Mapped["Report"] = relationship("Report", back_populates="parameters")
 
     __table_args__ = (
-        UniqueConstraint(
-            "report_id", "name", name="uq_report_parameters_report_id_name"
-        ),
+        UniqueConstraint("report_id", "name", name="uq_report_parameters_report_id_name"),
         Index("ix_report_parameters_report_id_order", "report_id", "order_index"),
     )
 

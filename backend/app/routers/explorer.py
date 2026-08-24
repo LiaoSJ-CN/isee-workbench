@@ -85,8 +85,7 @@ def execute_query(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
-                f"Too many explorer queries. Limit: "
-                f"{settings.explorer_query_rate_limit}/min/IP."
+                f"Too many explorer queries. Limit: {settings.explorer_query_rate_limit}/min/IP."
             ),
             headers={"Retry-After": "60"},
         )
@@ -149,10 +148,7 @@ def execute_query(
         # Row cap: wrap user SQL in a subquery so we never pull unlimited
         # rows into memory, even if the user forgets a LIMIT clause.
         max_rows = max(1, settings.explorer_max_rows)
-        capped_sql = (
-            f"SELECT * FROM ({payload.sql}) AS _explorer_sub "
-            f"LIMIT {max_rows}"
-        )
+        capped_sql = f"SELECT * FROM ({payload.sql}) AS _explorer_sub LIMIT {max_rows}"
 
         df = pd.read_sql(text(capped_sql), engine)
 

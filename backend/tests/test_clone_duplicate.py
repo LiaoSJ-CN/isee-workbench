@@ -139,9 +139,7 @@ def _cleanup_report(db: Session, report_id: int) -> None:
     try:
         fresh.execute(text("PRAGMA foreign_keys = ON"))
         fresh.query(ReportItem).filter(ReportItem.report_id == report_id).delete()
-        fresh.query(ReportParameter).filter(
-            ReportParameter.report_id == report_id
-        ).delete()
+        fresh.query(ReportParameter).filter(ReportParameter.report_id == report_id).delete()
         fresh.query(ReportAccess).filter(ReportAccess.report_id == report_id).delete()
         fresh.query(Report).filter(Report.id == report_id).delete()
         fresh.commit()
@@ -150,9 +148,7 @@ def _cleanup_report(db: Session, report_id: int) -> None:
         fresh.close()
 
 
-def test_clone_data_source_default_name_suffix(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_clone_data_source_default_name_suffix(client: TestClient, db_setup, user_a: User) -> None:
     """Clone with no body returns a new DS named ``<original> (副本)``."""
     db, _ = db_setup
     original = _make_ds(db, user_a)
@@ -173,9 +169,7 @@ def test_clone_data_source_default_name_suffix(
             _cleanup_ds(db, new_id)
 
 
-def test_clone_data_source_explicit_name(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_clone_data_source_explicit_name(client: TestClient, db_setup, user_a: User) -> None:
     """Body with ``name`` uses that name verbatim."""
     db, _ = db_setup
     original = _make_ds(db, user_a)
@@ -194,9 +188,7 @@ def test_clone_data_source_explicit_name(
         _cleanup_ds(db, clone_id)
 
 
-def test_clone_data_source_name_collision_409(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_clone_data_source_name_collision_409(client: TestClient, db_setup, user_a: User) -> None:
     """Explicit name that collides with another DS returns 409."""
     db, _ = db_setup
     original = _make_ds(db, user_a)
@@ -213,9 +205,7 @@ def test_clone_data_source_name_collision_409(
         _cleanup_ds(db, blocker.id)
 
 
-def test_clone_data_source_respects_acl(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_clone_data_source_respects_acl(client: TestClient, db_setup, user_a: User) -> None:
     """User B (no grant, private DS owned by A) gets 404."""
     from app.services.jwt_auth import create_access_token as mk
 
@@ -249,9 +239,7 @@ def test_clone_data_source_respects_acl(
         db.commit()
 
 
-def test_clone_data_source_emits_audit_log(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_clone_data_source_emits_audit_log(client: TestClient, db_setup, user_a: User) -> None:
     """Successful clone writes one ``data_source.clone`` audit row.
 
     AuditLog rows outlive deleted DataSource rows and accumulate
@@ -330,9 +318,7 @@ def test_clone_data_source_leaves_source_grants_intact(
         )
         # Clone has zero grants.
         assert (
-            db.query(DataSourceAccess)
-            .filter(DataSourceAccess.data_source_id == clone_id)
-            .count()
+            db.query(DataSourceAccess).filter(DataSourceAccess.data_source_id == clone_id).count()
             == 0
         )
     finally:
@@ -445,9 +431,7 @@ def _cleanup_report(db: Session, report_id: int) -> None:  # noqa: F811
             fresh.close()
 
 
-def test_duplicate_report_default_name_suffix(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_duplicate_report_default_name_suffix(client: TestClient, db_setup, user_a: User) -> None:
     """No body → ``<name> (副本)`` + resets visibility to private +
     unscheduled + clears notification config.
 
@@ -513,9 +497,7 @@ def test_duplicate_report_deep_copies_display_config(
         _cleanup_ds(db, original.data_source_id)
 
 
-def test_duplicate_report_does_not_copy_shares(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_duplicate_report_does_not_copy_shares(client: TestClient, db_setup, user_a: User) -> None:
     """ReportAccess rows on the source stay there; the clone has none."""
     db, _ = db_setup
     original = _make_report(db, user_a)
@@ -562,9 +544,7 @@ def test_duplicate_report_does_not_copy_shares(
         _cleanup_ds(db, original.data_source_id)
 
 
-def test_duplicate_report_emits_audit_log(
-    client: TestClient, db_setup, user_a: User
-) -> None:
+def test_duplicate_report_emits_audit_log(client: TestClient, db_setup, user_a: User) -> None:
     """Successful duplicate writes one ``report.duplicate`` audit row.
 
     Same delta-count rationale as
@@ -600,9 +580,7 @@ def test_duplicate_report_emits_audit_log(
         _cleanup_ds(db, original.data_source_id)
 
 
-def test_duplicate_report_not_found_returns_404(
-    client: TestClient, user_a: User
-) -> None:
+def test_duplicate_report_not_found_returns_404(client: TestClient, user_a: User) -> None:
     """404 on missing / inaccessible source — uniform with ACL."""
     r = client.post("/reports/999999/duplicate", headers=_auth(user_a))
     assert r.status_code == 404, r.text

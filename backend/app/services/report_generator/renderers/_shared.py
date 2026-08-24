@@ -92,8 +92,6 @@ def df_to_html_table(df: pd.DataFrame, max_rows: int = 100) -> str:
     parts.append("</table>")
 
     if len(df) > max_rows:
-        parts.append(
-            f"<p style='color:#666;'>Showing {max_rows} of {len(df)} rows</p>"
-        )
+        parts.append(f"<p style='color:#666;'>Showing {max_rows} of {len(df)} rows</p>")
 
     return "".join(parts)

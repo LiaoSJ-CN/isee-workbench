@@ -43,9 +43,7 @@ def test_adds_missing_column_to_existing_table(tmp_sqlite_path: str) -> None:
 
     eng = _engine_for(tmp_sqlite_path)
     with eng.begin() as conn:
-        conn.execute(
-            text("CREATE TABLE widgets (id INTEGER PRIMARY KEY, name VARCHAR(50))")
-        )
+        conn.execute(text("CREATE TABLE widgets (id INTEGER PRIMARY KEY, name VARCHAR(50))"))
 
     md = MetaData()
     Table(
@@ -109,9 +107,7 @@ def test_adds_multiple_missing_columns_in_one_pass(tmp_sqlite_path: str) -> None
     assert cols == {"id", "name", "color", "qty"}
 
 
-def test_skips_not_null_column_without_server_default(
-    tmp_sqlite_path: str, caplog
-) -> None:
+def test_skips_not_null_column_without_server_default(tmp_sqlite_path: str, caplog) -> None:
     """NOT NULL without ``server_default`` cannot be backfilled on a
     populated table; ``ensure_columns`` logs a warning and skips it."""
     import logging

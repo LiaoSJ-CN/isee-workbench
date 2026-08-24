@@ -260,91 +260,375 @@ DDL = [
 # ---------------------------------------------------------------------------
 
 SUPPLIERS = [
-    ("SUP001", "上海钢铁集团有限公司",     "原材料", "制造业", "华东", "张建国", "021-58881111", "91310115MA1K0XYZ12", "工商银行上海分行", "6222001234567890", "月结30天", 500000.00),
-    ("SUP002", "深圳市华信电子科技",     "原材料", "电子",   "华南", "李海涛", "0755-26661234", "91440300MA5G8ABC34", "招商银行深圳分行", "6225887654321098", "月结60天", 300000.00),
-    ("SUP003", "北京神州物流有限公司",     "服务",   "物流",   "华北", "王晓东", "010-82334455", "91110108MA019XYZ78", "建设银行北京分行", "6217002234560098", "货到付款", 200000.00),
-    ("SUP004", "广州白云包装制品厂",       "原材料", "制造业", "华南", "陈丽华", "020-87775566", "91440101MA59UPQR56", "中国银行广州分行", "6217856000123456", "月结30天", 150000.00),
-    ("SUP005", "杭州云栖信息技术服务",     "服务",   "IT",     "华东", "赵敏",   "0571-89998888", "91330106MA28TYZ910", "浦发银行杭州分行", "6225210098765432", "月结30天", 250000.00),
-    ("SUP006", "成都西部机械制造",        "设备",   "制造业", "西部", "刘大壮", "028-86667788", "91510104MA6CPQR234", "交通银行成都分行", "6222621112233445", "月结60天", 800000.00),
-    ("SUP007", "苏州精工精密部件",        "原材料", "制造业", "华东", "周文斌", "0512-65554433", "91320594MA1NCDE567", "中信银行苏州分行", "6226908800116677", "月结30天", 400000.00),
-    ("SUP008", "厦门海联进出口贸易",      "外包",   "贸易",   "华南", "黄志强", "0592-21212121", "91350200MA31UVWX89", "兴业银行厦门分行", "6229083344556677", "月结90天", 600000.00),
+    (
+        "SUP001",
+        "上海钢铁集团有限公司",
+        "原材料",
+        "制造业",
+        "华东",
+        "张建国",
+        "021-58881111",
+        "91310115MA1K0XYZ12",
+        "工商银行上海分行",
+        "6222001234567890",
+        "月结30天",
+        500000.00,
+    ),
+    (
+        "SUP002",
+        "深圳市华信电子科技",
+        "原材料",
+        "电子",
+        "华南",
+        "李海涛",
+        "0755-26661234",
+        "91440300MA5G8ABC34",
+        "招商银行深圳分行",
+        "6225887654321098",
+        "月结60天",
+        300000.00,
+    ),
+    (
+        "SUP003",
+        "北京神州物流有限公司",
+        "服务",
+        "物流",
+        "华北",
+        "王晓东",
+        "010-82334455",
+        "91110108MA019XYZ78",
+        "建设银行北京分行",
+        "6217002234560098",
+        "货到付款",
+        200000.00,
+    ),
+    (
+        "SUP004",
+        "广州白云包装制品厂",
+        "原材料",
+        "制造业",
+        "华南",
+        "陈丽华",
+        "020-87775566",
+        "91440101MA59UPQR56",
+        "中国银行广州分行",
+        "6217856000123456",
+        "月结30天",
+        150000.00,
+    ),
+    (
+        "SUP005",
+        "杭州云栖信息技术服务",
+        "服务",
+        "IT",
+        "华东",
+        "赵敏",
+        "0571-89998888",
+        "91330106MA28TYZ910",
+        "浦发银行杭州分行",
+        "6225210098765432",
+        "月结30天",
+        250000.00,
+    ),
+    (
+        "SUP006",
+        "成都西部机械制造",
+        "设备",
+        "制造业",
+        "西部",
+        "刘大壮",
+        "028-86667788",
+        "91510104MA6CPQR234",
+        "交通银行成都分行",
+        "6222621112233445",
+        "月结60天",
+        800000.00,
+    ),
+    (
+        "SUP007",
+        "苏州精工精密部件",
+        "原材料",
+        "制造业",
+        "华东",
+        "周文斌",
+        "0512-65554433",
+        "91320594MA1NCDE567",
+        "中信银行苏州分行",
+        "6226908800116677",
+        "月结30天",
+        400000.00,
+    ),
+    (
+        "SUP008",
+        "厦门海联进出口贸易",
+        "外包",
+        "贸易",
+        "华南",
+        "黄志强",
+        "0592-21212121",
+        "91350200MA31UVWX89",
+        "兴业银行厦门分行",
+        "6229083344556677",
+        "月结90天",
+        600000.00,
+    ),
 ]
 
 CUSTOMERS = [
-    ("CUS001", "北京北方电气股份",     "企业", "电气",       "华北", "刘工",   "010-65550000", "91110000MA00A001XX", "AAA", 1000000.00, "月结60天"),
-    ("CUS002", "上海浦东建设集团",     "企业", "建筑",       "华东", "陈经理", "021-68888000", "91310115MA00B002YY", "AA",  800000.00,  "月结30天"),
-    ("CUS003", "广州南方汽车销售",     "企业", "汽车",       "华南", "吴总",   "020-83330000", "91440101MA00C003ZZ", "A",   500000.00,  "月结30天"),
-    ("CUS004", "深圳科创电子",         "企业", "电子",       "华南", "钱工",   "0755-26665000", "91440300MA00D004WW", "AA",  600000.00,  "月结60天"),
-    ("CUS005", "杭州西子实业",         "企业", "制造业",     "华东", "孙经理", "0571-87000000", "91330106MA00E005VV", "AAA", 1200000.00, "月结90天"),
-    ("CUS006", "成都西部能源",         "企业", "能源",       "西部", "李工",   "028-86666000", "91510104MA00F006UU", "BBB", 300000.00,  "货到付款"),
-    ("CUS007", "武汉光谷光电",         "企业", "光电",       "华中", "郑总",   "027-87888000", "91420100MA00G007TT", "A",   450000.00,  "月结30天"),
-    ("CUS008", "南京金陵机械",         "企业", "机械",       "华东", "冯经理", "025-84445000", "91320100MA00H008SS", "AA",  550000.00,  "月结60天"),
-    ("CUS009", "西安古城文化传媒",     "企业", "传媒",       "西部", "韩总",   "029-85555000", "91610100MA00I009RR", "BB",  150000.00,  "月结30天"),
-    ("CUS010", "青岛海尔工业园",       "企业", "家电",       "华北", "杜工",   "0532-85858000", "91370200MA00J010QQ", "AAA", 2000000.00, "月结90天"),
-    ("CUS011", "大连港务局采购中心",   "政府", "港口",       "华北", "杨处",   "0411-82222000", "91210200MA00K011PP", "AAA", 1500000.00, "月结60天"),
-    ("CUS012", "天津滨海物流公司",     "企业", "物流",       "华北", "马经理", "022-23333000", "91120100MA00L012OO", "A",   400000.00,  "月结30天"),
-    ("CUS013", "厦门海沧台商投资区",   "企业", "综合",       "华南", "蔡董",   "0592-21212000", "91350200MA00M013NN", "AA",  900000.00,  "月结60天"),
-    ("CUS014", "郑州铁路局物资公司",   "政府", "铁路",       "华中", "宋处",   "0371-67777000", "91410100MA00N014MM", "AAA", 1800000.00, "月结90天"),
-    ("CUS015", "长沙三一重工采购部",   "企业", "重工",       "华中", "蒋经理", "0731-84444000", "91430100MA00O015LL", "AA",  700000.00,  "月结60天"),
+    (
+        "CUS001",
+        "北京北方电气股份",
+        "企业",
+        "电气",
+        "华北",
+        "刘工",
+        "010-65550000",
+        "91110000MA00A001XX",
+        "AAA",
+        1000000.00,
+        "月结60天",
+    ),
+    (
+        "CUS002",
+        "上海浦东建设集团",
+        "企业",
+        "建筑",
+        "华东",
+        "陈经理",
+        "021-68888000",
+        "91310115MA00B002YY",
+        "AA",
+        800000.00,
+        "月结30天",
+    ),
+    (
+        "CUS003",
+        "广州南方汽车销售",
+        "企业",
+        "汽车",
+        "华南",
+        "吴总",
+        "020-83330000",
+        "91440101MA00C003ZZ",
+        "A",
+        500000.00,
+        "月结30天",
+    ),
+    (
+        "CUS004",
+        "深圳科创电子",
+        "企业",
+        "电子",
+        "华南",
+        "钱工",
+        "0755-26665000",
+        "91440300MA00D004WW",
+        "AA",
+        600000.00,
+        "月结60天",
+    ),
+    (
+        "CUS005",
+        "杭州西子实业",
+        "企业",
+        "制造业",
+        "华东",
+        "孙经理",
+        "0571-87000000",
+        "91330106MA00E005VV",
+        "AAA",
+        1200000.00,
+        "月结90天",
+    ),
+    (
+        "CUS006",
+        "成都西部能源",
+        "企业",
+        "能源",
+        "西部",
+        "李工",
+        "028-86666000",
+        "91510104MA00F006UU",
+        "BBB",
+        300000.00,
+        "货到付款",
+    ),
+    (
+        "CUS007",
+        "武汉光谷光电",
+        "企业",
+        "光电",
+        "华中",
+        "郑总",
+        "027-87888000",
+        "91420100MA00G007TT",
+        "A",
+        450000.00,
+        "月结30天",
+    ),
+    (
+        "CUS008",
+        "南京金陵机械",
+        "企业",
+        "机械",
+        "华东",
+        "冯经理",
+        "025-84445000",
+        "91320100MA00H008SS",
+        "AA",
+        550000.00,
+        "月结60天",
+    ),
+    (
+        "CUS009",
+        "西安古城文化传媒",
+        "企业",
+        "传媒",
+        "西部",
+        "韩总",
+        "029-85555000",
+        "91610100MA00I009RR",
+        "BB",
+        150000.00,
+        "月结30天",
+    ),
+    (
+        "CUS010",
+        "青岛海尔工业园",
+        "企业",
+        "家电",
+        "华北",
+        "杜工",
+        "0532-85858000",
+        "91370200MA00J010QQ",
+        "AAA",
+        2000000.00,
+        "月结90天",
+    ),
+    (
+        "CUS011",
+        "大连港务局采购中心",
+        "政府",
+        "港口",
+        "华北",
+        "杨处",
+        "0411-82222000",
+        "91210200MA00K011PP",
+        "AAA",
+        1500000.00,
+        "月结60天",
+    ),
+    (
+        "CUS012",
+        "天津滨海物流公司",
+        "企业",
+        "物流",
+        "华北",
+        "马经理",
+        "022-23333000",
+        "91120100MA00L012OO",
+        "A",
+        400000.00,
+        "月结30天",
+    ),
+    (
+        "CUS013",
+        "厦门海沧台商投资区",
+        "企业",
+        "综合",
+        "华南",
+        "蔡董",
+        "0592-21212000",
+        "91350200MA00M013NN",
+        "AA",
+        900000.00,
+        "月结60天",
+    ),
+    (
+        "CUS014",
+        "郑州铁路局物资公司",
+        "政府",
+        "铁路",
+        "华中",
+        "宋处",
+        "0371-67777000",
+        "91410100MA00N014MM",
+        "AAA",
+        1800000.00,
+        "月结90天",
+    ),
+    (
+        "CUS015",
+        "长沙三一重工采购部",
+        "企业",
+        "重工",
+        "华中",
+        "蒋经理",
+        "0731-84444000",
+        "91430100MA00O015LL",
+        "AA",
+        700000.00,
+        "月结60天",
+    ),
 ]
 
 # 常用科目（参考中国企业会计准则）
 ACCOUNTS = [
     # 资产类
-    ("1001", "库存现金",       "资产", "",      1, "借"),
-    ("1002", "银行存款",       "资产", "",      1, "借"),
-    ("1012", "其他货币资金",   "资产", "",      1, "借"),
-    ("1121", "应收账款",       "资产", "",      1, "借"),
-    ("1122", "预付账款",       "资产", "",      1, "借"),
-    ("1221", "其他应收款",     "资产", "",      1, "借"),
-    ("1401", "材料采购",       "资产", "",      1, "借"),
-    ("1403", "原材料",         "资产", "",      1, "借"),
-    ("1405", "库存商品",       "资产", "",      1, "借"),
-    ("1601", "固定资产",       "资产", "",      1, "借"),
-    ("1701", "无形资产",       "资产", "",      1, "借"),
+    ("1001", "库存现金", "资产", "", 1, "借"),
+    ("1002", "银行存款", "资产", "", 1, "借"),
+    ("1012", "其他货币资金", "资产", "", 1, "借"),
+    ("1121", "应收账款", "资产", "", 1, "借"),
+    ("1122", "预付账款", "资产", "", 1, "借"),
+    ("1221", "其他应收款", "资产", "", 1, "借"),
+    ("1401", "材料采购", "资产", "", 1, "借"),
+    ("1403", "原材料", "资产", "", 1, "借"),
+    ("1405", "库存商品", "资产", "", 1, "借"),
+    ("1601", "固定资产", "资产", "", 1, "借"),
+    ("1701", "无形资产", "资产", "", 1, "借"),
     # 负债类
-    ("2001", "短期借款",       "负债", "",      1, "贷"),
-    ("2201", "应付票据",       "负债", "",      1, "贷"),
-    ("2202", "应付账款",       "负债", "",      1, "贷"),
-    ("2203", "预收账款",       "负债", "",      1, "贷"),
-    ("2211", "应付职工薪酬",   "负债", "",      1, "贷"),
-    ("2221", "应交税费",       "负债", "",      1, "贷"),
+    ("2001", "短期借款", "负债", "", 1, "贷"),
+    ("2201", "应付票据", "负债", "", 1, "贷"),
+    ("2202", "应付账款", "负债", "", 1, "贷"),
+    ("2203", "预收账款", "负债", "", 1, "贷"),
+    ("2211", "应付职工薪酬", "负债", "", 1, "贷"),
+    ("2221", "应交税费", "负债", "", 1, "贷"),
     # 权益类
-    ("4001", "实收资本",       "权益", "",      1, "贷"),
-    ("4002", "资本公积",       "权益", "",      1, "贷"),
-    ("4101", "盈余公积",       "权益", "",      1, "贷"),
+    ("4001", "实收资本", "权益", "", 1, "贷"),
+    ("4002", "资本公积", "权益", "", 1, "贷"),
+    ("4101", "盈余公积", "权益", "", 1, "贷"),
     # 损益类
-    ("5001", "主营业务收入",   "收入", "",      1, "贷"),
-    ("5051", "其他业务收入",   "收入", "",      1, "贷"),
-    ("5401", "主营业务成本",   "成本", "",      1, "借"),
-    ("5402", "其他业务成本",   "成本", "",      1, "借"),
-    ("5501", "销售费用",       "成本", "",      1, "借"),
-    ("5502", "管理费用",       "成本", "",      1, "借"),
-    ("5503", "财务费用",       "成本", "",      1, "借"),
+    ("5001", "主营业务收入", "收入", "", 1, "贷"),
+    ("5051", "其他业务收入", "收入", "", 1, "贷"),
+    ("5401", "主营业务成本", "成本", "", 1, "借"),
+    ("5402", "其他业务成本", "成本", "", 1, "借"),
+    ("5501", "销售费用", "成本", "", 1, "借"),
+    ("5502", "管理费用", "成本", "", 1, "借"),
+    ("5503", "财务费用", "成本", "", 1, "借"),
 ]
 
 DEPARTMENTS = [
-    ("D001", "财务部",     None,  "周慧"),
-    ("D002", "采购部",     None,  "吴磊"),
-    ("D003", "销售部",     None,  "郑涛"),
-    ("D004", "生产部",     None,  "钱进"),
-    ("D005", "仓储部",     None,  "冯波"),
-    ("D006", "研发部",     None,  "蒋帆"),
-    ("D007", "人力资源部", None,  "韩梅"),
-    ("D008", "行政部",     None,  "杨柳"),
+    ("D001", "财务部", None, "周慧"),
+    ("D002", "采购部", None, "吴磊"),
+    ("D003", "销售部", None, "郑涛"),
+    ("D004", "生产部", None, "钱进"),
+    ("D005", "仓储部", None, "冯波"),
+    ("D006", "研发部", None, "蒋帆"),
+    ("D007", "人力资源部", None, "韩梅"),
+    ("D008", "行政部", None, "杨柳"),
 ]
 
 COST_CENTERS = [
-    ("CC001", "总部管理",     1, "周慧"),
-    ("CC002", "采购中心",     2, "吴磊"),
-    ("CC003", "销售一区",     3, "郑涛"),
-    ("CC004", "销售二区",     3, "郑涛"),
-    ("CC005", "生产一线",     4, "钱进"),
-    ("CC006", "生产二线",     4, "钱进"),
-    ("CC007", "仓储管理",     5, "冯波"),
-    ("CC008", "研发项目组",   6, "蒋帆"),
-    ("CC009", "人力行政",     7, "韩梅"),
-    ("CC010", "市场推广",     3, "郑涛"),
+    ("CC001", "总部管理", 1, "周慧"),
+    ("CC002", "采购中心", 2, "吴磊"),
+    ("CC003", "销售一区", 3, "郑涛"),
+    ("CC004", "销售二区", 3, "郑涛"),
+    ("CC005", "生产一线", 4, "钱进"),
+    ("CC006", "生产二线", 4, "钱进"),
+    ("CC007", "仓储管理", 5, "冯波"),
+    ("CC008", "研发项目组", 6, "蒋帆"),
+    ("CC009", "人力行政", 7, "韩梅"),
+    ("CC010", "市场推广", 3, "郑涛"),
 ]
 
 VOUCHER_TYPES = ["收", "付", "转"]
@@ -377,6 +661,7 @@ def aging_bucket(due: date, ref: date | None = None) -> str:
 # Seed
 # ---------------------------------------------------------------------------
 
+
 def seed(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
 
@@ -388,9 +673,37 @@ def seed(conn: sqlite3.Connection) -> None:
             bank_account, payment_terms, credit_limit, status, created_date)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
-            (i + 1, code, name, stype, cat, region, contact, phone, tax, bank, acct, terms, limit_, "active",
-             rand_date(date(2023, 1, 1), date(2024, 6, 1)).isoformat())
-            for i, (code, name, stype, cat, region, contact, phone, tax, bank, acct, terms, limit_) in enumerate(SUPPLIERS)
+            (
+                i + 1,
+                code,
+                name,
+                stype,
+                cat,
+                region,
+                contact,
+                phone,
+                tax,
+                bank,
+                acct,
+                terms,
+                limit_,
+                "active",
+                rand_date(date(2023, 1, 1), date(2024, 6, 1)).isoformat(),
+            )
+            for i, (
+                code,
+                name,
+                stype,
+                cat,
+                region,
+                contact,
+                phone,
+                tax,
+                bank,
+                acct,
+                terms,
+                limit_,
+            ) in enumerate(SUPPLIERS)
         ],
     )
 
@@ -402,9 +715,35 @@ def seed(conn: sqlite3.Connection) -> None:
             credit_limit, payment_terms, status, created_date)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
-            (i + 1, code, name, ctype, ind, region, contact, phone, tax, rating, limit_, terms, "active",
-             rand_date(date(2023, 1, 1), date(2024, 6, 1)).isoformat())
-            for i, (code, name, ctype, ind, region, contact, phone, tax, rating, limit_, terms) in enumerate(CUSTOMERS)
+            (
+                i + 1,
+                code,
+                name,
+                ctype,
+                ind,
+                region,
+                contact,
+                phone,
+                tax,
+                rating,
+                limit_,
+                terms,
+                "active",
+                rand_date(date(2023, 1, 1), date(2024, 6, 1)).isoformat(),
+            )
+            for i, (
+                code,
+                name,
+                ctype,
+                ind,
+                region,
+                contact,
+                phone,
+                tax,
+                rating,
+                limit_,
+                terms,
+            ) in enumerate(CUSTOMERS)
         ],
     )
 
@@ -413,8 +752,10 @@ def seed(conn: sqlite3.Connection) -> None:
         """INSERT INTO dim_account
            (account_id, account_code, account_name, account_type, parent_code, level, direction, is_active)
            VALUES (?,?,?,?,?,?,?,1)""",
-        [(i + 1, code, name, atype, parent, lvl, direction)
-         for i, (code, name, atype, parent, lvl, direction) in enumerate(ACCOUNTS)],
+        [
+            (i + 1, code, name, atype, parent, lvl, direction)
+            for i, (code, name, atype, parent, lvl, direction) in enumerate(ACCOUNTS)
+        ],
     )
 
     # ---- DIM: department ----
@@ -422,8 +763,10 @@ def seed(conn: sqlite3.Connection) -> None:
         """INSERT INTO dim_department
            (department_id, department_code, department_name, parent_id, manager)
            VALUES (?,?,?,?,?)""",
-        [(i + 1, code, name, parent, mgr)
-         for i, (code, name, parent, mgr) in enumerate(DEPARTMENTS)],
+        [
+            (i + 1, code, name, parent, mgr)
+            for i, (code, name, parent, mgr) in enumerate(DEPARTMENTS)
+        ],
     )
 
     # ---- DIM: cost_center ----
@@ -431,8 +774,7 @@ def seed(conn: sqlite3.Connection) -> None:
         """INSERT INTO dim_cost_center
            (cost_center_id, cost_center_code, cost_center_name, department_id, manager, is_active)
            VALUES (?,?,?,?,?,1)""",
-        [(i + 1, code, name, dept, mgr)
-         for i, (code, name, dept, mgr) in enumerate(COST_CENTERS)],
+        [(i + 1, code, name, dept, mgr) for i, (code, name, dept, mgr) in enumerate(COST_CENTERS)],
     )
 
     # ---- DWD: voucher + lines ----
@@ -461,41 +803,95 @@ def seed(conn: sqlite3.Connection) -> None:
             dept_id = random.randint(1, len(DEPARTMENTS))
             sup_id = random.randint(1, len(SUPPLIERS)) if random.random() < 0.4 else None
             cus_id = random.randint(1, len(CUSTOMERS)) if random.random() < 0.4 else None
-            lines.append((
-                line_id, voucher_id, random.randint(1, n_lines),
-                acc_id, cost_id, dept_id, sup_id, cus_id,
-                random.choice(["采购材料", "支付货款", "收到货款", "报销差旅", "计提工资", "领用材料", "销售商品", "结转成本"]),
-                debit, credit, "CNY", 1.0,
-            ))
+            lines.append(
+                (
+                    line_id,
+                    voucher_id,
+                    random.randint(1, n_lines),
+                    acc_id,
+                    cost_id,
+                    dept_id,
+                    sup_id,
+                    cus_id,
+                    random.choice(
+                        [
+                            "采购材料",
+                            "支付货款",
+                            "收到货款",
+                            "报销差旅",
+                            "计提工资",
+                            "领用材料",
+                            "销售商品",
+                            "结转成本",
+                        ]
+                    ),
+                    debit,
+                    credit,
+                    "CNY",
+                    1.0,
+                )
+            )
         # 借方 = 贷方 (尾差调整)
         if abs(total_debit - total_credit) > 0.01:
             adj = abs(total_debit - total_credit)
             line_id += 1
             if total_debit > total_credit:
-                lines.append((line_id, voucher_id, n_lines + 1, random.randint(1, len(ACCOUNTS)),
-                              random.randint(1, len(COST_CENTERS)), random.randint(1, len(DEPARTMENTS)),
-                              None, None, "尾差调整", 0.0, adj, "CNY", 1.0))
+                lines.append(
+                    (
+                        line_id,
+                        voucher_id,
+                        n_lines + 1,
+                        random.randint(1, len(ACCOUNTS)),
+                        random.randint(1, len(COST_CENTERS)),
+                        random.randint(1, len(DEPARTMENTS)),
+                        None,
+                        None,
+                        "尾差调整",
+                        0.0,
+                        adj,
+                        "CNY",
+                        1.0,
+                    )
+                )
                 total_credit += adj
             else:
-                lines.append((line_id, voucher_id, n_lines + 1, random.randint(1, len(ACCOUNTS)),
-                              random.randint(1, len(COST_CENTERS)), random.randint(1, len(DEPARTMENTS)),
-                              None, None, "尾差调整", adj, 0.0, "CNY", 1.0))
+                lines.append(
+                    (
+                        line_id,
+                        voucher_id,
+                        n_lines + 1,
+                        random.randint(1, len(ACCOUNTS)),
+                        random.randint(1, len(COST_CENTERS)),
+                        random.randint(1, len(DEPARTMENTS)),
+                        None,
+                        None,
+                        "尾差调整",
+                        adj,
+                        0.0,
+                        "CNY",
+                        1.0,
+                    )
+                )
                 total_debit += adj
-        vouchers.append((
-            voucher_id,
-            f"PZ-{vdate.strftime('%Y%m')}-{voucher_id:04d}",
-            vdate.isoformat(),
-            vdate.year,
-            vdate.month,
-            vtype,
-            random.choice(["采购付款", "销售收款", "费用报销", "工资发放", "材料领用", "结转损益"]),
-            round(total_debit, 2),
-            round(total_credit, 2),
-            random.choice(PREPARED_BY),
-            random.choice(REVIEWED_BY),
-            random.choice(REVIEWED_BY),
-            random.choice(["posted", "posted", "posted", "draft"]),
-        ))
+        vouchers.append(
+            (
+                voucher_id,
+                f"PZ-{vdate.strftime('%Y%m')}-{voucher_id:04d}",
+                vdate.isoformat(),
+                vdate.year,
+                vdate.month,
+                vtype,
+                random.choice(
+                    ["采购付款", "销售收款", "费用报销", "工资发放", "材料领用", "结转损益"]
+                ),
+                round(total_debit, 2),
+                round(total_credit, 2),
+                random.choice(PREPARED_BY),
+                random.choice(REVIEWED_BY),
+                random.choice(REVIEWED_BY),
+                random.choice(["posted", "posted", "posted", "draft"]),
+            )
+        )
 
     cur.executemany(
         """INSERT INTO dwd_fin_voucher
@@ -521,23 +917,29 @@ def seed(conn: sqlite3.Connection) -> None:
         party = "customer" if ptype == "receipt" else "supplier"
         pdate = rand_date(date(2024, 7, 1), date(2025, 12, 31))
         amount = rand_money(2000, 200000)
-        party_id = random.randint(1, len(CUSTOMERS)) if party == "customer" else random.randint(1, len(SUPPLIERS))
-        payments.append((
-            i + 1,
-            f"PAY-{pdate.strftime('%Y%m')}-{i+1:04d}",
-            pdate.isoformat(),
-            ptype,
-            party,
-            party_id if party == "customer" else None,
-            party_id if party == "supplier" else None,
-            random.choice([2, 3]),  # 银行存款 / 其他货币资金
-            amount,
-            random.choice(["transfer", "transfer", "wire", "check"]),
-            f"622588{random.randint(10000000, 99999999)}",
-            f"REF-{random.randint(100000, 999999)}",
-            random.choice(["销售回款", "采购付款", "服务费支付", "收到预付款", "退款"]),
-            random.choice(["success", "success", "success", "pending"]),
-        ))
+        party_id = (
+            random.randint(1, len(CUSTOMERS))
+            if party == "customer"
+            else random.randint(1, len(SUPPLIERS))
+        )
+        payments.append(
+            (
+                i + 1,
+                f"PAY-{pdate.strftime('%Y%m')}-{i + 1:04d}",
+                pdate.isoformat(),
+                ptype,
+                party,
+                party_id if party == "customer" else None,
+                party_id if party == "supplier" else None,
+                random.choice([2, 3]),  # 银行存款 / 其他货币资金
+                amount,
+                random.choice(["transfer", "transfer", "wire", "check"]),
+                f"622588{random.randint(10000000, 99999999)}",
+                f"REF-{random.randint(100000, 999999)}",
+                random.choice(["销售回款", "采购付款", "服务费支付", "收到预付款", "退款"]),
+                random.choice(["success", "success", "success", "pending"]),
+            )
+        )
     cur.executemany(
         """INSERT INTO dwd_fin_payment
            (payment_id, payment_no, payment_date, payment_type, party_type,
@@ -557,19 +959,28 @@ def seed(conn: sqlite3.Connection) -> None:
         rate = random.choice([0.13, 0.09, 0.06, 0.03])
         tax = round(excl * rate, 2)
         incl = round(excl + tax, 2)
-        party_id = random.randint(1, len(CUSTOMERS)) if party_type == "customer" else random.randint(1, len(SUPPLIERS))
-        invoices.append((
-            i + 1,
-            f"INV-{idate.strftime('%Y%m')}-{i+1:05d}",
-            idate.isoformat(),
-            itype,
-            party_type,
-            party_id if party_type == "customer" else None,
-            party_id if party_type == "supplier" else None,
-            excl, tax, incl, rate,
-            random.choice(["销售商品", "提供服务", "采购原料", "采购设备", "采购服务"]),
-            random.choice(["verified", "verified", "issued", "cancelled"]),
-        ))
+        party_id = (
+            random.randint(1, len(CUSTOMERS))
+            if party_type == "customer"
+            else random.randint(1, len(SUPPLIERS))
+        )
+        invoices.append(
+            (
+                i + 1,
+                f"INV-{idate.strftime('%Y%m')}-{i + 1:05d}",
+                idate.isoformat(),
+                itype,
+                party_type,
+                party_id if party_type == "customer" else None,
+                party_id if party_type == "supplier" else None,
+                excl,
+                tax,
+                incl,
+                rate,
+                random.choice(["销售商品", "提供服务", "采购原料", "采购设备", "采购服务"]),
+                random.choice(["verified", "verified", "issued", "cancelled"]),
+            )
+        )
     cur.executemany(
         """INSERT INTO dwd_fin_invoice
            (invoice_id, invoice_no, invoice_date, invoice_type, party_type,
@@ -589,13 +1000,20 @@ def seed(conn: sqlite3.Connection) -> None:
         orig = rand_money(10000, 500000)
         paid = rand_money(0, orig * 0.7) if random.random() < 0.6 else 0.0
         balance = round(orig - paid, 2)
-        ar_rows.append((
-            i + 1, cid, random.randint(1, len(invoices)),
-            orig, round(paid, 2), balance,
-            issue.isoformat(), due.isoformat(),
-            aging_bucket(due, today),
-            "open" if balance > 0 else "closed",
-        ))
+        ar_rows.append(
+            (
+                i + 1,
+                cid,
+                random.randint(1, len(invoices)),
+                orig,
+                round(paid, 2),
+                balance,
+                issue.isoformat(),
+                due.isoformat(),
+                aging_bucket(due, today),
+                "open" if balance > 0 else "closed",
+            )
+        )
     cur.executemany(
         """INSERT INTO dwd_fin_ar_balance
            (ar_id, customer_id, invoice_id, orig_amount, paid_amount, balance,
@@ -612,13 +1030,20 @@ def seed(conn: sqlite3.Connection) -> None:
         orig = rand_money(10000, 300000)
         paid = rand_money(0, orig * 0.5) if random.random() < 0.7 else 0.0
         balance = round(orig - paid, 2)
-        ap_rows.append((
-            i + 1, sid, random.randint(1, len(invoices)),
-            orig, round(paid, 2), balance,
-            issue.isoformat(), due.isoformat(),
-            aging_bucket(due, today),
-            "open" if balance > 0 else "closed",
-        ))
+        ap_rows.append(
+            (
+                i + 1,
+                sid,
+                random.randint(1, len(invoices)),
+                orig,
+                round(paid, 2),
+                balance,
+                issue.isoformat(),
+                due.isoformat(),
+                aging_bucket(due, today),
+                "open" if balance > 0 else "closed",
+            )
+        )
     cur.executemany(
         """INSERT INTO dwd_fin_ap_balance
            (ap_id, supplier_id, invoice_id, orig_amount, paid_amount, balance,
@@ -635,20 +1060,31 @@ def seed(conn: sqlite3.Connection) -> None:
         key = (period, cid)
         if key not in ar_agg:
             ar_agg[key] = [0.0, 0.0, 0.0, 0.0]
-        if bucket == "30天内":    ar_agg[key][0] += bal
-        elif bucket == "31-60天": ar_agg[key][1] += bal
-        elif bucket == "61-90天": ar_agg[key][2] += bal
-        else:                     ar_agg[key][3] += bal
+        if bucket == "30天内":
+            ar_agg[key][0] += bal
+        elif bucket == "31-60天":
+            ar_agg[key][1] += bal
+        elif bucket == "61-90天":
+            ar_agg[key][2] += bal
+        else:
+            ar_agg[key][3] += bal
 
     ar_aging_rows = []
     aid = 0
     for (period, cid), amts in ar_agg.items():
         aid += 1
-        ar_aging_rows.append((
-            aid, f"{period}-01", cid,
-            round(amts[0], 2), round(amts[1], 2), round(amts[2], 2), round(amts[3], 2),
-            round(sum(amts), 2),
-        ))
+        ar_aging_rows.append(
+            (
+                aid,
+                f"{period}-01",
+                cid,
+                round(amts[0], 2),
+                round(amts[1], 2),
+                round(amts[2], 2),
+                round(amts[3], 2),
+                round(sum(amts), 2),
+            )
+        )
     cur.executemany(
         """INSERT INTO dws_fin_ar_aging
            (aging_id, period_date, customer_id, amount_30d, amount_31_60d,
@@ -664,20 +1100,31 @@ def seed(conn: sqlite3.Connection) -> None:
         key = (period, sid)
         if key not in ap_agg:
             ap_agg[key] = [0.0, 0.0, 0.0, 0.0]
-        if bucket == "30天内":    ap_agg[key][0] += bal
-        elif bucket == "31-60天": ap_agg[key][1] += bal
-        elif bucket == "61-90天": ap_agg[key][2] += bal
-        else:                     ap_agg[key][3] += bal
+        if bucket == "30天内":
+            ap_agg[key][0] += bal
+        elif bucket == "31-60天":
+            ap_agg[key][1] += bal
+        elif bucket == "61-90天":
+            ap_agg[key][2] += bal
+        else:
+            ap_agg[key][3] += bal
 
     ap_aging_rows = []
     apid = 0
     for (period, sid), amts in ap_agg.items():
         apid += 1
-        ap_aging_rows.append((
-            apid, f"{period}-01", sid,
-            round(amts[0], 2), round(amts[1], 2), round(amts[2], 2), round(amts[3], 2),
-            round(sum(amts), 2),
-        ))
+        ap_aging_rows.append(
+            (
+                apid,
+                f"{period}-01",
+                sid,
+                round(amts[0], 2),
+                round(amts[1], 2),
+                round(amts[2], 2),
+                round(amts[3], 2),
+                round(sum(amts), 2),
+            )
+        )
     cur.executemany(
         """INSERT INTO dws_fin_ap_aging
            (aging_id, period_date, supplier_id, amount_30d, amount_31_60d,
@@ -731,6 +1178,7 @@ def seed(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()

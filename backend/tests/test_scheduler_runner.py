@@ -98,9 +98,7 @@ def test_run_continues_after_sync_exception() -> None:
 
     # If the loop died after the first exception, call_count would be 1.
     # We expect ≥2: the failing call + at least one subsequent call.
-    assert call_count["n"] >= 2, (
-        f"loop died after exception; only {call_count['n']} call(s)"
-    )
+    assert call_count["n"] >= 2, f"loop died after exception; only {call_count['n']} call(s)"
 
 
 def test_run_uses_supplied_resync_interval() -> None:

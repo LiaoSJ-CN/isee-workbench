@@ -93,7 +93,7 @@ def ensure_columns(
                 ddl = str(CreateColumn(column).compile(dialect=engine.dialect))
                 quoted_name = f'"{column.name}"'
                 if ddl.startswith(quoted_name):
-                    ddl = ddl[len(quoted_name):].lstrip()
+                    ddl = ddl[len(quoted_name) :].lstrip()
 
                 sql = f'ALTER TABLE "{table_name}" ADD COLUMN {ddl}'
                 conn.execute(text(sql))

@@ -58,10 +58,12 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "alembic" / "versions
 # project's migrations don't currently use. The PG CI job covers
 # these; the SQLite suite skips them so we can still run the
 # downgrade assertions for the rest of the chain.
-_SQLITE_INCOMPATIBLE_DOWNGRADES: frozenset[str] = frozenset({
-    "01a6b1ebae29",  # data_source_acl (批 9.3)
-    "921b7fe787b0",  # report_owner_visibility_grants (批 9.4)
-})
+_SQLITE_INCOMPATIBLE_DOWNGRADES: frozenset[str] = frozenset(
+    {
+        "01a6b1ebae29",  # data_source_acl (批 9.3)
+        "921b7fe787b0",  # report_owner_visibility_grants (批 9.4)
+    }
+)
 
 
 def _read_migration_field(filename: str, field: str) -> str | None:
@@ -139,9 +141,7 @@ def _linear_chain() -> list[str]:
         )
         cur = kids[0] if kids else None
 
-    assert len(chain) == len(revs), (
-        f"chain is not linear: chain={chain}, all revs={sorted(revs)}"
-    )
+    assert len(chain) == len(revs), f"chain is not linear: chain={chain}, all revs={sorted(revs)}"
     return chain
 
 
@@ -283,9 +283,7 @@ def test_upgrade_head_on_fresh_db(fresh_db: str) -> None:
     eng = create_engine(fresh_db, connect_args={"check_same_thread": False})
     try:
         with eng.connect() as conn:
-            version = conn.execute(
-                text("SELECT version_num FROM alembic_version")
-            ).scalar()
+            version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
         assert version == HEAD, f"alembic_version={version!r}, expected {HEAD!r}"
         tables = set(inspect(eng).get_table_names())
         # Pin the user-visible table names that the routers depend
@@ -401,9 +399,10 @@ def test_full_downgrade_then_upgrade(fresh_db: str) -> None:
     eng = create_engine(fresh_db, connect_args={"check_same_thread": False})
     try:
         with eng.connect() as conn:
-            tables = {row[0] for row in conn.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table'")
-            )}
+            tables = {
+                row[0]
+                for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+            }
         assert tables == {"alembic_version"}, (
             f"after downgrade base, expected only alembic_version, got {tables}"
         )

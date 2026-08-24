@@ -123,9 +123,7 @@ class ReportParameterUpdate(BaseModel):
     returns 409.
     """
 
-    name: str | None = Field(
-        default=None, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
-    )
+    name: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     label: str | None = Field(default=None, min_length=1, max_length=255)
     required: bool | None = None
     default: Any | None = None

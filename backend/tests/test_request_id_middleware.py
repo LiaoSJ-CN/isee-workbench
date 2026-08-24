@@ -63,9 +63,7 @@ def test_missing_request_id_is_generated(isolated_client):
     response = isolated_client.get("/echo")
     assert response.status_code == 200
     generated = response.headers["X-Request-ID"]
-    assert REQUEST_ID_PATTERN.match(generated), (
-        f"expected uuid4 hex, got {generated!r}"
-    )
+    assert REQUEST_ID_PATTERN.match(generated), f"expected uuid4 hex, got {generated!r}"
     assert response.json()["request_id"] == generated
 
 

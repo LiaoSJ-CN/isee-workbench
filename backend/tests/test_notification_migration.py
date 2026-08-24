@@ -201,11 +201,7 @@ def _insert_report(notification_config: Any) -> int:
             {"n": f"notif-ds-{suffix}"},
         )
         src_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-        cfg_json = (
-            json.dumps(notification_config)
-            if notification_config is not None
-            else None
-        )
+        cfg_json = json.dumps(notification_config) if notification_config is not None else None
         db.execute(
             text(
                 "INSERT INTO reports (name, data_source_id, is_active, "

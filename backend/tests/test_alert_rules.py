@@ -160,9 +160,7 @@ def test_alert_severity_is_known() -> None:
         for rule in group["rules"]:
             labels = rule.get("labels") or {}
             sev = labels.get("severity")
-            assert sev in allowed, (
-                f"alert '{rule['alert']}' severity={sev!r} not in {allowed}"
-            )
+            assert sev in allowed, f"alert '{rule['alert']}' severity={sev!r} not in {allowed}"
             seen.append((rule["alert"], sev))
     # Sanity: the file should contain at least one critical and one
     # warning so the ladder is exercised — flags accidental downgrades
@@ -253,6 +251,5 @@ def test_promtool_check_rules() -> None:
         check=False,
     )
     assert result.returncode == 0, (
-        f"promtool rejected the rules file:\nstdout={result.stdout}\n"
-        f"stderr={result.stderr}"
+        f"promtool rejected the rules file:\nstdout={result.stdout}\nstderr={result.stderr}"
     )

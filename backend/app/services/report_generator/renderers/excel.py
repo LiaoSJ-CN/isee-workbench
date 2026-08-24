@@ -48,11 +48,13 @@ def render_excel(
     """
     try:
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            summary_df = pd.DataFrame([
-                {"Report": report.name},
-                {"Description": report.description or ""},
-                {"Generated At": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-            ])
+            summary_df = pd.DataFrame(
+                [
+                    {"Report": report.name},
+                    {"Description": report.description or ""},
+                    {"Generated At": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                ]
+            )
             summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
             for item_name, df in results.items():

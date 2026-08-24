@@ -70,9 +70,7 @@ class RateLimiter:
         try:
             # Prune expired rows for this key.
             db.execute(
-                delete(RateLimitEvent).where(
-                    RateLimitEvent.key == key, RateLimitEvent.ts < floor
-                )
+                delete(RateLimitEvent).where(RateLimitEvent.key == key, RateLimitEvent.ts < floor)
             )
             # Record this attempt. SQLAlchemy plugin types Column[Float]
             # as Float | None even though we declared it NOT NULL; suppress
@@ -81,9 +79,7 @@ class RateLimiter:
             db.commit()
             # Count post-insert.
             count = db.scalar(
-                select(func.count())
-                .select_from(RateLimitEvent)
-                .where(RateLimitEvent.key == key)
+                select(func.count()).select_from(RateLimitEvent).where(RateLimitEvent.key == key)
             )
             assert count is not None  # count() is non-null for non-empty filter
             return count > self._max_requests
@@ -91,9 +87,7 @@ class RateLimiter:
             db.close()
 
 
-def prune_older_than(
-    seconds: int, session_factory: Callable[[], Session] = SessionLocal
-) -> int:
+def prune_older_than(seconds: int, session_factory: Callable[[], Session] = SessionLocal) -> int:
     """Safety-net cleanup: drop events older than *seconds* across all keys.
 
     Returns the number of rows removed. Intended for periodic invocation

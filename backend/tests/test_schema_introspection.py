@@ -32,9 +32,7 @@ def _delete_ds(ds_id: int) -> None:
 
     cleanup_db = SessionLocal()
     try:
-        cleanup_db.execute(
-            text("DELETE FROM data_sources WHERE id = :id"), {"id": ds_id}
-        )
+        cleanup_db.execute(text("DELETE FROM data_sources WHERE id = :id"), {"id": ds_id})
         cleanup_db.commit()
     except Exception:
         cleanup_db.rollback()
@@ -133,8 +131,15 @@ def test_introspect_sqlite_returns_empty_for_no_tables(tmp_path) -> None:
     sqlite3.connect(db_file).close()  # create the file but no tables
 
     src = DataSource(
-        id=1, name="empty", db_type="sqlite", database=str(db_file),
-        host="", port=0, username="", password="", schema_name=None,
+        id=1,
+        name="empty",
+        db_type="sqlite",
+        database=str(db_file),
+        host="",
+        port=0,
+        username="",
+        password="",
+        schema_name=None,
     )
     assert introspect_schema(src) == []
 

@@ -27,13 +27,12 @@ from app.middleware.request_id import install_request_id_log_factory
 @pytest.fixture
 def fake_sentry_sdk():
     """Patch ``sentry_sdk.init`` and capture the kwargs passed."""
-    with patch("sentry_sdk.init") as mock_init, patch(
-        "sentry_sdk.integrations.fastapi.FastApiIntegration"
-    ) as mock_fastapi, patch(
-        "sentry_sdk.integrations.logging.LoggingIntegration"
-    ) as mock_logging, patch(
-        "sentry_sdk.integrations.starlette.StarletteIntegration"
-    ) as mock_starlette:
+    with (
+        patch("sentry_sdk.init") as mock_init,
+        patch("sentry_sdk.integrations.fastapi.FastApiIntegration") as mock_fastapi,
+        patch("sentry_sdk.integrations.logging.LoggingIntegration") as mock_logging,
+        patch("sentry_sdk.integrations.starlette.StarletteIntegration") as mock_starlette,
+    ):
         mock_fastapi.return_value = MagicMock(name="fastapi_integration")
         mock_logging.return_value = MagicMock(name="logging_integration")
         mock_starlette.return_value = MagicMock(name="starlette_integration")

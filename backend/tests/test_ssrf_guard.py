@@ -13,6 +13,7 @@ from app.services.ssrf_guard import SSRFBlocked, validate_webhook_url
 
 # ---------- scheme allow-list ----------
 
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -37,18 +38,19 @@ def test_accepts_http_and_https_schemes() -> None:
 
 # ---------- IPv4 literal denial list ----------
 
+
 @pytest.mark.parametrize(
     "host",
     [
-        "127.0.0.1",       # loopback
-        "127.255.255.254", # loopback range upper edge
-        "0.0.0.0",         # unspecified
-        "10.0.0.1",        # private (RFC1918)
-        "192.168.1.1",     # private (RFC1918)
-        "172.16.0.1",      # private (RFC1918)
-        "169.254.169.254", # link-local (cloud metadata!)
-        "224.0.0.1",       # multicast
-        "240.0.0.1",       # reserved
+        "127.0.0.1",  # loopback
+        "127.255.255.254",  # loopback range upper edge
+        "0.0.0.0",  # unspecified
+        "10.0.0.1",  # private (RFC1918)
+        "192.168.1.1",  # private (RFC1918)
+        "172.16.0.1",  # private (RFC1918)
+        "169.254.169.254",  # link-local (cloud metadata!)
+        "224.0.0.1",  # multicast
+        "240.0.0.1",  # reserved
     ],
 )
 def test_rejects_blocked_ipv4_literal(host: str) -> None:
@@ -58,15 +60,16 @@ def test_rejects_blocked_ipv4_literal(host: str) -> None:
 
 # ---------- IPv6 literal denial list ----------
 
+
 @pytest.mark.parametrize(
     "host",
     [
-        "::1",        # loopback
-        "fc00::1",    # ULA (private)
-        "fd00::1",    # ULA (private)
-        "fe80::1",    # link-local
-        "ff02::1",    # multicast
-        "::",         # unspecified
+        "::1",  # loopback
+        "fc00::1",  # ULA (private)
+        "fd00::1",  # ULA (private)
+        "fe80::1",  # link-local
+        "ff02::1",  # multicast
+        "::",  # unspecified
     ],
 )
 def test_rejects_blocked_ipv6_literal(host: str) -> None:
@@ -75,6 +78,7 @@ def test_rejects_blocked_ipv6_literal(host: str) -> None:
 
 
 # ---------- hostname DNS resolution ----------
+
 
 def test_rejects_localhost_via_dns() -> None:
     # Most CI runners resolve localhost to 127.0.0.1; mock to lock behavior
@@ -114,6 +118,7 @@ def test_rejects_when_dns_resolution_fails() -> None:
 
 # ---------- hostname happy path ----------
 
+
 def test_accepts_hostname_resolving_to_public_ip() -> None:
     with patch(
         "app.services.ssrf_guard.socket.getaddrinfo",
@@ -132,6 +137,7 @@ def test_accepts_public_ipv6_literal() -> None:
 
 
 # ---------- malformed URLs ----------
+
 
 def test_rejects_missing_hostname() -> None:
     with pytest.raises(SSRFBlocked, match="hostname"):

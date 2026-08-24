@@ -204,9 +204,7 @@ def refresh(
     refresh token can be observed and invalidated the next time the
     legitimate user refreshes.
     """
-    refresh_token = get_refresh_token_from_request(
-        request, req.refresh_token if req else None
-    )
+    refresh_token = get_refresh_token_from_request(request, req.refresh_token if req else None)
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

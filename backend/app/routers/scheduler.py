@@ -87,11 +87,13 @@ def sync_scheduler(
     # holds after the reconcile — matches what callers expected before this
     # endpoint learned to drop orphans.
     count = len(
-        db.query(Report).filter(
+        db.query(Report)
+        .filter(
             Report.is_scheduled == True,  # noqa: E712
             Report.is_active == True,  # noqa: E712
             Report.cron_expression.isnot(None),  # noqa: E712
-        ).all()
+        )
+        .all()
     )
     msg = f"Synced {count} scheduled reports"
     # 批 9.5: audit the sync — who triggered a full reconcile + how many
@@ -147,9 +149,7 @@ def create_or_update_job(
             detail="report_id in URL does not match body",
         )
 
-    report_obj = get_report_for_user(
-        db, report_id, user, level=PERMISSION_WRITE
-    )
+    report_obj = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
     if report_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -240,9 +240,7 @@ def delete_job(
     mode ``SCHEDULER_DISABLED=true`` the web process scheduler is empty,
     so this is a no-op — the sidecar handles it).
     """
-    report_obj = get_report_for_user(
-        db, report_id, user, level=PERMISSION_WRITE
-    )
+    report_obj = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
     if report_obj is None:
         # Still clean up any lingering scheduler job for this report ID.
         scheduler = get_scheduler()
@@ -279,7 +277,8 @@ def delete_job(
     except Exception as exc:
         logger.warning(
             "Scheduler removal for report %d failed (sidecar will clean up): %s",
-            report_id, exc,
+            report_id,
+            exc,
         )
     # 批 9.5: audit successful scheduler job delete. ``after`` is the
     # refreshed report row with all schedule fields cleared.

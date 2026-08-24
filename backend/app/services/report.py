@@ -170,17 +170,16 @@ def list_accessible_reports(
     if is_admin(user):
         q = db.query(Report)
     else:
-
         owner_q = db.query(Report.id).filter(Report.owner_user_id == user.id)
-        granted_q = db.query(ReportAccess.report_id).filter(
-            ReportAccess.user_id == user.id
-        )
+        granted_q = db.query(ReportAccess.report_id).filter(ReportAccess.user_id == user.id)
         # ``public_q`` is a literal — no join needed. SQLite handles
         # the IN-subquery efficiently; the report_id set is small.
         public_q = db.query(Report.id).filter(Report.visibility == VISIBILITY_PUBLIC)
-        ids = {row[0] for row in owner_q.all()} | {
-            row[0] for row in granted_q.all()
-        } | {row[0] for row in public_q.all()}
+        ids = (
+            {row[0] for row in owner_q.all()}
+            | {row[0] for row in granted_q.all()}
+            | {row[0] for row in public_q.all()}
+        )
         if not ids:
             return []
         q = db.query(Report).filter(Report.id.in_(ids))
@@ -397,12 +396,8 @@ def duplicate_report(
                 label=src_param.label,
                 type=src_param.type,
                 required=src_param.required,
-                default=copy.deepcopy(src_param.default)
-                if src_param.default is not None
-                else None,
-                options=copy.deepcopy(src_param.options)
-                if src_param.options is not None
-                else None,
+                default=copy.deepcopy(src_param.default) if src_param.default is not None else None,
+                options=copy.deepcopy(src_param.options) if src_param.options is not None else None,
                 order_index=src_param.order_index,
             )
         )

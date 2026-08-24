@@ -50,9 +50,7 @@ class ReportAccess(Base):
         index=True,
     )
     permission = Column(String(16), nullable=False)  # "read" | "write"
-    granted_by = Column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
+    granted_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -65,9 +63,7 @@ class ReportAccess(Base):
     # back_populates would require mirroring on the User model, which
     # would couple unrelated modules. Lookups are direct via FK.
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
-    grantor: Mapped["User | None"] = relationship(
-        "User", foreign_keys=[granted_by]
-    )
+    grantor: Mapped["User | None"] = relationship("User", foreign_keys=[granted_by])
 
     def __repr__(self) -> str:  # pragma: no cover - debugging
         return (

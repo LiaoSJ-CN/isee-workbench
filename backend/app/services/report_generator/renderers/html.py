@@ -58,37 +58,39 @@ def render_html(
     ]
     if base_url:
         html_parts.append(f"<base href='{h(base_url)}'>")
-    html_parts.extend([
-        f"<title>{h(str(report.name))}</title>",
-        "<script src='/static/chart.umd.min.js'></script>",
-        "<style>",
-        "body { font-family: -apple-system, BlinkMacSystemFont, "
-        "'Segoe UI', Roboto, sans-serif; padding: 20px; }",
-        "h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }",
-        "h2 { color: #555; margin-top: 30px; }",
-        "h3 { color: #666; margin-top: 20px; font-size: 16px; }",
-        "table { border-collapse: collapse; width: 100%; margin: 20px 0; }",
-        "th { background-color: #0066cc; color: white; padding: 12px; text-align: left; }",
-        "td { padding: 10px; border-bottom: 1px solid #ddd; }",
-        "tr:hover { background-color: #f5f5f5; }",
-        ".metric { display: inline-block; padding: 20px; margin: 10px; "
-        "background: #f0f8ff; border-radius: 8px; }",
-        ".metric-value { font-size: 2em; font-weight: bold; color: #0066cc; }",
-        ".metric-label { color: #666; }",
-        ".chart-container { margin: 20px 0; padding: 15px; "
-        "background: #fff; border: 1px solid #e8e8e8; border-radius: 8px; }",
-        ".timestamp { color: #999; font-size: 0.9em; margin-top: 20px; }",
-        ".text-block { padding: 15px; background: #fafafa; "
-        "border-radius: 4px; margin: 10px 0; }",
-        ".chart-wrapper { position: relative; height: 400px; width: 100%; }",
-        ".item-error { margin: 20px 0; padding: 15px; "
-        "background: #fff1f0; border: 1px solid #ffa39e; border-radius: 8px; }",
-        ".item-error .error-banner { color: #cf1322; margin: 8px 0 0 0; }",
-        "</style>",
-        "</head>",
-        "<body>",
-        f"<h1>{h(str(report.name))}</h1>",
-    ])
+    html_parts.extend(
+        [
+            f"<title>{h(str(report.name))}</title>",
+            "<script src='/static/chart.umd.min.js'></script>",
+            "<style>",
+            "body { font-family: -apple-system, BlinkMacSystemFont, "
+            "'Segoe UI', Roboto, sans-serif; padding: 20px; }",
+            "h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }",
+            "h2 { color: #555; margin-top: 30px; }",
+            "h3 { color: #666; margin-top: 20px; font-size: 16px; }",
+            "table { border-collapse: collapse; width: 100%; margin: 20px 0; }",
+            "th { background-color: #0066cc; color: white; padding: 12px; text-align: left; }",
+            "td { padding: 10px; border-bottom: 1px solid #ddd; }",
+            "tr:hover { background-color: #f5f5f5; }",
+            ".metric { display: inline-block; padding: 20px; margin: 10px; "
+            "background: #f0f8ff; border-radius: 8px; }",
+            ".metric-value { font-size: 2em; font-weight: bold; color: #0066cc; }",
+            ".metric-label { color: #666; }",
+            ".chart-container { margin: 20px 0; padding: 15px; "
+            "background: #fff; border: 1px solid #e8e8e8; border-radius: 8px; }",
+            ".timestamp { color: #999; font-size: 0.9em; margin-top: 20px; }",
+            ".text-block { padding: 15px; background: #fafafa; "
+            "border-radius: 4px; margin: 10px 0; }",
+            ".chart-wrapper { position: relative; height: 400px; width: 100%; }",
+            ".item-error { margin: 20px 0; padding: 15px; "
+            "background: #fff1f0; border: 1px solid #ffa39e; border-radius: 8px; }",
+            ".item-error .error-banner { color: #cf1322; margin: 8px 0 0 0; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>{h(str(report.name))}</h1>",
+        ]
+    )
 
     if report.description:
         html_parts.append(f"<p>{h(report.description)}</p>")
@@ -145,8 +147,7 @@ def render_html(
             chart_id = f"chart_{chart_index}"
             # chart_index is an int, so chart_id is always safe — but
             # assert this to prevent regressions (SEC-1).
-            assert chart_id.replace("_", "").isalnum(), \
-                f"Unsafe chart_id: {chart_id!r}"
+            assert chart_id.replace("_", "").isalnum(), f"Unsafe chart_id: {chart_id!r}"
 
             chart_config = _build_chart_config(
                 chart_type=chart_type,
@@ -160,9 +161,7 @@ def render_html(
                 show_data_label=show_data_label,
             )
 
-            html_parts.append(
-                f"<div class='chart-wrapper' style='height:{h(str(height))}px'>"
-            )
+            html_parts.append(f"<div class='chart-wrapper' style='height:{h(str(height))}px'>")
             html_parts.append(f"<canvas id='{chart_id}'></canvas>")
             html_parts.append("</div>")
             html_parts.append("</div>")
@@ -190,16 +189,19 @@ def render_html(
         else:
             logger.warning(
                 "Unknown item_type=%r for item %s — skipping rendering",
-                item.item_type, cast(str, item.name),
+                item.item_type,
+                cast(str, item.name),
             )
 
-    html_parts.extend([
-        f"<div class='timestamp'>"
-        f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        f"</div>",
-        "</body>",
-        "</html>",
-    ])
+    html_parts.extend(
+        [
+            f"<div class='timestamp'>"
+            f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f"</div>",
+            "</body>",
+            "</html>",
+        ]
+    )
 
     return "\n".join(html_parts)
 
@@ -214,6 +216,7 @@ def _format_value_inline(val: Any) -> str:
     the intent obvious and the import graph simpler for grepping.
     """
     from app.services.report_generator.renderers._shared import format_value
+
     return format_value(val)
 
 
@@ -243,12 +246,14 @@ def _build_chart_config(
         for i, col in enumerate(data.columns[1:], 0):
             dataset_data = data[col].tolist()
             bg_color = colors[i % len(colors)] if i < len(colors) else colors[0]
-            datasets.append({
-                "data": dataset_data,
-                "backgroundColor": bg_color,
-                "borderColor": "#fff",
-                "borderWidth": 2,
-            })
+            datasets.append(
+                {
+                    "data": dataset_data,
+                    "backgroundColor": bg_color,
+                    "borderColor": "#fff",
+                    "borderWidth": 2,
+                }
+            )
         return {
             "type": chart_type,
             "data": {"labels": labels, "datasets": datasets},
@@ -268,15 +273,17 @@ def _build_chart_config(
         dataset_data = data[col].tolist()
         color = colors[i % len(colors)]
         is_bar = chart_type in ("bar", "horizontalBar")
-        datasets.append({
-            "label": col,
-            "data": dataset_data,
-            "backgroundColor": color if is_bar else f"{color}33",
-            "borderColor": color,
-            "borderWidth": 2,
-            "fill": chart_type == "area",
-            "tension": 0.4,
-        })
+        datasets.append(
+            {
+                "label": col,
+                "data": dataset_data,
+                "backgroundColor": color if is_bar else f"{color}33",
+                "borderColor": color,
+                "borderWidth": 2,
+                "fill": chart_type == "area",
+                "tension": 0.4,
+            }
+        )
 
     chart_type_for_js = "bar" if chart_type == "horizontalBar" else chart_type
     return {

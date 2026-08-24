@@ -39,9 +39,7 @@ class SecurityHeadersMiddleware:
                 existing = {h[0].decode("latin-1").lower() for h in headers}
                 for name, value in _SECURITY_HEADERS:
                     if name.lower() not in existing:
-                        headers.append(
-                            (name.encode("latin-1"), value.encode("latin-1"))
-                        )
+                        headers.append((name.encode("latin-1"), value.encode("latin-1")))
                 message["headers"] = headers
             await send(message)
 

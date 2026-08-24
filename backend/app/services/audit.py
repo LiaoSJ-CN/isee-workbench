@@ -195,10 +195,7 @@ _SCHEMA_FOR_TYPE: dict[type, type[BaseModel]] = {
 
 def _redact(d: Mapping[str, Any]) -> dict[str, Any]:
     """Replace values for sensitive keys with a sentinel before persistence."""
-    return {
-        k: ("***REDACTED***" if k in _SENSITIVE_FIELDS else v)
-        for k, v in d.items()
-    }
+    return {k: ("***REDACTED***" if k in _SENSITIVE_FIELDS else v) for k, v in d.items()}
 
 
 def _truncate(value: Any, max_len: int = _MAX_STRING_LEN) -> Any:
@@ -244,11 +241,7 @@ def _snapshot(obj: Any) -> dict[str, Any] | None:
         # Last-resort fallback. Strips SQLAlchemy state via __dict__ copy
         # filtered to primitive values; logged as a warning so we notice
         # if a new ORM model sneaks in without being registered.
-        data: dict[str, Any] = {
-            k: v
-            for k, v in obj.__dict__.items()
-            if not k.startswith("_sa_")
-        }
+        data: dict[str, Any] = {k: v for k, v in obj.__dict__.items() if not k.startswith("_sa_")}
         logger.warning(
             "audit: no schema registered for %s; falling back to __dict__",
             type(obj).__name__,
@@ -354,9 +347,7 @@ def purge_old_audit_logs(db: Session, retention_days: int) -> int:
     if retention_days <= 0:
         return 0
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
-    deleted = (
-        db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete()
-    )
+    deleted = db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete()
     logger.info(
         "audit log purge: retention_days=%d cutoff=%s deleted=%d",
         retention_days,

@@ -81,9 +81,7 @@ def create_subscription(
         cron_expression=cron_expression,
         parameters=parameters or {},
         notification_config=(
-            notification_config.model_dump(mode="json")
-            if notification_config is not None
-            else None
+            notification_config.model_dump(mode="json") if notification_config is not None else None
         ),
         is_active=True,
     )
@@ -111,9 +109,7 @@ def list_my_subscriptions(
     subscriptions on a specific report (handy for the "this report's
     subscribers" page if we ever expose one).
     """
-    q = db.query(ReportSubscription).filter(
-        ReportSubscription.owner_user_id == owner_user_id
-    )
+    q = db.query(ReportSubscription).filter(ReportSubscription.owner_user_id == owner_user_id)
     if report_id is not None:
         q = q.filter(ReportSubscription.report_id == report_id)
     return (
@@ -165,9 +161,7 @@ def update_subscription(
         subscription.parameters = parameters
 
     if notification_config is not None:
-        subscription.notification_config = notification_config.model_dump(
-            mode="json"
-        )
+        subscription.notification_config = notification_config.model_dump(mode="json")
 
     if is_active is not None:
         subscription.is_active = is_active
@@ -235,7 +229,9 @@ def _schedule_subscription(sub: ReportSubscription) -> None:
     )
     logger.info(
         "Scheduled subscription job %s (report_id=%s, owner=%s)",
-        job_id, sub.report_id, sub.owner_user_id,
+        job_id,
+        sub.report_id,
+        sub.owner_user_id,
     )
 
 
@@ -247,7 +243,8 @@ def _unschedule_subscription(sub: ReportSubscription) -> None:
         scheduler.scheduler.remove_job(job_id)
         logger.info(
             "Unscheduled subscription job %s (report_id=%s)",
-            job_id, sub.report_id,
+            job_id,
+            sub.report_id,
         )
 
 
@@ -275,12 +272,12 @@ def sync_subscriptions_with_database(db: Session) -> None:
         except InvalidCronExpression as exc:
             logger.error(
                 "Subscription %s has invalid cron %r: %s",
-                sub.id, sub.cron_expression, exc,
+                sub.id,
+                sub.cron_expression,
+                exc,
             )
         except Exception as exc:  # noqa: BLE001 — top-level guard for the reconciler
-            logger.exception(
-                "Failed to schedule subscription %s: %s", sub.id, exc
-            )
+            logger.exception("Failed to schedule subscription %s: %s", sub.id, exc)
 
     # Prune — drop sub_<id> jobs whose row is no longer active.
     scheduler = get_scheduler()
@@ -289,7 +286,7 @@ def sync_subscriptions_with_database(db: Session) -> None:
         if not job_id or not job_id.startswith("sub_"):
             continue
         try:
-            sid = int(job_id[len("sub_"):])
+            sid = int(job_id[len("sub_") :])
         except ValueError:
             continue
         if sid not in active_ids:
@@ -320,22 +317,22 @@ def _execute_subscription(subscription_id: int) -> None:
             )
             return
         if not sub.is_active:
-            logger.info(
-                "Subscription %s is inactive, skipping", subscription_id
-            )
+            logger.info("Subscription %s is inactive, skipping", subscription_id)
             return
 
         report = db.get(Report, cast(int, sub.report_id))
         if report is None:
             logger.error(
                 "Report %s for subscription %s no longer exists",
-                sub.report_id, subscription_id,
+                sub.report_id,
+                subscription_id,
             )
             return
         if not report.is_active:
             logger.info(
                 "Report %s for subscription %s is inactive, skipping",
-                report.id, subscription_id,
+                report.id,
+                subscription_id,
             )
             return
 
@@ -358,12 +355,8 @@ def _execute_subscription(subscription_id: int) -> None:
             # the typed union before dispatch.
             from pydantic import TypeAdapter
 
-            _adapter: TypeAdapter[NotificationConfig] = TypeAdapter(
-                NotificationConfig
-            )
-            typed: NotificationConfig = _adapter.validate_python(
-                sub.notification_config
-            )
+            _adapter: TypeAdapter[NotificationConfig] = TypeAdapter(NotificationConfig)
+            typed: NotificationConfig = _adapter.validate_python(sub.notification_config)
             _send_notification(
                 typed,
                 report,
@@ -373,18 +366,18 @@ def _execute_subscription(subscription_id: int) -> None:
             logger.info(
                 "Subscription %s produced %s but no notification_config — "
                 "file written but not delivered",
-                subscription_id, file_path,
+                subscription_id,
+                file_path,
             )
 
         sub.last_run_at = datetime.now(timezone.utc)
         db.commit()
         logger.info(
             "Completed subscription %s tick (report_id=%s)",
-            subscription_id, report.id,
+            subscription_id,
+            report.id,
         )
     except Exception as exc:  # noqa: BLE001 — top-level guard for APScheduler thread
-        logger.exception(
-            "Subscription %s tick crashed: %s", subscription_id, exc
-        )
+        logger.exception("Subscription %s tick crashed: %s", subscription_id, exc)
     finally:
         db.close()

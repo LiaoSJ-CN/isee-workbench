@@ -43,9 +43,7 @@ logger = logging.getLogger(__name__)
 # State-changing methods. ``GET`` / ``HEAD`` / ``OPTIONS`` are always
 # allowed — CORS preflight (OPTIONS) is what the browser uses to
 # verify a cross-origin write, so we must let it through.
-_STATE_CHANGING_METHODS: frozenset[str] = frozenset(
-    {"POST", "PUT", "PATCH", "DELETE"}
-)
+_STATE_CHANGING_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Paths exempt from CSRF enforcement entirely. The Prometheus scrape
 # endpoint and the OpenAPI surface don't accept mutations; the SPA
@@ -118,7 +116,9 @@ class CSRFMiddleware:
         # knows the request was bad.
         logger.warning(
             "CSRF rejection: method=%s path=%s origin=%s",
-            scope["method"], path, origin,
+            scope["method"],
+            path,
+            origin,
         )
         await self._send_forbidden(send)
 

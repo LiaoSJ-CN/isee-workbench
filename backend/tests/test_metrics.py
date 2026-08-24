@@ -36,9 +36,7 @@ def test_metrics_endpoint_is_reachable(client: TestClient) -> None:
         "sql_validator_rejections_total",
     ],
 )
-def test_metrics_endpoint_exposes_custom_metric_names(
-    client: TestClient, metric_name: str
-) -> None:
+def test_metrics_endpoint_exposes_custom_metric_names(client: TestClient, metric_name: str) -> None:
     """Each custom metric from 批 6b.1 plan §6b.1 must be present in
     the /metrics output, even before any traffic. Prometheus-client
     pre-registers label combinations; the metric_name header is what

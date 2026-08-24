@@ -82,18 +82,10 @@ def user_a() -> User:
     finally:
         # AuditLog FK is SET NULL on user delete, so the audit trail
         # outlives the test user. Safe to delete in any order.
-        db.query(DataSourceAccess).filter(
-            DataSourceAccess.user_id == int(user.id)
-        ).delete()
-        db.query(ReportAccess).filter(
-            ReportAccess.user_id == int(user.id)
-        ).delete()
-        db.query(DataSource).filter(
-            DataSource.owner_user_id == int(user.id)
-        ).delete()
-        db.query(Report).filter(
-            Report.owner_user_id == int(user.id)
-        ).delete()
+        db.query(DataSourceAccess).filter(DataSourceAccess.user_id == int(user.id)).delete()
+        db.query(ReportAccess).filter(ReportAccess.user_id == int(user.id)).delete()
+        db.query(DataSource).filter(DataSource.owner_user_id == int(user.id)).delete()
+        db.query(Report).filter(Report.owner_user_id == int(user.id)).delete()
         db.delete(user)
         db.commit()
         db.close()
@@ -114,18 +106,10 @@ def user_b() -> User:
     try:
         yield user
     finally:
-        db.query(DataSourceAccess).filter(
-            DataSourceAccess.user_id == int(user.id)
-        ).delete()
-        db.query(ReportAccess).filter(
-            ReportAccess.user_id == int(user.id)
-        ).delete()
-        db.query(DataSource).filter(
-            DataSource.owner_user_id == int(user.id)
-        ).delete()
-        db.query(Report).filter(
-            Report.owner_user_id == int(user.id)
-        ).delete()
+        db.query(DataSourceAccess).filter(DataSourceAccess.user_id == int(user.id)).delete()
+        db.query(ReportAccess).filter(ReportAccess.user_id == int(user.id)).delete()
+        db.query(DataSource).filter(DataSource.owner_user_id == int(user.id)).delete()
+        db.query(Report).filter(Report.owner_user_id == int(user.id)).delete()
         db.delete(user)
         db.commit()
         db.close()
@@ -244,20 +228,14 @@ def test_audit_endpoint_requires_authentication(client: TestClient) -> None:
     assert r.status_code == 401
 
 
-def test_audit_endpoint_non_admin_gets_403(
-    client: TestClient, user_a: User
-) -> None:
+def test_audit_endpoint_non_admin_gets_403(client: TestClient, user_a: User) -> None:
     r = client.get("/audit-logs", headers=_auth_for(user_a))
     assert r.status_code == 403
 
 
-def test_audit_endpoint_admin_succeeds(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_audit_endpoint_admin_succeeds(client: TestClient, db_setup: Any) -> None:
     _, admin = db_setup
-    r = client.get(
-        "/audit-logs", params={"limit": 1}, headers=_auth_for(admin)
-    )
+    r = client.get("/audit-logs", params={"limit": 1}, headers=_auth_for(admin))
     assert r.status_code == 200
     body = r.json()
     assert "items" in body
@@ -270,9 +248,7 @@ def test_audit_endpoint_admin_succeeds(
 # ---------------------------------------------------------------------------
 
 
-def test_login_creates_audit_entry(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_login_creates_audit_entry(client: TestClient, db_setup: Any) -> None:
     """Successful login writes an audit row with the user identity."""
     _delete_audit_rows_for_action(audit_service.ACTION_LOGIN)
     db, admin = db_setup
@@ -321,9 +297,7 @@ def test_failed_login_not_logged(client: TestClient, db_setup: Any) -> None:
     assert bad_rows == []
 
 
-def test_logout_creates_audit_entry(
-    client: TestClient, user_a: User
-) -> None:
+def test_logout_creates_audit_entry(client: TestClient, user_a: User) -> None:
     """Successful logout writes an audit row with no before/after."""
     _delete_audit_rows_for_action(audit_service.ACTION_LOGOUT)
     r = client.post("/auth/logout", headers=_auth_for(user_a))
@@ -352,9 +326,7 @@ def test_logout_creates_audit_entry(
 # ---------------------------------------------------------------------------
 
 
-def test_ds_create_logs_owner(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_ds_create_logs_owner(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_DATA_SOURCE_CREATE)
     name = _unique("audit_ds_create")
     r = client.post(
@@ -378,14 +350,11 @@ def test_ds_create_logs_owner(
         action=audit_service.ACTION_DATA_SOURCE_CREATE,
     )
     assert any(
-        row["actor_user_id"] == int(user_a.id) and row["after"]["name"] == name
-        for row in rows
+        row["actor_user_id"] == int(user_a.id) and row["after"]["name"] == name for row in rows
     ), "expected DS create audit row for user_a"
 
 
-def test_ds_update_logs_before_after_diff(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_ds_update_logs_before_after_diff(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_DATA_SOURCE_UPDATE)
     db = SessionLocal()
     try:
@@ -451,9 +420,7 @@ def test_ds_update_password_redacted_in_after(
     assert "new-secret" not in str(row)
 
 
-def test_ds_delete_logs_before_snapshot(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_ds_delete_logs_before_snapshot(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_DATA_SOURCE_DELETE)
     db = SessionLocal()
     try:
@@ -523,9 +490,7 @@ def test_ds_revoke_logs_grant_row(
         grant_id = int(grant.id)
     finally:
         db.close()
-    r = client.delete(
-        f"/data-sources/grants/{grant_id}", headers=_auth_for(user_a)
-    )
+    r = client.delete(f"/data-sources/grants/{grant_id}", headers=_auth_for(user_a))
     assert r.status_code == 204
     _, admin = db_setup
     rows = _list_audit_rows(
@@ -544,9 +509,7 @@ def test_ds_revoke_logs_grant_row(
 # ---------------------------------------------------------------------------
 
 
-def test_report_create_logs_visibility(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_report_create_logs_visibility(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_CREATE)
     db = SessionLocal()
     try:
@@ -577,9 +540,7 @@ def test_report_create_logs_visibility(
     assert rows[0]["after"]["visibility"] == "private"
 
 
-def test_report_update_logs_name_change(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_report_update_logs_name_change(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_UPDATE)
     db = SessionLocal()
     try:
@@ -607,9 +568,7 @@ def test_report_update_logs_name_change(
     assert rows[0]["after"]["name"] == new_name
 
 
-def test_report_delete_logs_pre_delete(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_report_delete_logs_pre_delete(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_DELETE)
     db = SessionLocal()
     try:
@@ -632,9 +591,7 @@ def test_report_delete_logs_pre_delete(
     assert rows[0]["after"] is None
 
 
-def test_item_create_logs_item(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_item_create_logs_item(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_ITEM_CREATE)
     db = SessionLocal()
     try:
@@ -666,9 +623,7 @@ def test_item_create_logs_item(
     assert rows[0]["target_type"] == audit_service.TARGET_TYPE_REPORT_ITEM
 
 
-def test_item_update_logs_order_index(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_item_update_logs_order_index(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_ITEM_UPDATE)
     db = SessionLocal()
     try:
@@ -702,9 +657,7 @@ def test_item_update_logs_order_index(
     assert rows[0]["after"]["order_index"] == 42
 
 
-def test_item_delete_logs_item(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_item_delete_logs_item(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_ITEM_DELETE)
     db = SessionLocal()
     try:
@@ -720,9 +673,7 @@ def test_item_delete_logs_item(
     )
     assert r.status_code == 201, r.text
     item_id = r.json()["id"]
-    r = client.delete(
-        f"/reports/{rep_id}/items/{item_id}", headers=_auth_for(user_a)
-    )
+    r = client.delete(f"/reports/{rep_id}/items/{item_id}", headers=_auth_for(user_a))
     assert r.status_code == 204
     _, admin = db_setup
     rows = _list_audit_rows(
@@ -734,9 +685,7 @@ def test_item_delete_logs_item(
     assert len(rows) >= 1
 
 
-def test_item_reorder_logs_order_list(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_item_reorder_logs_order_list(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_ITEM_REORDER)
     db = SessionLocal()
     try:
@@ -761,8 +710,9 @@ def test_item_reorder_logs_order_list(
         ids.append(r.json()["id"])
     r = client.patch(
         f"/reports/{rep_id}/items/order",
-        json={"items": [{"item_id": ids[0], "order_index": 1},
-                        {"item_id": ids[1], "order_index": 0}]},
+        json={
+            "items": [{"item_id": ids[0], "order_index": 1}, {"item_id": ids[1], "order_index": 0}]
+        },
         headers=_auth_for(user_a),
     )
     assert r.status_code == 200, r.text
@@ -777,9 +727,7 @@ def test_item_reorder_logs_order_list(
     assert "order" in rows[0]["after"]
 
 
-def test_param_create_logs_spec(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_param_create_logs_spec(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_PARAM_CREATE)
     db = SessionLocal()
     try:
@@ -805,9 +753,7 @@ def test_param_create_logs_spec(
     assert len(rows) >= 1
 
 
-def test_param_delete_logs_spec(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_param_delete_logs_spec(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_PARAM_DELETE)
     db = SessionLocal()
     try:
@@ -823,9 +769,7 @@ def test_param_delete_logs_spec(
     )
     assert r.status_code == 201, r.text
     pid = r.json()["id"]
-    r = client.delete(
-        f"/reports/{rep_id}/parameters/{pid}", headers=_auth_for(user_a)
-    )
+    r = client.delete(f"/reports/{rep_id}/parameters/{pid}", headers=_auth_for(user_a))
     assert r.status_code == 204
     _, admin = db_setup
     rows = _list_audit_rows(
@@ -837,9 +781,7 @@ def test_param_delete_logs_spec(
     assert len(rows) >= 1
 
 
-def test_share_logs_grantee(
-    client: TestClient, user_a: User, user_b: User, db_setup: Any
-) -> None:
+def test_share_logs_grantee(client: TestClient, user_a: User, user_b: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_SHARE)
     db = SessionLocal()
     try:
@@ -866,9 +808,7 @@ def test_share_logs_grantee(
     assert rows[0]["target_type"] == audit_service.TARGET_TYPE_REPORT_SHARE
 
 
-def test_revoke_logs_share(
-    client: TestClient, user_a: User, user_b: User, db_setup: Any
-) -> None:
+def test_revoke_logs_share(client: TestClient, user_a: User, user_b: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_REPORT_REVOKE)
     db = SessionLocal()
     try:
@@ -887,9 +827,7 @@ def test_revoke_logs_share(
         share_id = int(share.id)
     finally:
         db.close()
-    r = client.delete(
-        f"/reports/shares/{share_id}", headers=_auth_for(user_a)
-    )
+    r = client.delete(f"/reports/shares/{share_id}", headers=_auth_for(user_a))
     assert r.status_code == 204
     _, admin = db_setup
     rows = _list_audit_rows(
@@ -929,9 +867,7 @@ def test_generate_endpoint_calls_audit_hook(
         rep_id = int(rep.id)
         # Drop any leftover parameters to avoid ``missing required
         # parameter: 'p1'`` short-circuiting before the hook runs.
-        db.query(ReportParameter).filter(
-            ReportParameter.report_id == int(rep.id)
-        ).delete()
+        db.query(ReportParameter).filter(ReportParameter.report_id == int(rep.id)).delete()
         db.commit()
     finally:
         db.close()
@@ -979,9 +915,7 @@ def test_generate_endpoint_audit_hook_on_report_generator_error(
             name=_unique("audit_gen_fail_rep"),
         )
         rep_id = int(rep.id)
-        db.query(ReportParameter).filter(
-            ReportParameter.report_id == int(rep.id)
-        ).delete()
+        db.query(ReportParameter).filter(ReportParameter.report_id == int(rep.id)).delete()
         db.commit()
     finally:
         db.close()
@@ -1013,9 +947,7 @@ def test_generate_endpoint_audit_hook_on_report_generator_error(
 # ---------------------------------------------------------------------------
 
 
-def test_job_enqueue_logs_report_format(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_job_enqueue_logs_report_format(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_JOB_ENQUEUE)
     db = SessionLocal()
     try:
@@ -1047,18 +979,14 @@ def test_job_enqueue_logs_report_format(
 # ---------------------------------------------------------------------------
 
 
-def _make_publishable_report(
-    db: Session, owner: User, ds: DataSource
-) -> Report:
+def _make_publishable_report(db: Session, owner: User, ds: DataSource) -> Report:
     """Public report so the subscription service can find the report
     via the regular report lookup (subscription doesn't ACL-gate the
     parent report beyond its existence)."""
     return _make_report(db, owner=owner, ds=ds, visibility="public")
 
 
-def test_subscription_create_logs_cron(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_subscription_create_logs_cron(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_SUBSCRIPTION_CREATE)
     db = SessionLocal()
     try:
@@ -1153,9 +1081,7 @@ def test_subscription_resume_logs_is_active_true(
     assert rows[0]["after"]["is_active"] is True
 
 
-def test_subscription_delete_logs_sub(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_subscription_delete_logs_sub(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_SUBSCRIPTION_DELETE)
     db = SessionLocal()
     try:
@@ -1189,9 +1115,7 @@ def test_subscription_delete_logs_sub(
 # ---------------------------------------------------------------------------
 
 
-def test_scheduler_job_create_logs_cron(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_scheduler_job_create_logs_cron(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_SCHEDULER_JOB_CREATE)
     db = SessionLocal()
     try:
@@ -1220,9 +1144,7 @@ def test_scheduler_job_create_logs_cron(
     assert len(rows) >= 1
 
 
-def test_scheduler_job_delete_logs_report(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_scheduler_job_delete_logs_report(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_SCHEDULER_JOB_DELETE)
     db = SessionLocal()
     try:
@@ -1248,9 +1170,7 @@ def test_scheduler_job_delete_logs_report(
     assert len(rows) >= 1
 
 
-def test_scheduler_sync_logs_actor_admin(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_scheduler_sync_logs_actor_admin(client: TestClient, db_setup: Any) -> None:
     """``POST /scheduler/sync`` is admin-only — non-admin should be 403
     (ACL test); admin should write a sync row."""
     _, admin = db_setup
@@ -1267,9 +1187,7 @@ def test_scheduler_sync_logs_actor_admin(
     assert rows[0]["after"]["jobs_loaded"] >= 0
 
 
-def test_scheduler_sync_non_admin_403(
-    client: TestClient, user_a: User
-) -> None:
+def test_scheduler_sync_non_admin_403(client: TestClient, user_a: User) -> None:
     r = client.post("/scheduler/sync", headers=_auth_for(user_a))
     assert r.status_code == 403
 
@@ -1279,9 +1197,7 @@ def test_scheduler_sync_non_admin_403(
 # ---------------------------------------------------------------------------
 
 
-def test_explorer_query_logs_sql(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_explorer_query_logs_sql(client: TestClient, user_a: User, db_setup: Any) -> None:
     """Successful explorer query writes an audit row with the SQL."""
     _delete_audit_rows_for_action(audit_service.ACTION_EXPLORER_QUERY)
     db = SessionLocal()
@@ -1316,9 +1232,7 @@ def test_explorer_query_logs_sql(
 # ---------------------------------------------------------------------------
 
 
-def test_audit_filter_by_actor_user_id(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_audit_filter_by_actor_user_id(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_DATA_SOURCE_CREATE)
     name = _unique("audit_filter_actor")
     client.post(
@@ -1344,24 +1258,17 @@ def test_audit_filter_by_actor_user_id(
     assert all(row["actor_user_id"] == int(user_a.id) for row in rows)
 
 
-def test_audit_filter_by_target_type(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_audit_filter_by_target_type(client: TestClient, user_a: User, db_setup: Any) -> None:
     _, admin = db_setup
     rows = _list_audit_rows(
         client,
         admin=admin,
         target_type=audit_service.TARGET_TYPE_DATA_SOURCE,
     )
-    assert all(
-        row["target_type"] == audit_service.TARGET_TYPE_DATA_SOURCE
-        for row in rows
-    )
+    assert all(row["target_type"] == audit_service.TARGET_TYPE_DATA_SOURCE for row in rows)
 
 
-def test_audit_filter_by_since_until(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_audit_filter_by_since_until(client: TestClient, db_setup: Any) -> None:
     """Windowed by ``since`` — anything before that timestamp is
     excluded."""
     _, admin = db_setup
@@ -1376,9 +1283,7 @@ def test_audit_filter_by_since_until(
     assert "items" in body
 
 
-def test_audit_pagination_limit_offset(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_audit_pagination_limit_offset(client: TestClient, db_setup: Any) -> None:
     _, admin = db_setup
     r = client.get(
         "/audit-logs",
@@ -1392,26 +1297,18 @@ def test_audit_pagination_limit_offset(
     assert len(body["items"]) <= 3
 
 
-def test_audit_pagination_total_in_body(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_audit_pagination_total_in_body(client: TestClient, db_setup: Any) -> None:
     _, admin = db_setup
-    r = client.get(
-        "/audit-logs", params={"limit": 1}, headers=_auth_for(admin)
-    )
+    r = client.get("/audit-logs", params={"limit": 1}, headers=_auth_for(admin))
     body = r.json()
     assert r.headers.get("x-total-count") == str(body["total"])
 
 
-def test_audit_get_endpoint_returns_newest_first(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_audit_get_endpoint_returns_newest_first(client: TestClient, db_setup: Any) -> None:
     """List ordering: ``created_at DESC, id DESC`` — newest rows
     appear first."""
     _, admin = db_setup
-    r = client.get(
-        "/audit-logs", params={"limit": 50}, headers=_auth_for(admin)
-    )
+    r = client.get("/audit-logs", params={"limit": 50}, headers=_auth_for(admin))
     rows = r.json()["items"]
     if len(rows) < 2:
         pytest.skip("not enough audit rows to verify ordering")
@@ -1424,9 +1321,7 @@ def test_audit_get_endpoint_returns_newest_first(
 # ---------------------------------------------------------------------------
 
 
-def test_audit_failure_does_not_block_business_endpoint(
-    client: TestClient, user_a: User
-) -> None:
+def test_audit_failure_does_not_block_business_endpoint(client: TestClient, user_a: User) -> None:
     """If audit write raises (e.g. DB transient error), the business
     endpoint still succeeds. The user gets 201, not 500.
 
@@ -1523,9 +1418,7 @@ def test_audit_ip_address_captured_from_request(
     assert matching[0]["ip_address"]
 
 
-def test_audit_user_agent_captured(
-    client: TestClient, user_a: User, db_setup: Any
-) -> None:
+def test_audit_user_agent_captured(client: TestClient, user_a: User, db_setup: Any) -> None:
     _delete_audit_rows_for_action(audit_service.ACTION_DATA_SOURCE_CREATE)
     name = _unique("audit_ua")
     ua = "audit-test-agent/9.5"
@@ -1678,9 +1571,7 @@ def test_audit_endpoint_filters_by_request_id(
     assert all(row["request_id"] == rid_b for row in rows_b)
 
 
-def test_audit_endpoint_filters_by_ip_address(
-    client: TestClient, db_setup: Any
-) -> None:
+def test_audit_endpoint_filters_by_ip_address(client: TestClient, db_setup: Any) -> None:
     """``?ip_address=...`` returns only rows tagged with that client IP.
 
     The handler doesn't observe the peer IP directly (TestClient
@@ -1762,9 +1653,7 @@ def test_purge_old_audit_logs_zero_is_noop(db_setup: Any) -> None:
     db = SessionLocal()
     try:
         deleted = audit_service.purge_old_audit_logs(db, retention_days=0)
-        deleted_neg = audit_service.purge_old_audit_logs(
-            db, retention_days=-1
-        )
+        deleted_neg = audit_service.purge_old_audit_logs(db, retention_days=-1)
     finally:
         db.close()
     assert deleted == 0

@@ -56,9 +56,7 @@ def test_email_config_rejects_invalid_address() -> None:
     """Pydantic's EmailStr rejects malformed addresses — operators
     don't have to hand-validate."""
     with pytest.raises(ValidationError):
-        _accept(
-            {"type": "email", "to": ["not-an-email"], "subject": "x"}
-        )
+        _accept({"type": "email", "to": ["not-an-email"], "subject": "x"})
 
 
 def test_email_config_requires_non_empty_to_list() -> None:

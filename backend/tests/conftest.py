@@ -146,18 +146,10 @@ def _cleanup_leaked_data_source_rows():
     db = SessionLocal()
     try:
         db.execute(text("DELETE FROM data_sources WHERE port = 0"))
-        db.execute(
-            text("DELETE FROM data_sources WHERE name LIKE 'bad-test-source-%'")
-        )
-        db.execute(
-            text("DELETE FROM data_sources WHERE name LIKE 'pytest\\_%' ESCAPE '\\'")
-        )
-        db.execute(
-            text("DELETE FROM data_sources WHERE name LIKE 'happy-sqlite-source-%'")
-        )
-        db.execute(
-            text("DELETE FROM data_sources WHERE name LIKE 'debug_%'")
-        )
+        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'bad-test-source-%'"))
+        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'pytest\\_%' ESCAPE '\\'"))
+        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'happy-sqlite-source-%'"))
+        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'debug_%'"))
         # ``test_render_html_error_message_is_html_escaped`` and friends used
         # to leave scratch ``report_items`` rows with the giveaway shape
         # ``name='x' AND table_name IN ('t','x')``. Prune anything that looks

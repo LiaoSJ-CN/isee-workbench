@@ -71,9 +71,7 @@ class DataSourceAccess(Base):
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    data_source: Mapped["DataSource"] = relationship(
-        "DataSource", back_populates="grants"
-    )
+    data_source: Mapped["DataSource"] = relationship("DataSource", back_populates="grants")
 
     __table_args__ = (
         # One grant per (resource, user) — second POST upserts the

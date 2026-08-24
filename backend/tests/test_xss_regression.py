@@ -53,9 +53,7 @@ def test_all_seeded_reports_render_successfully(seeded_reports) -> None:
             assert "/static/chart.umd.min.js" in html, (
                 f"report {report.id} missing Chart.js script src"
             )
-            assert "<script>alert" not in html, (
-                f"report {report.id} contains raw <script>alert"
-            )
+            assert "<script>alert" not in html, f"report {report.id} contains raw <script>alert"
 
             # Per-item-type assertions.
             item_types = {it.item_type for it in report.items}

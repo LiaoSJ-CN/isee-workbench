@@ -113,10 +113,7 @@ def list_accessible_data_sources(db: Session, user: User) -> list[DataSource]:
         return db.query(DataSource).order_by(DataSource.id).all()
 
     owned_ids = {
-        row[0]
-        for row in db.query(DataSource.id)
-        .filter(DataSource.owner_user_id == user.id)
-        .all()
+        row[0] for row in db.query(DataSource.id).filter(DataSource.owner_user_id == user.id).all()
     }
     granted_ids = {
         row[0]
@@ -127,12 +124,7 @@ def list_accessible_data_sources(db: Session, user: User) -> list[DataSource]:
     accessible = owned_ids | granted_ids
     if not accessible:
         return []
-    return (
-        db.query(DataSource)
-        .filter(DataSource.id.in_(accessible))
-        .order_by(DataSource.id)
-        .all()
-    )
+    return db.query(DataSource).filter(DataSource.id.in_(accessible)).order_by(DataSource.id).all()
 
 
 def upsert_grant(
@@ -150,9 +142,7 @@ def upsert_grant(
     surfacing a unique-constraint error. Returns the live row.
     """
     if permission not in ALL_PERMISSIONS:
-        raise ValueError(
-            f"permission must be one of {ALL_PERMISSIONS}, got {permission!r}"
-        )
+        raise ValueError(f"permission must be one of {ALL_PERMISSIONS}, got {permission!r}")
     existing = (
         db.query(DataSourceAccess)
         .filter(
@@ -248,16 +238,12 @@ def _next_clone_name(db: Session, base: str) -> str:
     candidate = f"{base} (副本)"
     n = 1
     while n <= 1000:
-        exists = (
-            db.query(DataSource.id).filter(DataSource.name == candidate).first()
-        )
+        exists = db.query(DataSource.id).filter(DataSource.name == candidate).first()
         if not exists:
             return candidate
         n += 1
         candidate = f"{base} (副本 {n})"
-    raise RuntimeError(
-        f"could not find a free clone name after 1000 attempts for base {base!r}"
-    )
+    raise RuntimeError(f"could not find a free clone name after 1000 attempts for base {base!r}")
 
 
 def clone_data_source(
@@ -292,9 +278,7 @@ def clone_data_source(
     chosen = new_name if new_name else _next_clone_name(db, original.name)
     if chosen == original.name:
         raise ValueError("clone name must differ from the source name")
-    collision = (
-        db.query(DataSource.id).filter(DataSource.name == chosen).first()
-    )
+    collision = db.query(DataSource.id).filter(DataSource.name == chosen).first()
     if collision:
         raise ValueError(f"Data source named {chosen!r} already exists")
 

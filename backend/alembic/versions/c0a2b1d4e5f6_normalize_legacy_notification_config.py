@@ -24,6 +24,7 @@ any shape, so the normalized shape still passes validation going back.
 A real reverse (rewriting ``url`` → ``webhook_url``) would need a side
 table; no demand today.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,10 +54,7 @@ def upgrade() -> None:
     """
     conn = op.get_bind()
     rows = conn.execute(
-        text(
-            "SELECT id, notification_config FROM reports "
-            "WHERE notification_config IS NOT NULL"
-        )
+        text("SELECT id, notification_config FROM reports WHERE notification_config IS NOT NULL")
     ).fetchall()
 
     rewritten = 0
@@ -79,9 +77,7 @@ def upgrade() -> None:
             continue
 
         conn.execute(
-            text(
-                "UPDATE reports SET notification_config = :cfg WHERE id = :id"
-            ),
+            text("UPDATE reports SET notification_config = :cfg WHERE id = :id"),
             {"cfg": json.dumps(new), "id": row_id},
         )
         rewritten += 1
@@ -89,10 +85,7 @@ def upgrade() -> None:
     # Echo a summary so the operator can see the migration actually ran
     # (and how many rows it touched). Alembic surfaces this in stdout.
     if rewritten or skipped:
-        print(
-            f"[c0a2b1d4e5f6] notification_config: "
-            f"rewritten={rewritten} skipped={skipped}"
-        )
+        print(f"[c0a2b1d4e5f6] notification_config: rewritten={rewritten} skipped={skipped}")
 
 
 def downgrade() -> None:

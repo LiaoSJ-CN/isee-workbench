@@ -56,9 +56,7 @@ def test_explorer_rejects_non_select(
         assert "Only SELECT" in (body.get("error") or "")
 
 
-def test_explorer_rejects_unknown_data_source(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_explorer_rejects_unknown_data_source(client: TestClient, auth_headers: dict) -> None:
     r = client.post(
         "/explorer/query",
         headers=auth_headers,
@@ -179,11 +177,7 @@ def test_explorer_row_cap_applies_to_unbounded_select(
     engine = _get_or_create_engine(seeded_sqlite_source)
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS _test_explorer_cap"))
-        conn.execute(
-            text(
-                "CREATE TABLE _test_explorer_cap (id INTEGER PRIMARY KEY, label TEXT)"
-            )
-        )
+        conn.execute(text("CREATE TABLE _test_explorer_cap (id INTEGER PRIMARY KEY, label TEXT)"))
         # 20 rows; cap=5 means the response should hold rows 1..5 in id order.
         for i in range(1, 21):
             conn.execute(

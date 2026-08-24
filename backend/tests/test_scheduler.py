@@ -85,9 +85,7 @@ def test_scheduler_status_with_auth(client: TestClient, auth_headers: dict) -> N
     assert isinstance(body["jobs"], list)
 
 
-def test_scheduler_sync_returns_count(
-    client: TestClient, auth_headers: dict
-) -> None:
+def test_scheduler_sync_returns_count(client: TestClient, auth_headers: dict) -> None:
     r = client.post("/scheduler/sync", headers=auth_headers)
     assert r.status_code == 200
     body = r.json()
@@ -348,6 +346,7 @@ def test_sync_restores_notification_config(
     finally:
         db.close()
 
+
 # ---------- S2: sync reconciliation (sidecar friendliness) ----------
 
 
@@ -532,9 +531,7 @@ def test_send_notification_blocks_webhook_to_loopback(monkeypatch, caplog) -> No
 
     from app.services import scheduler as scheduler_module
 
-    monkeypatch.setattr(
-        scheduler_module, "create_webhook_client", _fake_create_client_assert_fail
-    )
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", _fake_create_client_assert_fail)
 
     with caplog.at_level(logging.ERROR, logger="app.services.scheduler"):
         scheduler_module._send_notification(
@@ -557,9 +554,7 @@ def test_send_notification_blocks_webhook_to_private_ip_literal(monkeypatch) -> 
     branch of the guard, not just the DNS branch."""
     from app.services import scheduler as scheduler_module
 
-    monkeypatch.setattr(
-        scheduler_module, "create_webhook_client", _fake_create_client_assert_fail
-    )
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", _fake_create_client_assert_fail)
 
     scheduler_module._send_notification(
         notification_config=WebhookConfig(
@@ -609,10 +604,13 @@ def test_send_notification_delivers_valid_webhook(monkeypatch) -> None:
         def post(self, url, **kwargs):
             captured.append((url, kwargs))
             return FakeResponse()
+
         def close(self):
             pass
+
         def __enter__(self):
             return self
+
         def __exit__(self, *args):
             pass
 
@@ -620,9 +618,7 @@ def test_send_notification_delivers_valid_webhook(monkeypatch) -> None:
         captured.append(("create_client", (webhook_url, kw)))
         return FakeClient()
 
-    monkeypatch.setattr(
-        scheduler_module, "create_webhook_client", fake_create_client
-    )
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", fake_create_client)
 
     scheduler_module._send_notification(
         notification_config=WebhookConfig(

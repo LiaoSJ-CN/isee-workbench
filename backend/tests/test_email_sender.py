@@ -182,9 +182,7 @@ def test_send_email_unconfigured_logs_and_returns(monkeypatch: Any) -> None:
     _set_smtp_settings(monkeypatch, host="", port=587)
     _install_fakes(monkeypatch)  # ssl_ctor / plain_ctor unused
 
-    counter = webhook_delivery_attempts_total.labels(
-        outcome="smtp_unconfigured"
-    )
+    counter = webhook_delivery_attempts_total.labels(outcome="smtp_unconfigured")
     before = counter._value.get() if hasattr(counter, "_value") else 0
     scheduler_module._send_email(
         to=["ops@example.com"],
@@ -208,9 +206,7 @@ def test_send_email_uses_smtp_ssl_when_ssl_mode(monkeypatch: Any) -> None:
     ``SMTP(...)`` is **not**."""
     from app.services import scheduler as scheduler_module
 
-    _set_smtp_settings(
-        monkeypatch, host="smtp.example.com", port=465, use_ssl=True
-    )
+    _set_smtp_settings(monkeypatch, host="smtp.example.com", port=465, use_ssl=True)
     plain_calls: list[Any] = []
 
     def plain_factory(*a: Any, **kw: Any) -> _FakeSMTPBase:
@@ -483,9 +479,7 @@ def test_send_email_attachments_use_basename(monkeypatch: Any) -> None:
     fd, path = tempfile.mkstemp(suffix=".xlsx", prefix="secret_path_")
     os.close(fd)
     target_basename = "report_q3.xlsx"
-    target_path = os.path.join(
-        os.path.dirname(path), target_basename
-    )
+    target_path = os.path.join(os.path.dirname(path), target_basename)
     os.rename(path, target_path)
     with open(target_path, "wb") as fh:
         fh.write(b"fake-xlsx-bytes")
