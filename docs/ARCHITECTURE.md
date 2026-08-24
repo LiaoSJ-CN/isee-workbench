@@ -36,10 +36,10 @@
 
 | 层 | 目录 | 职责 |
 |----|------|------|
-| 路由 | `app/routers/` | HTTP 请求处理、参数校验、调用 Service、构造响应 |
-| 服务 | `app/services/` | 业务逻辑、SQL 构建、报表生成、JWT 签发 |
+| 路由 | `app/routers/` | HTTP 请求处理、参数校验、调用 Service、构造响应（9 个：auth / data_source / report / jobs / scheduler / explorer / subscription / audit） |
+| 服务 | `app/services/` | 业务逻辑、SQL 构建、报表生成、JWT 签发、SSRF 防护、订阅 reconcile、job queue、parameter validator、schema introspection、audit 写入 |
 | 数据 | `app/models/` + `app/schemas/` | ORM 映射、Pydantic 请求/响应校验 |
-| 中间件 | `app/middleware/` | 请求预处理（跨域、IP 还原、安全头） |
+| 中间件 | `app/middleware/` | 请求预处理（CORS / ProxyHeaders / SecurityHeaders / RateLimit / CSRF / RequestID / Metrics / Sentry） |
 
 ### 关键入口
 
@@ -280,6 +280,7 @@ return TokenPair        set new cookies           return ok
 |----------|------|------|
 | HTML | Chart.js 内嵌可视化 | 浏览器预览、在线分享 |
 | Excel | openpyxl，多 sheet | 下载、邮件附件 |
+| PDF | weasyprint 渲染 HTML（需 `libpango` / `libcairo` 系统依赖） | 邮件附件、归档 |
 
 ---
 
@@ -379,14 +380,14 @@ HTTP 客户端禁用重定向跟随（`follow_redirects=False`），防 302 跳�
 | `app/database.py` | 元数据库 engine/session |
 | `app/deps.py` | 共享依赖（auth、token 提取） |
 | `app/crypto.py` | Fernet 加密工具 |
-| `app/db_migrations.py` | 启动期列补齐 |
+| `app/db_migrations.py` | 运行时列补齐 library 函数（lifespan 不再调用；Alembic 接管 schema） |
 | `app/scheduler_runner.py` | Sidecar 进程入口 |
 | `app/middleware/` | 中间件 |
 | `app/models/` | SQLAlchemy ORM 模型 |
 | `app/schemas/` | Pydantic 校验模型 |
 | `app/routers/` | API 路由 |
 | `app/services/` | 业务逻辑 |
-| `tests/` | pytest 测试套件（~200 用例） |
+| `tests/` | pytest 测试套件（678 用例 + 4 跳过，含 PG-safe 子集 + alert rules 校验） |
 
 ---
 

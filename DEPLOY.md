@@ -30,8 +30,11 @@ source .venv/bin/activate
 # 安装依赖
 pip install -r requirements.txt
 
-# 启动服务
+# 启动服务（web 进程；lifespan 自动 alembic upgrade head）
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 另起一个终端跑调度器 sidecar（当 SCHEDULER_DISABLED=true 时必须）
+python -m app.scheduler_runner
 ```
 
 #### 3. 部署前端
@@ -138,12 +141,15 @@ server {
 
 | 文件 | 用途 |
 |------|------|
-| `backend/Dockerfile` | Python 3.11 后端镜像 |
+| `backend/Dockerfile` | Python 3.11 后端镜像（含 weasyprint 系统依赖） |
 | `backend/.dockerignore` | 排除 venv、测试等无关文件 |
 | `frontend/Dockerfile` | 多阶段构建：Node 编译 + Nginx 服务 |
 | `frontend/.dockerignore` | 排除 node_modules、dist |
 | `frontend/nginx.conf` | Nginx 配置（SPA fallback + API 代理） |
-| `docker-compose.yml` | 编排 backend + frontend + 可选 scheduler/postgres |
+| `docker-compose.yml` | 编排 backend + frontend + 可选 scheduler/postgres/observability |
+| `deploy/prometheus/` | Prometheus 配置 + scrape config + alert rules |
+| `deploy/grafana/` | Grafana provisioning + 预置 dashboard JSON |
+| `deploy/` | systemd service / PM2 config（裸机部署用） |
 
 #### 架构
 
@@ -183,6 +189,8 @@ docker compose down
 docker compose --profile scheduler up -d
 ```
 
+sidecar 必须只跑一个实例；跑多个 = 原 bug（每 worker 跑一次 job）重现。
+
 #### 启动 Prometheus + Grafana（可选）
 
 后端通过 `prometheus-fastapi-instrumentator` 暴露 `/metrics`（默认 HTTP latency / status histogram）+ 4 个自定义 metric（`report_generate_*` / `webhook_delivery_*` / `sql_validator_*`）。`observability` profile 拉起 Prometheus 抓取 `/metrics` 并附带一个预置 dashboard 的 Grafana：
@@ -195,6 +203,7 @@ docker compose --profile observability up -d
 |---|---|---|
 | Prometheus | `9090` / `${PROMETHEUS_PORT:-9091}` | 抓取 `backend:8000/metrics`，默认 15s 间隔 |
 | Grafana | `3000` / `${GRAFANA_PORT:-3001}` | 预置 `isee-workbench` dashboard（9 面板：HTTP RPS / 错误率 / 延迟 p50-p99 / Top 路由 / 报表生成 / SQL 校验 / Webhook 投递） |
+| Alertmanager | `9093` / `${ALERTMANAGER_PORT:-9093}` | 接收 Prometheus firing alerts，按 severity 路由（默认 no-op） |
 
 首次访问 `http://localhost:3001`，用 `admin` / `admin` 登录（`GF_SECURITY_ADMIN_PASSWORD` 改成自己的）。Dashboard 在 Home → "iSee数据分析工作台"。
 
@@ -202,7 +211,7 @@ docker compose --profile observability up -d
 
 #### 配置告警（可选）
 
-`observability` profile 还会拉起一个 `alertmanager` 容器，规则文件 `deploy/prometheus/alerts/isee-workbench.yml` 会被 Prometheus 自动加载（通过 `prometheus.yml` 的 `rule_files`）。当前 ship 的 7 条规则：
+`observability` profile 还会拉起一个 `alertmanager` 容器，规则文件 `deploy/prometheus/alerts/isee-workbench.yml` 会被 Prometheus 自动加载（通过 `prometheus.yml` 的 `rule_files`）。当前 ship 的 **8 条规则**：
 
 | Alert | 阈值 | 含义 | 默认 severity |
 |---|---|---|---|
@@ -215,7 +224,7 @@ docker compose --profile observability up -d
 | `SSRFGuardSurge` | `ssrf_blocked` 或 `https_required` 阻断 > 1/min，持续 15 分钟 | Webhook URL 配错（指向内网或 http） | warning |
 | `SQLValidatorSurge` | `sql_validator_rejections_total` 任意 rule > 5/min，持续 5 分钟 | 有客户端 / 用户在试探写非 SELECT | warning |
 
-> 上表 7 条规则；表格列 8 项是因为 SSRFGuardSurge 在 webhook family 里独立一行。每条规则的 summary / description 都按 dashboard panel 同名设置，方便从告警跳 Grafana 面板查细节。
+> 上表 8 条规则。每条规则的 summary / description 都按 dashboard panel 同名设置，方便从告警跳 Grafana 面板查细节。
 
 接告警通道前要先做两件事：
 
@@ -275,63 +284,127 @@ docker compose --profile postgres up -d
 
 ## 环境变量配置
 
-后端配置通过 `.env` 文件或环境变量设置：
+后端配置通过 `.env` 文件或环境变量设置。`backend/.env.example` 始终是最新源（带详细注释），下面这份表格是精简参考。
+
+### 应用 / 数据库
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
-| `APP_NAME` | iSee Data Analysis Workbench | 应用名称 |
-| `DEBUG` | false | 调试模式 |
-| `DATABASE_URL` | sqlite:///./app.db | 数据库连接 URL |
+| `APP_NAME` | `iSee Data Analysis Workbench` | 应用名称 |
+| `DEBUG` | `false` | 调试模式 |
+| `DATABASE_URL` | `sqlite:///./app.db` | 元数据库连接 URL（PG 也支持，见方式三末段） |
 | `CORS_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | 允许的跨域来源（JSON 数组字符串） |
+| `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
+| `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
+
+### 鉴权 / CSRF / Cookie
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
 | `ADMIN_USERNAME` | `admin` | 管理员用户名 |
 | `ADMIN_PASSWORD` | `admin` | 管理员密码（**生产必改**） |
-| `JWT_SECRET_KEY` | （未设则随机生成 + 警告） | JWT HS256 签名密钥；**生产必须显式设置，否则重启 token 全失效** |
+| `JWT_SECRET_KEY` | （未设则随机生成 + 警告） | JWT HS256 签名密钥；**生产必须显式设置**，否则重启 token 全失效 |
 | `JWT_ALGORITHM` | `HS256` | JWT 签名算法 |
 | `ACCESS_TOKEN_MINUTES` | `1440` (1 天) | Access token 有效期 |
 | `REFRESH_TOKEN_DAYS` | `7` | Refresh token 有效期 |
-| `ENCRYPTION_KEY` | （未设则随机生成 + 警告） | 数据源密码加密密钥（Fernet）；**生产必须显式设置** |
+| `CSRF_ENABLED` | `true` | `CSRFMiddleware` 是否拒绝非 `cors_origins` 来源的 state-changing 请求 |
+| `COOKIE_AUTH_ENABLED` | `true` | 登录 / refresh 是否发 HttpOnly + SameSite Cookie；Header 通道始终备用 |
+| `COOKIE_SECURE` | `false` | Cookie `Secure` 标志；**生产 HTTPS 必为 `true`** |
+| `COOKIE_SAMESITE` | `lax` | Cookie `SameSite` 策略（`lax` 同时防 CSRF + 允许同站 GET） |
+| `ACCESS_COOKIE_NAME` | `access_token` | Access token Cookie 名（多部署同主机时再改） |
+| `REFRESH_COOKIE_NAME` | `refresh_token` | Refresh token Cookie 名 |
+| `TRUSTED_PROXIES` | （空） | 逗号分隔的 IP / CIDR，nginx / HAProxy 配此项后 `ProxyHeadersMiddleware` 才能从 `X-Forwarded-For` 还原真实 IP；默认空（直连部署安全） |
 | `LOGIN_RATE_LIMIT` | `10` | 每 IP 每分钟最大登录尝试次数 |
-| `LOG_LEVEL` | `INFO` | 日志级别（DEBUG/INFO/WARNING/ERROR） |
-| `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
-| `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
+
+### API 限流（批 6b.2）
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `EXPLORER_QUERY_RATE_LIMIT` | `30` | `/explorer/query` 每 IP 每分钟上限 |
+| `REPORTS_GENERATE_RATE_LIMIT` | `10` | `/reports/generate` + `/reports/{id}/jobs` 入队每 IP 每分钟上限（共用预算） |
+
+### 安全头 / Webhook
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `SECURITY_HEADERS_ENABLED` | `true` | `SecurityHeadersMiddleware` 是否附加 `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy` / `Permissions-Policy` |
+| `WEBHOOK_SECRET` | （空） | HMAC-SHA256 共享密钥；接收方用同密钥校验 `X-Webhook-Signature` |
+| `WEBHOOK_HTTPS_ONLY` | `false` | Webhook URL 必须 HTTPS；本地测试可关 |
+| `WEBHOOK_TIMESTAMP_MAX_AGE` | `300` | Webhook 时间戳最大允许秒数（防 replay），5 min 默认 |
+
+### 数据源 / 报表
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `ENCRYPTION_KEY` | （未设则随机生成 + 警告） | 数据源密码 Fernet 密钥；**生产必设** |
+| `EXPLORER_MAX_ROWS` | `10000` | `/explorer/query` 行上限（防 OOM） |
+| `EXPLORER_STATEMENT_TIMEOUT` | `30` | Explorer PG 类查询 statement timeout（秒）；`0` = 无超时；SQLite 忽略 |
+| `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
+
+### 调度器
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
 | `SCHEDULER_DISABLED` | `true` | web 进程跳过调度器（sidecar 模式） |
 | `SCHEDULER_RESYNC_INTERVAL` | `30` | sidecar 从 DB 重读调度的间隔（秒） |
-| `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
-| `SMTP_HOST` | （空） | 邮件服务器主机（**订阅邮件通知需要设置**）；未配置时 EmailConfig 通知会记 `smtp_unconfigured` 指标并不发送 |
+
+### 日志 / 监控
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `LOG_LEVEL` | `INFO` | 日志级别（DEBUG / INFO / WARNING / ERROR） |
+| `SENTRY_DSN` | （空） | 后端 Sentry DSN；空 = 禁用；设置后自动 init，每个事件打 `request_id` tag |
+| `SENTRY_ENVIRONMENT` | （空） | Sentry 环境标签（`production` / `staging`）；空 = SDK 默认 `development` |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | 性能追踪采样率（0.0-1.0）；0 = 禁用 |
+
+### 邮件（订阅邮件投递）
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `SMTP_HOST` | （空） | SMTP 服务器主机（订阅邮件通知）；未配置时 EmailConfig 通知记 `smtp_unconfigured` 指标并不发送 |
 | `SMTP_PORT` | `587` | SMTP 端口（STARTTLS 用 587；implicit SSL 用 465） |
-| `SMTP_USER` | （空） | SMTP 认证用户名；留空 = 匿名（适用于 mailhog/mailpit 等本地测试） |
-| `SMTP_PASSWORD` | （空） | SMTP 认证密码 |
-| `SMTP_FROM_ADDRESS` | （空） | `From:` 邮件地址；空时回落到 `${SMTP_USER}@${SMTP_HOST}` 或 `noreply@${SMTP_HOST}` |
-| `SMTP_FROM_NAME` | （空） | `From:` 显示名；空时回落到 `APP_NAME` |
-| `SMTP_USE_STARTTLS` | `true` | 587 端口明文连接后升级到 TLS；生产环境一般保持 `true` |
-| `SMTP_USE_SSL` | `false` | 465 端口隐式 TLS；与 `SMTP_USE_STARTTLS` 二选一 |
+| `SMTP_USER` | （空） | SMTP 用户名；空 = 匿名（mailpit 等本地测试） |
+| `SMTP_PASSWORD` | （空） | SMTP 密码 |
+| `SMTP_FROM_ADDRESS` | （空） | `From:` 地址；空时回落 `${SMTP_USER}@${SMTP_HOST}` 或 `noreply@${SMTP_HOST}` |
+| `SMTP_FROM_NAME` | （空） | `From:` 显示名；空时回落 `APP_NAME` |
+| `SMTP_USE_STARTTLS` | `true` | 587 端口明文连接后升级 TLS；生产一般保持 `true` |
+| `SMTP_USE_SSL` | `false` | 465 端口隐式 TLS；与 STARTTLS 二选一 |
+
+### 审计
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
 | `AUDIT_LOG_RETENTION_DAYS` | `0` | 审计日志保留天数；`0` = 永久保留（需 operator 手动 cron purge）。`> 0` 时 web 进程 lifespan **不**自动清——见 `app.services.audit.purge_old_audit_logs`，operator 自行接 cron / sidecar |
 
-示例 `.env` 文件：
+### 前端镜像变量
+
+后端变量在 `backend/.env` 设；前端 Sentry 通过构建时变量设（`frontend/.env` 或 `VITE_SENTRY_DSN` / `VITE_SENTRY_ENVIRONMENT` / `VITE_SENTRY_TRACES_SAMPLE_RATE`）。空 DSN = 禁用，bundle 零开销。
+
+### 示例 `.env`（生产最小集）
 
 ```env
 APP_NAME=iSee数据分析工作台
 DEBUG=false
 DATABASE_URL=sqlite:///./app.db
-CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+CORS_ORIGINS=["https://your-domain.com"]
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-me-in-production
-JWT_SECRET_KEY=<生成一个长随机串>
-ENCRYPTION_KEY=<生成一个 Fernet key>
+ADMIN_PASSWORD=<强密码>
+JWT_SECRET_KEY=<secrets.token_urlsafe(48)>
+ENCRYPTION_KEY=<Fernet.generate_key().decode()>
 SCHEDULER_DISABLED=true
 LOG_LEVEL=INFO
+COOKIE_SECURE=true
+COOKIE_SAMESITE=lax
+TRUSTED_PROXIES=10.0.0.0/8,127.0.0.1/32   # nginx 同主机时
 
-# 邮件通知（订阅邮件投递需要；未设置时 EmailConfig 通知仅记录错误）
+# 邮件订阅（不设 = 邮件订阅仅记错误指标）
 # SMTP_HOST=smtp.example.com
 # SMTP_PORT=587
 # SMTP_USER=alerts@example.com
 # SMTP_PASSWORD=<smtp 密码>
 # SMTP_FROM_ADDRESS=alerts@example.com
-# SMTP_FROM_NAME=Alerts Bot
-# SMTP_USE_STARTTLS=true
-# SMTP_USE_SSL=false
 
-# 审计日志保留天数（0 = 永久保留）
+# 审计保留期（0 = 永久）
 # AUDIT_LOG_RETENTION_DAYS=0
 ```
 
@@ -358,20 +431,35 @@ LOG_LEVEL=INFO
 
 ### 报表订阅（批 8.3）
 
-- 端点：`POST/GET/PATCH/DELETE /reports/{id}/subscriptions` —— "我订阅这个报表，每次跑完推送给我"
-- 不需要单独启——`/api/reports/{id}/subscriptions` 跟随 web 进程自动可用
-- 前端入口：报表详情页 "订阅" 按钮 → 选 IM / 邮件渠道 + 接收人
+- 端点：`POST/GET/PATCH/DELETE /subscriptions` —— "我订阅这个报表，每次跑完推送给我"
+- 不需要单独启——`/api/subscriptions` 跟随 web 进程自动可用
+- 前端入口：左侧导航 "我的订阅" 或报表详情页 "订阅" 按钮 → 选 IM / 邮件渠道 + 接收人
 - 投递失败会重试 3 次（指数退避），仍失败写 ERROR 日志 + `webhook_delivery_*` metric，不会阻塞下次调度
 
 ---
 
-## 审计日志（批 9.5 / 批 11.1）
+## RBAC 与审计日志（批 9.3 / 9.4 / 9.5 / 11.1）
 
-管理员专属审计表（用户 CRUD / 数据源变更 / 报表克隆 / 调度变更等高敏动作）。**部署前了解两点**：
+### 数据源 RBAC（批 9.3）
+
+- 每个 DataSource 默认仅 owner 可访问
+- Owner 可通过 `/data-sources/{id}/grants` 授权其他用户 `read` 或 `write`
+- 删除 owner = 数据源变孤儿，admin 可读不可改
+
+### 报表 RBAC（批 9.4）
+
+- 报表默认仅 owner 可访问
+- 三种 `visibility`：`private` / `link` / `internal`，加显式 `share` 列表叠加判定
+- `/reports/{id}/duplicate` 复制报表时复制所有 item + 参数 + share 配置（owner 变执行者）
+
+### 审计日志（批 9.5 / 批 11.1）
+
+管理员专属审计表（用户 CRUD / 数据源变更 / 报表克隆 / 调度变更 / 订阅 CRUD / 任务入队等高敏动作）。**部署前了解两点**：
 
 - **端点**：`GET /audit-logs`（admin only，非 admin 403）。前端入口在左侧导航 "审计日志"（admin 用户可见）。支持 `actor_user_id` / `action` / `target_type` / `target_id` / `request_id` / `ip_address` / `since` / `until` 过滤
 - **保留期**：见上文 `AUDIT_LOG_RETENTION_DAYS`。lifespan 不自动 purge——operator 自行接 cron 调 `purge_old_audit_logs(db, days)`，或 `0` 表示永久保留
 - **request_id 跨链**：每条 HTTP 请求的 `X-Request-ID` 写入所有相关 audit row + 日志，方便从日志反查所有审计事件
+- **索引**：`actor_user_id` / `target_type+target_id` / `created_at` 都建了索引，过滤查询走索引扫描（O(log n)）
 
 ---
 
@@ -400,7 +488,7 @@ CI（`.github/workflows/ci.yml` 的 `backend-test-pg`）每次 push 都跑 PG16 
 
 - `alembic upgrade head` — DDL/FK/CHECK 与 Postgres 方言对齐检查
 - 23 个 PG-safe pytest 文件（auth/csrf/jwt/RBAC/validator/scheduler_runner/metrics/sentry/...），不依赖 SQLite 默认宽容的 FK 行为
-- 完整 653 用例仍在 SQLite 上跑（部分 cleanup 路径靠 SQLite 容错，等单独清理）
+- 完整 678 用例仍在 SQLite 上跑（部分 cleanup 路径靠 SQLite 容错，等单独清理）
 
 **手动验证 OpenGauss**（CI 还没接 OpenGauss image，需 operator 自验）：
 
@@ -430,20 +518,33 @@ OpenGauss 是 PG 9.2 fork，绝大多数 SQL + Alembic 兼容。差异（`ANALYZ
 
 ## 数据库迁移（Alembic）
 
-项目已初始化 Alembic 迁移框架（`backend/alembic/`）。
+项目已初始化 Alembic 迁移框架（`backend/alembic/`）。Web 进程启动时 lifespan 自动跑 `alembic upgrade head`，**不要再手动 `create_all`**。`ensure_columns()` 已废弃。
 
 ```bash
 cd backend
+source .venv/bin/activate
 
-# 生成迁移（自动检测模型变更）
+# 生成迁移（自动检测模型变化）
 python -m alembic revision --autogenerate -m "描述"
 
-# 执行迁移
+# 执行迁移到最新版本
 python -m alembic upgrade head
 
-# 回滚一步
+# 查看当前版本
+python -m alembic current
+
+# 回滚一个版本（罕见）
 python -m alembic downgrade -1
 ```
+
+迁移工作流：
+
+1. 改 `app/models/*.py` 后跑 `python -m alembic revision --autogenerate -m "..."`
+2. 检查生成的 `alembic/versions/*.py`，autogenerate 有时会漏 server_default / CHECK 约束
+3. `python -m alembic upgrade head` 本地验证（开发时），或直接重启 web 进程让 lifespan 跑
+4. 提交 migration + model 改动一起
+
+**注意**：`alembic/env.py` 不再 `fileConfig()` —— 那会清空 root logger handler，覆盖 lifespan 装的 request-id 格式和 pytest 的 caplog。
 
 ---
 
@@ -471,10 +572,18 @@ pm2 save
 
 ## CI/CD
 
-GitHub Actions 工作流（`.github/workflows/ci.yml`）自动执行：
+GitHub Actions 工作流（`.github/workflows/ci.yml`）每次 push 自动执行：
 
-- 后端：ruff lint + mypy 类型检查 + pytest
-- 前端：eslint + tsc 类型检查 + Vite 构建
+- 后端：ruff lint + **ruff format --check** + mypy 类型检查 + pytest（678 用例 + 4 跳过）
+- 后端：PG16 容器跑 `backend-test-pg` job（alembic + 23 PG-safe pytest）
+- 前端：eslint + prettier --check + tsc 类型检查 + Vite 构建 + vitest
+- 缓存：pip + npm cache 复用，minimize wall-clock
+
+格式 / 文档不一致会被 CI 拦下：
+
+- `ruff format --check .` 飘 → 后端 reformat 没做
+- `prettier --check` 飘 → 前端 reformat 没做
+- 故意改 doc 看 `scripts/diff_docs_vs_code.py` 飘 → README/DEPLOY 与代码不同步
 
 ---
 
@@ -485,22 +594,22 @@ GitHub Actions 工作流（`.github/workflows/ci.yml`）自动执行：
 ```
 backend/generated_reports/
 ├── 月度销售报表_20260619_162900.html
-└── 月度销售报表_20260619_162900.xlsx
+├── 月度销售报表_20260619_162900.xlsx
+└── 月度销售报表_20260619_162900.pdf
 ```
 
 可以配置 NFS 或云存储进行集中管理。
 
 ---
 
-## 定时任务
+## 异步报表任务（批 3a / 批 8.5）
 
-定时任务使用 APScheduler，需要保持后端服务运行。
+- 入队：`POST /reports/{id}/jobs` → 返回 `ReportJob`（status=`pending`）
+- 轮询：`GET /jobs/{id}` 看 status（`pending` → `running` → `done` / `failed`）
+- 下载：**直接走 worker 产物** `GET /jobs/{id}/download`（批 8.5 起取代 export 同步重渲，避免 worker 白做功）
+- 历史：`GET /reports/{id}/jobs?status=done&limit=20`
 
-查看定时任务状态：
-
-```bash
-curl http://localhost:8000/scheduler/status
-```
+worker 跑在 web 进程内（线程池），不需要单独 sidecar。
 
 ---
 
@@ -509,22 +618,22 @@ curl http://localhost:8000/scheduler/status
 ### 1. 端口被占用
 
 ```bash
-# 查找占用端口的进程
 lsof -i :8000
-# 或
 lsof -i :5173
-
-# 杀死进程
 kill -9 <PID>
 ```
 
 ### 2. 前端无法连接后端
 
-检查 CORS 配置是否包含前端地址。
+检查 `CORS_ORIGINS` 是否包含前端地址，反代模式下检查 `TRUSTED_PROXIES` 是否设上。
 
 ### 3. 数据库连接失败
 
-检查数据库服务是否运行，连接 URL 是否正确。
+检查数据库服务是否运行，连接 URL 是否正确；PG 还需确认 `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` 没打爆。
+
+### 4. PDF 导出失败
+
+最常见是 weasyprint 系统库没装：`brew install pango cairo gdk-pixbuf libffi`（macOS）或 `apt-get install libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 fonts-noto-cjk`（Debian）。Dockerfile 已经装好。
 
 ---
 
@@ -535,10 +644,14 @@ kill -9 <PID>
 - [ ] 修改默认 `ADMIN_PASSWORD`
 - [ ] 调整 `LOGIN_RATE_LIMIT`（默认 10 次/分钟）
 - [ ] 启用 HTTPS
+- [ ] `COOKIE_SECURE=true`、`COOKIE_SAMESITE=lax`
+- [ ] `TRUSTED_PROXIES` 配上 nginx 网段
 - [ ] 配置防火墙规则
 - [ ] 设置日志轮转
 - [ ] 配置数据库备份策略
-- [ ] 监控服务状态
+- [ ] 监控服务状态（启用 `observability` profile + Prometheus scrape backend `/metrics`）
 - [ ] 若启用邮件订阅：设置 `SMTP_HOST` + `SMTP_PASSWORD` + `SMTP_FROM_ADDRESS`（不设则订阅邮件仅记错误）
 - [ ] 若启用 IM 通知：webhook URL 不能指向内网（SSRF guard 拒）；钉钉/飞书/企微机器人"安全设置"加 IP 白名单或签名验证
 - [ ] 决定 `AUDIT_LOG_RETENTION_DAYS`：不设 = 永久保留；>0 时必须配 cron 调 `purge_old_audit_logs` 防止日志无限增长
+- [ ] 调度器 sidecar 只跑一个实例（多实例 = 同一 job 每个 tick 跑 N 次）
+- [ ] PDF 导出要装 weasyprint 系统依赖（Dockerfile 已装，裸机部署需手动）
