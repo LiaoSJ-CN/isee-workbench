@@ -135,6 +135,7 @@
 | 批 10.3 | ✅ 已完成 (2026-08-24) | `d59a345` | DataSource.clone + Report.duplicate — `<name> (副本)` 自动后缀 / 显式 name / 409 collision / 404 ACL / audit log / 前端 "复制" 按钮（DataSourceList + ReportList 后者直接跳编辑器）。复制重置 visibility=private + is_demo=false + is_scheduled=False + 不复制 shares |
 | TODO-9a | ✅ 已完成 (2026-08-23) | `a810842` | Prometheus + Grafana dashboard (`isee-workbench-dashboard.json`，9 面板：HTTP RPS / 5xx / 4xx / p50-p99 / Top routes / 报表 p95 / 报表 errors / SQL 校验 / webhook outcome) |
 | TODO-9b | ✅ 已完成 (2026-08-23) | `6376f06` | 8 条 alert rules (`isee-workbench.yml`) + alertmanager wiring + 6 pytest 防 typo + DEPLOY.md 配置告警段 |
+| 批 11.4 UI sweep | ✅ 已完成 (2026-08-24) | `5094ab9` | 8 页 sweep 找到 3 真问题：ReportList 操作列「更多」Dropdown + data-source-list `tableLayout="fixed"` + 修复死链 `/reports/:id/edit` → `/reports/:id` 重定向 + 删 dropdown 重构后的 dead state |
 
 ## 每批结束的验证清单
 
@@ -1446,6 +1447,45 @@ column x 跨 row 一致：col1=55 / col2=370 / col3=686 / col4=1002。
 - `npx tsc --noEmit` 0
 - `npx vitest run` 45/45（未动）
 - 后端未动，pytest 仍 674 + 4 skipped
+
+### P3-后续：跨页 UI 对齐 sweep — 2026-08-24 — `5094ab9`
+
+**问题**：AuditLogPage filter 对齐解决了，但用户问「其他页面有没有类似的问题，一起解决了」。需要主动扫一遍 8 个主页面找同类（filter 错位 / 列宽溢出 / 隐藏的路由 bug）。
+
+**扫法**：Playwright 登录后 GET 8 个页面，截屏 + DOM probe（table overflow / inline-form y / vertical-form y）。先看截图找视觉错位，再用 DOM bounding rect 验证 fix。
+
+**发现 3 个真问题**：
+
+1. **`/reports` 操作列 619px / 8 按钮** — 在 1440 viewport 下表格溢出 403px（用户必须横向滚动才看得到 删除/Excel/PDF 按钮）。根因：操作列 8 个 `<Button type="link">` 在 `<Space size="small">` 内不换行，列宽跟着撑到内容宽度。
+
+2. **`/data-sources` 表溢出 73px** — 数据库列 514px（长路径撑爆）、描述列 60px（描述短被压缩）。根因同 antd 默认 `tableLayout="auto"`，width 是 hint 不是 cap，列宽跟着内容走。
+
+3. **`/reports/:id/edit` 白屏** — 直接访问或从复制成功后跳此 URL 都不渲染内容。`<Route path="/reports/:id">` 不匹配 `/reports/1/edit`（react-router v6 `:id` 只匹配一段）；复制成功回调 `navigate('/reports/{id}/edit')` 命中死链 → 整页 `<main>` 空（无 React 错误、无 ErrorBoundary 触发，URL 不变）。
+
+**修复**（commit `5094ab9`）：
+
+**`frontend/src/pages/ReportList.tsx`**：
+- 把 复制 / 订阅 / 导出 Excel / 导出 PDF 4 个按钮合到「更多」Dropdown。保留 编辑 / 预览 / 分享 / 删除 4 个顶层按钮。操作列 619px → ~270px，截图确认全部可见。
+- 删掉 dropdown 重构后变死代码的 `enqueuing` / `enqueuingPdf` state 和它们的 setter（4 处）。
+- 复制成功回调：`navigate('/reports/{id}/edit')` → `navigate('/reports/{id}')`（与「编辑」按钮约定一致）。
+- tableLayout 改 "fixed"，`scroll.x: 1200`，`描述` 列 width=280 + ellipsis。
+
+**`frontend/src/pages/DataSourceList.tsx`**：
+- tableLayout="fixed" + scroll.x=1280；`数据库` width=240 + ellipsis，`描述` width=180，`操作` width=320。截图确认 5 个按钮全部可见。
+
+**`frontend/src/App.tsx`**：
+- 加 `NavigateToReports` 组件（用 `useParams` 拿 id 再 redirect — react-router v6 的 `to="/reports/:id"` 不替换字面 `:id`）。
+- 加 `<Route path="/reports/:id/edit" element={<NavigateToReports />} />` — 老链接/书签仍能跳编辑器。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx vitest run` 45/45
+- 后端 `pytest -q` 674 + 4 skipped（未动 backend）
+- Playwright 截图 1440×900：data-source-list / report-list / report-editor / audit-logs 全部 OK
+
+**没问题的页面**（已截图确认）：`/explorer`（顶部数据源/模板 label-above-input 布局）、`/scheduler`（Modal vertical layout + 条件字段 `shouldUpdate`）、`/report-preview`、`/my-subscriptions`。
+
+**为什么这次能一次过**：上一轮 P3-1 后续 1-4 在 AuditLogPage 上栽过 4 次（每改一次看截图）— 现在养成「截图先」习惯后，每个跨页 sweep 一次性定位 3 个真问题。
 
 ### 决策项 — 需要拍板
 - **要不要新增 P1 批次？**（上面 P1-1/2/3 建议起步先做 P1-1 + P1-2）

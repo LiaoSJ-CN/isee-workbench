@@ -26,6 +26,11 @@
 - DataExplorer CSV 导出不符合 RFC 4180：多行单元格值、含 `,`/`"` 的值会破格式。引入 `csvEscape` helper（命中 `,`/`"`/CR/LF 时整段加引号，内部 `"` 双写），行结束符统一 `\r\n`
 - 报表编辑器拖拽排序从 N 并发 PUT 改为单次 `PATCH /reports/{id}/items/order`：后端单事务原子更新 `order_index`，所有 `item_id` 必须属于目标 report（否则 422 整批拒绝）。消除部分写导致的不一致，同时去掉 N+1 请求；上下移按钮 `handleMoveItem` 同步切到该端点
 - 报表预览逐项错误展示：`generate_report()` 收集每个 item 的查询失败原因，`render_html(errors=...)` 在 HTML 中渲染红色错误横幅（`html.escape` 转义防 XSS）。`ReportGenerateResponse` 新增 `item_errors` 字段供编程调用方使用。Excel 路径保持现有行为（空白 sheet）
+- **UI 对齐跨页 sweep**（`5094ab9`）：解决 AuditLogPage filter 对齐后用户问"其他页面有没有类似问题"。扫 8 个页面找到 3 个真问题：
+  - `/reports` 操作列 619px / 8 按钮溢出 403px → 把 复制 / 订阅 / 导出 Excel / 导出 PDF 合到「更多」Dropdown，操作列 ~270px
+  - `/data-sources` 表溢出 73px（数据库列 514px 撑爆，描述列 60px 被压扁）→ `tableLayout="fixed"` + scroll.x=1280 + 显式列宽
+  - `/reports/:id/edit` 死链白屏 → 复制成功回调改 `/reports/{id}` + 加 `NavigateToReports` 重定向处理历史书签
+- ReportList dropdown 重构后清理死代码：删 `enqueuing` / `enqueuingPdf` state 和它们的 setter（4 处）
 
 ### 计划中
 见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/`
