@@ -5,6 +5,7 @@ import {
   Card,
   DatePicker,
   Form,
+  Input,
   InputNumber,
   Select,
   Space,
@@ -38,6 +39,8 @@ interface FilterFormShape {
   action?: string;
   target_type?: string;
   target_id?: number;
+  request_id?: string;
+  ip_address?: string;
   /** Two-element date range — split into `since` / `until` ISO strings
    *  on submit so we can serialize cleanly into the query string. */
   range?: [Dayjs, Dayjs];
@@ -77,11 +80,20 @@ export default function AuditLogPage() {
   }, [usersQuery.data]);
 
   const handleSearch = (raw: FilterFormShape) => {
+    const request_id = raw.request_id?.trim();
+    const ip_address = raw.ip_address?.trim();
     const next: AuditLogFilters = {
       actor_user_id: raw.actor_user_id,
       action: raw.action,
       target_type: raw.target_type,
       target_id: raw.target_id,
+      // Only include the new quick-filter keys when the user typed
+      // something — keeps the filters object (and the react-query
+      // cache key) sparse instead of carrying ``undefined`` for
+      // every blank field. The api client strips undefined anyway,
+      // so this is wire-identical.
+      ...(request_id && { request_id }),
+      ...(ip_address && { ip_address }),
       since: raw.range?.[0]?.toISOString(),
       until: raw.range?.[1]?.toISOString(),
       limit: PAGE_SIZE,
@@ -246,6 +258,12 @@ export default function AuditLogPage() {
           <Form.Item name="target_id" label="对象 ID" style={{ width: 160 }}>
             <InputNumber placeholder="对象 ID" min={1} style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item name="request_id" label="请求 ID" style={{ width: 200 }}>
+            <Input placeholder="如 abc12345..." allowClear />
+          </Form.Item>
+          <Form.Item name="ip_address" label="客户端 IP" style={{ width: 180 }}>
+            <Input placeholder="如 10.0.0.5" allowClear />
+          </Form.Item>
           <Form.Item name="range" label="时间范围" style={{ width: 320 }}>
             <RangePicker
               showTime={{ format: 'HH:mm' }}
@@ -318,6 +336,8 @@ export default function AuditLogPage() {
         filters.action,
         filters.target_type,
         filters.target_id,
+        filters.request_id,
+        filters.ip_address,
         filters.since,
         filters.until,
       ].some((v) => v !== undefined && v !== '') && (

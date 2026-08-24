@@ -1132,7 +1132,47 @@ npx playwright test                     # smoke 全过
 
 | ID | 主题 | 说明 |
 |---|---|---|
-| P3-1 | Audit log UI 快速链接 | `/audit-logs` 加 request_id / 时间段 / IP 快速 filter；request_id 已在日志 + audit row 里 |
+| P3-2 | ReportEditor import path 统一 | `pages/ReportEditor/` 7 文件用混相对/绝对路径，统一 |
+| P3-3 | DEPLOY.md 同步 | SMTP / Prometheus / SubscriptionModal 加完后部署文档没跟进 |
+| P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |
+| P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
+
+### P3-1 ✅：Audit log UI 快速链接 — 2026-08-24
+
+**问题**：批 11.1 加了 `?request_id` + `?ip_address` 后端 filter（admin 排查 cross-request 时常用），但 `AuditLogPage` UI 只暴露 5 个 filter（actor_user_id / action / target_type / target_id / time range）。admin 拿日志里的 `X-Request-ID` 想反查所有 audit row 没 UI 入口；只能手敲 URL `?request_id=...` 不实用。
+
+**落地**：
+
+**`frontend/src/types/index.ts`** — `AuditLogFilters` interface 加 `request_id?: string` + `ip_address?: string`。`AuditLogFilters` 只有 2 个调用方（`auditLogApi.list` 透传 + `useAuditLogs` query key），所以改动面可控。
+
+**`frontend/src/pages/AuditLogPage.tsx`** — 5 处小改：
+1. `import { Input }` 加进 antd import 列表。
+2. `FilterFormShape` interface 加 `request_id?: string` + `ip_address?: string`。
+3. `handleSearch` 拼接 `next` 时 trim 输入 + **条件 spread**：blank 字段不进 filter object（`...(request_id && { request_id })`）。原来所有字段都设 key（即使 value 是 `undefined`），只对这两个新字段做 sparse 处理，**不动原有 5 个字段行为**（surgical）。
+4. Form 加 2 个 `Form.Item`：`请求 ID` (`Input` + `placeholder="如 abc12345..."` + `allowClear`) + `客户端 IP` (`Input` + `placeholder="如 10.0.0.5"` + `allowClear`)。Inline 排版 + 现有 320px 时间范围之后。
+5. "已应用过滤条件" 提示把两个新字段也纳入 `some(v => v !== undefined && v !== '')` 检查。
+
+**`frontend/src/__tests__/pages/AuditLog.test.tsx`**（新文件，4 个 test）— mock `useAuditLogs` + `useUsers` + antd `message`，覆盖：
+1. 渲染断言两个新 `Input` 的 placeholder 都出现（admin 一眼知道填什么）。
+2. 输入 `request_id` 后点 查询 → `useAuditLogs` 被以 `{ request_id: '...' }` 调。
+3. 输入 `ip_address` → 同形断言。
+4. 全空表单点 查询 → `useAuditLogs` 调用对象里 `request_id` / `ip_address` 这两个 key **不在**（条件 spread 行为锁住——回归保护）。
+
+**关键设计**：
+- **sparse filter object（仅新字段）** — 不动 `actor_user_id: undefined` 等老行为（避免 react-query cache key 漂移让兄弟测试失稳），只把两个新字段用 spread 条件设。api client 本来就 strip undefined，wire-shape 一致。
+- **`Input allowClear` + `placeholder` 不是 `Form.Item rules`** — 不做 client-side 校验。`max_length=64` 是后端 `Query(max_length=64)` 的契约，前端可以超长但提交会 422，admin 场景手填多了再修。
+- **不加范围 filter "since" / "until" UI** — 已有 `RangePicker`，`handleSearch` 已经 spread `since/until`。原本 P3-1 描述里"时间段"是误判（已有）。
+
+**未做**（YAGNI）：
+- **不复制 `request_id` 按钮到 filter 输入框** — 表格 column 已经有"复制请求 ID"按钮（缩短到 8 字符），admin 复制后粘贴到 filter 是已知 UX，不重复 affordance。
+- **不补 userAgent filter** — 后端没加（只有 `request_id` + `ip_address`），不是 UI 债。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45（之前 41 + P3-1 新增 4）
+- 后端未动，pytest 仍 674 + 4 skipped
+
 | P3-2 | ReportEditor import path 统一 | `pages/ReportEditor/` 7 文件用混相对/绝对路径，统一 |
 | P3-3 | DEPLOY.md 同步 | SMTP / Prometheus / SubscriptionModal 加完后部署文档没跟进 |
 | P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |

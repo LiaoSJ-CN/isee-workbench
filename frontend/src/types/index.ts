@@ -525,6 +525,12 @@ export interface AuditLogFilters {
   action?: string;
   target_type?: string;
   target_id?: number;
+  /** Cross-reference a single HTTP request — useful when an operator
+   *  has a request id from a log line and wants to see every audit
+   *  row emitted under that id. */
+  request_id?: string;
+  /** Filter by client IP (compliance / abuse investigation). */
+  ip_address?: string;
   /** ISO datetime inclusive lower bound on `created_at`. */
   since?: string;
   /** ISO datetime inclusive upper bound on `created_at`. */
