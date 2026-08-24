@@ -3,10 +3,12 @@ import {
   Alert,
   Button,
   Card,
+  Col,
   DatePicker,
   Form,
   Input,
   InputNumber,
+  Row,
   Select,
   Space,
   Table,
@@ -226,83 +228,98 @@ export default function AuditLogPage() {
       <Card size="small" style={{ marginBottom: 16 }}>
         <Form
           form={form}
-          layout="inline"
+          // Vertical layout so every cell is label-on-top / input-on-bottom
+          // — this is what fixes the visible "歪" the inline-layout
+          // iterations couldn't: RangePicker with showTime is intrinsically
+          // 2-line tall, so under inline layout it sat on a different y
+          // from the label+input-inline controls. Vertical makes every
+          // cell the same shape.
+          layout="vertical"
           onFinish={handleSearch}
           initialValues={{}}
-          // Uniform label width so labels right-align at the same x
-          // across all items. Combined with the uniform item width
-          // (300) below, every input also left-aligns at the same x —
-          // regardless of which row the item lands on.
-          labelCol={{ style: { width: 80 } }}
         >
-          {/* Two explicit rows. The user review after fd98c82 noted that
-              even with uniform widths, 7 filters + buttons wrapped
-              unpredictably across 2-3 rows as the viewport shrank and
-              the buttons dragged onto their own line. Forcing exactly
-              two rows via ``flexBasis: 100%`` row-breaks keeps the
-              layout stable.
+          {/* Two explicit <Row>s in antd Grid — the grid guarantees
+              column positions line up across rows (something flex-basis
+              row-breaks inside a Form don't actually do for vertical
+              layout). Each <Col span={6}> is 1/4 of the Card width.
 
-              Filter order mirrors the table column order top-to-bottom
-              (时间 → 操作者 → 操作 → 对象 → IP → 请求 ID):
+              Filter order mirrors the table column order:
                 Row 1: 时间范围 | 操作者 ID | 操作 | 对象类型
                 Row 2: 对象 ID | 客户端 IP | 请求 ID | 查询 重置
 
-              All 7 items share ``width: 300`` so within each row the
-              label / input columns line up. RangePicker with showTime
-              at 300 has ~110px per side — fits "YYYY-MM-DD HH:mm"
-              comfortably. */}
-          <Form.Item name="range" label="时间范围" style={{ width: 300 }}>
-            <RangePicker
-              showTime={{ format: 'HH:mm' }}
-              format="YYYY-MM-DD HH:mm"
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-          <Form.Item name="actor_user_id" label="操作者 ID" style={{ width: 300 }}>
-            <InputNumber
-              placeholder="用户 ID"
-              min={1}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-          <Form.Item name="action" label="操作" style={{ width: 300 }}>
-            <Select
-              allowClear
-              showSearch
-              placeholder="选择操作类型"
-              options={AUDIT_ACTIONS.map((a) => ({ value: a, label: a }))}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-          <Form.Item name="target_type" label="对象类型" style={{ width: 300 }}>
-            <Select
-              allowClear
-              showSearch
-              placeholder="选择对象类型"
-              options={AUDIT_TARGET_TYPES.map((t) => ({ value: t, label: t }))}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-          <div style={{ flexBasis: '100%', height: 0 }} />
-          <Form.Item name="target_id" label="对象 ID" style={{ width: 300 }}>
-            <InputNumber placeholder="对象 ID" min={1} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="ip_address" label="客户端 IP" style={{ width: 300 }}>
-            <Input placeholder="如 10.0.0.5" allowClear />
-          </Form.Item>
-          <Form.Item name="request_id" label="请求 ID" style={{ width: 300 }}>
-            <Input placeholder="如 abc12345..." allowClear />
-          </Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
-                查询
-              </Button>
-              <Button onClick={handleReset} icon={<ClearOutlined />}>
-                重置
-              </Button>
-            </Space>
-          </Form.Item>
+              时间范围 spans 6 like the others; at standard admin
+              viewport widths the RangePicker with showTime fits in
+              one Col at 1/4 of the card. If it doesn't (narrower
+              viewport), it wraps the two date inputs to a second
+              line *within* its cell — same cell shape as the others
+              (label on top, input below). */}
+          <Row gutter={[16, 0]}>
+            <Col span={6}>
+              <Form.Item name="range" label="时间范围">
+                <RangePicker
+                  showTime={{ format: 'HH:mm' }}
+                  format="YYYY-MM-DD HH:mm"
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="actor_user_id" label="操作者 ID">
+                <InputNumber placeholder="用户 ID" min={1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="action" label="操作">
+                <Select
+                  allowClear
+                  showSearch
+                  placeholder="选择操作类型"
+                  options={AUDIT_ACTIONS.map((a) => ({ value: a, label: a }))}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="target_type" label="对象类型">
+                <Select
+                  allowClear
+                  showSearch
+                  placeholder="选择对象类型"
+                  options={AUDIT_TARGET_TYPES.map((t) => ({ value: t, label: t }))}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={[16, 0]}>
+            <Col span={6}>
+              <Form.Item name="target_id" label="对象 ID">
+                <InputNumber placeholder="对象 ID" min={1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="ip_address" label="客户端 IP">
+                <Input placeholder="如 10.0.0.5" allowClear />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="request_id" label="请求 ID">
+                <Input placeholder="如 abc12345..." allowClear />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label=" " colon={false}>
+                <Space>
+                  <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
+                    查询
+                  </Button>
+                  <Button onClick={handleReset} icon={<ClearOutlined />}>
+                    重置
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Card>
 

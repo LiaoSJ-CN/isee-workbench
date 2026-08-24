@@ -1387,6 +1387,36 @@ Row 2: [对象 ID 300] [IP 300] [请求 ID 300] [查询 重置]
 - `npx tsc --noEmit` 0
 - `npx vitest run` 45/45（4 AuditLog 测试 0 改动仍过）
 
+### P3-1 后续 4：Row+Col 栅格 + vertical layout — 2026-08-24
+
+**问题根因（之前 3 次 commit 没修对）**：`inline layout` 里 RangePicker with `showTime` 强制换行（label 一行 + 两个 date input 另起一行），其他 6 个 input 是 label-input 同行。这导致 row 1 里时间范围的 input 在 y=189，其他 3 个 input 在 y=159——**输入框视觉不在同一水平线**。前 3 次改动（顺序 / width / flex-basis row break）只调了 cell box 边缘对齐，没解决 box 内部 label / input 布局不一致。
+
+**Playwright 截图确认根因**：`snap-audit.js` 渲染 1440×900 视口，肉眼可见 row 1 时间范围 picker 比其他 3 个 input 低一截。
+
+**修法（真正解决）**：
+1. **`layout="vertical"`** — 每个 Form.Item label 在上 input 在下。所有 cell 同形（2-line 高：label + input）。RangePicker 在窄 cell 里 input 自然 wrap 到 cell 内第二行，但 cell 本身仍是 label-on-top / input-on-bottom 形状，跟其他 cell 一致。
+2. **`<Row gutter={[16, 0]}>` + `<Col span={6}>` × 8** — antd Grid 真正保证跨 row column 对齐（`flexBasis: 100%` 在 vertical 模式下失效，因为 Form.Item 不再是 flex 子元素）。4 列 × 2 行 = 8 cell，col 宽度 = (Card content - 3×16 gutter) / 4 ≈ 290px。
+3. **button cell** 用 `<Form.Item label=" " colon={false}>` 占位，让 4 列对齐；按钮 row 跟其他 cell label 对齐。
+
+**最终布局**（截图 `/tmp/audit-logs.png` 确认）：
+```
+Row 1: [时间范围     ] [操作者 ID   ] [操作       ] [对象类型   ]
+       [Start→End 📅] [用户 ID     ] [选择操作… ⌄] [选择对象… ⌄]
+
+Row 2: [对象 ID     ] [客户端 IP   ] [请求 ID    ] [查询 重置  ]
+       [对象 ID     ] [如 10.0.0.5 ] [如 abc…    ]
+```
+
+column x 跨 row 一致：col1=55 / col2=370 / col3=686 / col4=1002。
+
+**`frontend/src/pages/AuditLogPage.tsx`** — `layout="vertical"` + 删 `style.width` / `labelCol` / `flexBasis` div（不适用 vertical）+ 改用 2 个 `<Row>` + 8 个 `<Col span={6}>` 包裹 `<Form.Item>`。`Form` imports 加 `Row` / `Col`。0 测试改动。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45（4 AuditLog 测试 0 改动仍过）
+- Playwright 截图 `/tmp/audit-logs.png`（1440×900 viewport）：所有 cell label / input 视觉对齐，无错位
+
 ### P3-2 ✅ (no-op)：ReportEditor import path 统一 — 2026-08-24
 
 **问题**：plan 描述 `pages/ReportEditor/` 7 文件混相对/绝对路径，要统一。
