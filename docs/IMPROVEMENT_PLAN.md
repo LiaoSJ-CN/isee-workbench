@@ -1132,7 +1132,6 @@ npx playwright test                     # smoke 全过
 
 | ID | 主题 | 说明 |
 |---|---|---|
-| P3-2 | ReportEditor import path 统一 | `pages/ReportEditor/` 7 文件用混相对/绝对路径，统一 |
 | P3-3 | DEPLOY.md 同步 | SMTP / Prometheus / SubscriptionModal 加完后部署文档没跟进 |
 | P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |
 | P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
@@ -1173,10 +1172,35 @@ npx playwright test                     # smoke 全过
 - `npx vitest run` 45/45（之前 41 + P3-1 新增 4）
 - 后端未动，pytest 仍 674 + 4 skipped
 
-| P3-2 | ReportEditor import path 统一 | `pages/ReportEditor/` 7 文件用混相对/绝对路径，统一 |
-| P3-3 | DEPLOY.md 同步 | SMTP / Prometheus / SubscriptionModal 加完后部署文档没跟进 |
-| P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |
-| P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
+### P3-2 ✅ (no-op)：ReportEditor import path 统一 — 2026-08-24
+
+**问题**：plan 描述 `pages/ReportEditor/` 7 文件混相对/绝对路径，要统一。
+
+**实际检查**：plan 条目过时。`pages/ReportEditor/` 7 文件 (`index.tsx` / `ConfigTab.tsx` / `ItemsTab.tsx` / `ParametersTab.tsx` / `ItemEditorModal.tsx` / `ParameterEditorModal.tsx` / `SortableItem.tsx`) 已经全部一致：
+
+- 同级 import：单层 `'./SortableItem'`（`ItemsTab.tsx`）等
+- 跨目录到 `src/`：双层 `'../../types'` / `'../../utils/error'` / `'../../queries/useReports'` / `'../../components/Skeleton'` 等
+
+**为什么不是 mix**：
+- 7 文件**没有**任何 `'@/...'` alias 路径（`grep "from '@/" frontend/src` 0 命中）
+- 7 文件**没有**任何 `'../../../...'` 三层跳（所有跨目录 import 都是 `'../../...'` 一致深度）
+- 深度匹配文件位置：`pages/ReportEditor/X.tsx` 在 `src/pages/ReportEditor/`，要回 `src/types` 正好两级
+
+**跨 `pages/` 全项目对比**（用 grep 统计 `from '...'` 模式）：
+- `pages/*.tsx`（顶层页）：`'../types'`、`'../utils/error'`、`'../api'` 6+ 次
+- `pages/ReportEditor/*.tsx`（子目录）：`'../../types'`、`'../../utils/error'`、`'../../components/Skeleton'` 5+ 次
+
+两种深度都正确，相对自己文件位置算好。**没有需要统一**。
+
+**Plan 条目推测来源**：原 plan 在 `baad103`（批 1.5 — ReportEditor 文件拆分）之前写的，文件拆分时已经按深度一次性统一了。本批核对发现已经是 desired state，no-op。
+
+**做了什么**：0 行代码改动。仅 plan 文件加本条 ✅ + 上面的根因说明，给后续 audit 一个明确信号（"已检查过，不需要再问"）。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45（未动）
+- 后端未动，pytest 仍 674 + 4 skipped
 
 ### 决策项 — 需要拍板
 - **要不要新增 P1 批次？**（上面 P1-1/2/3 建议起步先做 P1-1 + P1-2）
