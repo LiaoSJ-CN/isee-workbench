@@ -978,6 +978,38 @@ npx playwright test                     # smoke 全过
 | ID | 主题 | 说明 | 估计 |
 |---|---|---|---|
 | P2-1 | Playwright e2e 扩展 | `frontend/e2e/smoke.spec.ts` 只 3 个 smoke (login + DataSourceList + ReportList)。报表创建→预览→导出 Excel→下载 端到端没覆盖。| ~半天 |
+
+### P2-1 ✅：Playwright e2e 扩展 — 报表生命周期端到端 — 2026-08-24
+
+**问题**：批 7.4 的 3 个 smoke 只测 login + DataSourceList + ReportList 可见性。**报表创建→预览→导出 Excel→下载** 这条最关键的用户路径没有任何 e2e 回归保护；批 8.5（jobs/{id}/download）和批 8.1（PDF 异步）改的都是这条链路，缺测试意味着只能靠手动 QA。
+
+**落地**：
+
+**`frontend/e2e/report-lifecycle.spec.ts`**（新文件，3 个 test）：
+
+1. **`preview renders the report HTML`** — 端到端报表预览：API 创 data source (sqlite `:memory:`) + report (1 text item, content=唯一 marker) → UI 登录 → 跳到 `/reports/{id}/preview` → 点 "生成预览" → 等 iframe 出现 → 读 iframe 内部 HTML → 断言 marker 字符串出现（验证 HTML 真正渲染了 text item，且 marker 经过后端 `html.escape` 仍可被前端读到）。
+
+2. **`excel async export completes and download fires`** — Excel 异步导出全链路：UI 点 "导出 Excel" → 轮询 status tag → 等 "已完成" → 点 "下载 Excel" → 接 Playwright `waitForEvent('download')` → 断言 `suggestedFilename` 以 `.xlsx` 结尾 + 文件 size > 0（证明 worker 真正写出了非空 xlsx，验证 `/jobs/{id}/download` 走的是 worker 产物而非重新渲染 — 批 8.5 修复点）。
+
+3. **`pdf async export completes and download fires`** — PDF 异步导出：同 Excel 形状，但用 "已完成" **或** "失败 + weasyprint 关键字" 双分支。dev venv 没装 weasyprint 时 job 走 failed 路径，断言错误 Alert 含 "weasyprint" 字串（验证 批 8.1 的可读错误信息）；CI docker backend 装了 weasyprint + libpango 走 done + download 路径。`test.setTimeout(180_000)` 给 weasyprint 冷启动留余地。
+
+**关键设计**：
+- **API-first setup** — 不用 UI 拖拽编辑器（脆弱且慢），用 `request` fixture 调后端 API 创 data source + report + items。Playwright `request` 是 test-scoped，cleanup 在 `finally` 里 `DELETE /reports/{id}` + `DELETE /data-sources/{id}` 避免 dev `app.db` 污染。
+- **`authenticateAndEnter` helper** — 不用 UI 填表登录（慢 + 撞 dev backend `LOGIN_RATE_LIMIT=10/min`），改成：API login 拿 token → `page.evaluate` 写 `localStorage.access_token` + `localStorage.refresh_token` → `goto('/reports')` 直接进 SPA。这样 3 个 test 各只 1 次 API login（不撞限流），且绕过 smoke.spec.ts 那段脆弱的 `input.filter({hasNot: [type=password]}).first()` selector。
+- **`.first()` 选 toolbar "生成预览"** — 严格模式违规：preview 卡片初始为空时同时有 toolbar 按钮 + 空状态卡里的 primary 按钮，2 个匹配 → 用 `.first()` 锁定 toolbar。
+- **PDF 双分支断言** — 不强制 done 路径（让 dev 跑得通），也不仅 skip — 显式断言 "library missing" 错误信息是可读的，把"无 weasyprint"的失败态变成可验证的契约。CI 与 dev 同跑同一份代码。
+- **text item 而非 metric/table** — 不连 DataSource SQL，避免要 seed 表 + 注入样本数据。`custom_sql: ''` + `display_config.content = marker` 让 ReportGenerator 跑通最简路径（无 DB query），但 HTML/xlsx 仍有可断言内容。
+
+**未做**（YAGNI）：
+- 报表编辑器拖拽 e2e — `@dnd-kit` 在 Playwright 下的 pointer 事件不稳定，e2e 价值不高；ReportEditor 单测 + 手动 QA 覆盖。
+- DataExplorer schema tree 端到端 — 批 8.2 已有后端 18 测试 + 前端 5 component test；e2e 复测 ROI 低。
+- ReportList 异步 Excel / PDF 卡片 — 跟 Preview 路径几乎同形（共用 `jobsApi`），Preview 端到端已覆盖核心 worker + download 契约。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 41/41
+- `npx playwright test` 4 passed + 2 skipped（smoke 内置 skip，dev backend 状态驱动）+ lifecycle 3/3
 | P2-2 | scheduler reconcile 集成测试 | `scheduler_runner` sidecar 有 5 个单测，但 web 进程里 `scheduler.start()` + `sync_with_database()` reconcile 路径没覆盖。批 8.3 / 9.x 都加在这条路径上。| ~2 hr |
 | P2-3 | Alembic migration 重放验证 | `alembic upgrade head` 干净跑过；`downgrade -1` 再 `upgrade head` 循环没测过。`env.py` 不再 `fileConfig()` 可能藏坑。| ~1 hr |
 | P2-4 | CI cache | `.github/workflows/ci.yml` 每次 lint + test + build 都重装。`actions/cache` 加 npm + pip cache 提速 ~30s。| ~30 min |
