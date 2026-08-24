@@ -169,12 +169,12 @@ export default function DataSourceList() {
     },
     { title: '主机', dataIndex: 'host', key: 'host', width: 120, render: (v) => v || '-' },
     { title: '端口', dataIndex: 'port', key: 'port', width: 80, render: (v) => v || '-' },
-    { title: '数据库', dataIndex: 'database', key: 'database', width: 120, ellipsis: true },
-    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+    { title: '数据库', dataIndex: 'database', key: 'database', width: 240, ellipsis: true },
+    { title: '描述', dataIndex: 'description', key: 'description', width: 180, ellipsis: true },
     {
       title: '操作',
       key: 'action',
-      width: 260,
+      width: 320,
       render: (_, record) => {
         // Share button: only the owner or an admin can manage grants.
         // The backend enforces the same — we hide the affordance
@@ -249,7 +249,8 @@ export default function DataSourceList() {
         rowKey="id"
         loading={isPending}
         rowSelection={rowSelection}
-        scroll={{ x: 'max-content' }}
+        tableLayout="fixed"
+        scroll={{ x: 1280 }}
         pagination={{
           ...pagination,
           total: dataSources.length,

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
-import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Layout, Menu, Button } from 'antd';
 import {
   AuditOutlined,
@@ -130,6 +130,13 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// 批 11.4: redirect stale `/reports/:id/edit` links (left over from
+// the earlier clone-success callback) to the canonical edit URL.
+function NavigateToReports() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/reports/${id ?? ''}`} replace />;
+}
+
 function AppShell() {
   const logout = useLogout();
   const [, setNav] = useState(0); // trigger re-render after logout redirect
@@ -172,6 +179,7 @@ function AppShell() {
             <Route path="/explorer" element={<DataExplorer />} />
             <Route path="/reports" element={<ReportList />} />
             <Route path="/reports/:id" element={<ReportEditor />} />
+            <Route path="/reports/:id/edit" element={<NavigateToReports />} />
             <Route path="/reports/:id/preview" element={<ReportPreview />} />
             <Route path="/scheduler" element={<SchedulerPage />} />
             <Route path="/my-subscriptions" element={<MySubscriptionsPage />} />

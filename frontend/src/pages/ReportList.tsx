@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert, Card, Spin } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert, Card, Spin, Dropdown } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -13,6 +13,7 @@ import {
   ShareAltOutlined,
   BellOutlined,
   CopyOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
@@ -85,7 +86,6 @@ export default function ReportList() {
   // drawer if real users hit this race.
   const [excelJob, setExcelJob] = useState<{ jobId: number; report: Report } | null>(null);
   const excelStatus = useJobStatus(excelJob?.jobId ?? null);
-  const [enqueuing, setEnqueuing] = useState(false);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
 
   // ---- PDF async export (批 8.1) ------------------------------------------
@@ -98,7 +98,6 @@ export default function ReportList() {
   // page by design).
   const [pdfJob, setPdfJob] = useState<{ jobId: number; report: Report } | null>(null);
   const pdfStatus = useJobStatus(pdfJob?.jobId ?? null);
-  const [enqueuingPdf, setEnqueuingPdf] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const handleCreate = () => {
@@ -164,7 +163,7 @@ export default function ReportList() {
     duplicateReport.mutate(
       { id: report.id },
       {
-        onSuccess: (clone) => navigate(`/reports/${clone.id}/edit`),
+        onSuccess: (clone) => navigate(`/reports/${clone.id}`),
         onError: (err) => message.error(formatError(err, '复制失败')),
       },
     );
@@ -172,7 +171,6 @@ export default function ReportList() {
 
   const handleGenerateExcel = async (report: Report) => {
     message.loading({ content: '正在提交导出任务…', key: 'export' });
-    setEnqueuing(true);
     try {
       // Direct API call rather than `useEnqueueReportJob`: that hook
       // captures `reportId` in its mutationFn closure, which would be
@@ -188,8 +186,6 @@ export default function ReportList() {
       message.success({ content: `「${report.name}」导出任务已提交`, key: 'export' });
     } catch (err) {
       message.error({ content: formatError(err, '导出任务提交失败'), key: 'export' });
-    } finally {
-      setEnqueuing(false);
     }
   };
 
@@ -214,7 +210,6 @@ export default function ReportList() {
 
   const handleGeneratePdf = async (report: Report) => {
     message.loading({ content: '正在提交 PDF 导出任务…', key: 'pdf-export' });
-    setEnqueuingPdf(true);
     try {
       const job = await jobsApi.enqueue(report.id, {
         parameters: {},
@@ -224,8 +219,6 @@ export default function ReportList() {
       message.success({ content: `「${report.name}」PDF 导出任务已提交`, key: 'pdf-export' });
     } catch (err) {
       message.error({ content: formatError(err, 'PDF 导出任务提交失败'), key: 'pdf-export' });
-    } finally {
-      setEnqueuingPdf(false);
     }
   };
 
@@ -283,7 +276,7 @@ export default function ReportList() {
         </Space>
       ),
     },
-    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+    { title: '描述', dataIndex: 'description', key: 'description', width: 280, ellipsis: true },
     {
       title: '数据源',
       dataIndex: 'data_source_id',
@@ -355,47 +348,48 @@ export default function ReportList() {
                 分享
               </Button>
             )}
-            <Button
-              type="link"
-              size="small"
-              icon={<CopyOutlined />}
-              loading={duplicateReport.isPending && duplicateReport.variables?.id === record.id}
-              onClick={() => handleDuplicate(record)}
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'duplicate',
+                    label: '复制',
+                    icon: <CopyOutlined />,
+                    disabled: duplicateReport.isPending && duplicateReport.variables?.id === record.id,
+                    onClick: () => handleDuplicate(record),
+                  },
+                  {
+                    key: 'subscribe',
+                    label: '订阅',
+                    icon: <BellOutlined />,
+                    onClick: () => setSubTarget(record),
+                  },
+                  { type: 'divider' },
+                  {
+                    key: 'excel',
+                    label: inFlight ? 'Excel 导出中…' : '导出 Excel',
+                    icon: <PlayCircleOutlined />,
+                    disabled: inFlight,
+                    onClick: () => handleGenerateExcel(record),
+                  },
+                  {
+                    key: 'pdf',
+                    label: '导出 PDF',
+                    icon: <PlayCircleOutlined />,
+                    disabled:
+                      pdfJob?.report.id === record.id &&
+                      (pdfStatus.data?.status === 'pending' ||
+                        pdfStatus.data?.status === 'running'),
+                    onClick: () => handleGeneratePdf(record),
+                  },
+                ],
+              }}
+              trigger={['click']}
             >
-              复制
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              icon={<BellOutlined />}
-              onClick={() => setSubTarget(record)}
-            >
-              订阅
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              icon={<PlayCircleOutlined />}
-              loading={enqueuing && excelJob?.report.id === record.id}
-              disabled={inFlight}
-              onClick={() => handleGenerateExcel(record)}
-            >
-              Excel
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              icon={<PlayCircleOutlined />}
-              loading={enqueuingPdf && pdfJob?.report.id === record.id}
-              disabled={
-                pdfJob?.report.id === record.id &&
-                (pdfStatus.data?.status === 'pending' ||
-                  pdfStatus.data?.status === 'running')
-              }
-              onClick={() => handleGeneratePdf(record)}
-            >
-              PDF
-            </Button>
+              <Button type="link" size="small" icon={<MoreOutlined />}>
+                更多
+              </Button>
+            </Dropdown>
             <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
               <Button type="link" size="small" danger icon={<DeleteOutlined />}>
                 删除
@@ -523,7 +517,8 @@ export default function ReportList() {
         rowKey="id"
         loading={isPending}
         rowSelection={rowSelection}
-        scroll={{ x: 'max-content' }}
+        tableLayout="fixed"
+        scroll={{ x: 1200 }}
         pagination={{
           ...pagination,
           total: reports.length,
