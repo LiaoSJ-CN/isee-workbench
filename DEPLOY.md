@@ -295,6 +295,7 @@ docker compose --profile postgres up -d
 | `SMTP_FROM_NAME` | （空） | `From:` 显示名；空时回落到 `APP_NAME` |
 | `SMTP_USE_STARTTLS` | `true` | 587 端口明文连接后升级到 TLS；生产环境一般保持 `true` |
 | `SMTP_USE_SSL` | `false` | 465 端口隐式 TLS；与 `SMTP_USE_STARTTLS` 二选一 |
+| `AUDIT_LOG_RETENTION_DAYS` | `0` | 审计日志保留天数；`0` = 永久保留（需 operator 手动 cron purge）。`> 0` 时 web 进程 lifespan **不**自动清——见 `app.services.audit.purge_old_audit_logs`，operator 自行接 cron / sidecar |
 
 示例 `.env` 文件：
 
@@ -319,7 +320,48 @@ LOG_LEVEL=INFO
 # SMTP_FROM_NAME=Alerts Bot
 # SMTP_USE_STARTTLS=true
 # SMTP_USE_SSL=false
+
+# 审计日志保留天数（0 = 永久保留）
+# AUDIT_LOG_RETENTION_DAYS=0
 ```
+
+---
+
+## 通知与订阅（批 8.3 / 批 8.4）
+
+报表可以绑定 4 种通知渠道 + 订阅投递；**邮件**靠环境变量，**IM / Webhook** 走 Report 的 `notification_config` 字段（每个报表独立配）。
+
+### 邮件通知（订阅邮件投递）
+
+- 走 `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM_ADDRESS` 等环境变量
+- 未设置时 `EmailConfig` 通知仅记 `smtp_unconfigured` 指标 + ERROR 日志，**不抛异常**
+- 本地开发推荐 [mailpit](https://github.com/axllent/mailpit)（SMTP 收信 UI + REST API）：`docker run -p 1025:1025 -p 8025:8025 axllent/mailpit:latest`，`.env` 设 `SMTP_HOST=localhost SMTP_PORT=1025 SMTP_USE_STARTTLS=false SMTP_USE_SSL=false SMTP_USER= SMTP_PASSWORD=`
+- 端口选择：`587` + STARTTLS（推荐）、`465` + implicit SSL；两者二选一
+
+### IM 机器人通知（钉钉 / 飞书 / 企业微信）
+
+- **无需环境变量**——每个报表在编辑器里配自己的机器人
+- 钉钉 (DingTalk) / 飞书 (Feishu / Lark) / 企业微信 (WeChatWork) 三种独立 variant（见 `app/schemas/notification.py`），按机器人类型选 `type`，填 `webhook_url`
+- 飞书可选 `secret`（机器人安全设置里那个 sign secret）开启签名；钉钉 / 企微可选 `secret`
+- **SSRF 防护**：`webhook_https_only` 默认 `false` 允许 http；内网地址（127.0.0.0/8、10.0.0.0/8、172.16/12、192.168/16、::1、169.254/16 等保留段）会被 `ssrf_guard` 模块**直接拒**，无论 IM 还是通用 Webhook——别指向 `localhost:8025` 这种本地测试端，部署到同主机会被拦
+- 通用 Webhook（自定义 HMAC 签名 POST）走 `WebhookConfig` variant，配 `url` + 可选 `secret`
+
+### 报表订阅（批 8.3）
+
+- 端点：`POST/GET/PATCH/DELETE /reports/{id}/subscriptions` —— "我订阅这个报表，每次跑完推送给我"
+- 不需要单独启——`/api/reports/{id}/subscriptions` 跟随 web 进程自动可用
+- 前端入口：报表详情页 "订阅" 按钮 → 选 IM / 邮件渠道 + 接收人
+- 投递失败会重试 3 次（指数退避），仍失败写 ERROR 日志 + `webhook_delivery_*` metric，不会阻塞下次调度
+
+---
+
+## 审计日志（批 9.5 / 批 11.1）
+
+管理员专属审计表（用户 CRUD / 数据源变更 / 报表克隆 / 调度变更等高敏动作）。**部署前了解两点**：
+
+- **端点**：`GET /audit-logs`（admin only，非 admin 403）。前端入口在左侧导航 "审计日志"（admin 用户可见）。支持 `actor_user_id` / `action` / `target_type` / `target_id` / `request_id` / `ip_address` / `since` / `until` 过滤
+- **保留期**：见上文 `AUDIT_LOG_RETENTION_DAYS`。lifespan 不自动 purge——operator 自行接 cron 调 `purge_old_audit_logs(db, days)`，或 `0` 表示永久保留
+- **request_id 跨链**：每条 HTTP 请求的 `X-Request-ID` 写入所有相关 audit row + 日志，方便从日志反查所有审计事件
 
 ---
 
@@ -487,3 +529,6 @@ kill -9 <PID>
 - [ ] 设置日志轮转
 - [ ] 配置数据库备份策略
 - [ ] 监控服务状态
+- [ ] 若启用邮件订阅：设置 `SMTP_HOST` + `SMTP_PASSWORD` + `SMTP_FROM_ADDRESS`（不设则订阅邮件仅记错误）
+- [ ] 若启用 IM 通知：webhook URL 不能指向内网（SSRF guard 拒）；钉钉/飞书/企微机器人"安全设置"加 IP 白名单或签名验证
+- [ ] 决定 `AUDIT_LOG_RETENTION_DAYS`：不设 = 永久保留；>0 时必须配 cron 调 `purge_old_audit_logs` 防止日志无限增长

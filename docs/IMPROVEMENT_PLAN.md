@@ -1130,9 +1130,49 @@ npx playwright test                     # smoke 全过
 
 ### P3 — 锦上添花
 
-| ID | 主题 | 说明 |
-|---|---|---|
-| P3-3 | DEPLOY.md 同步 | SMTP / Prometheus / SubscriptionModal 加完后部署文档没跟进 |
+### P3-3 ✅：DEPLOY.md 同步 — 2026-08-24
+
+**问题**：批 8.3 / 8.4 / 9.5 / 11.1 加了邮件订阅、IM 通知（钉钉/飞书/企微）、审计日志、报表订阅功能，但 DEPLOY.md 只覆盖了 SMTP env vars + Prometheus Grafana 启动。Operator 部署时不知道：
+
+- IM 通知是 **per-report** 配置还是 **env var**？
+- webhook URL 指向 `localhost:8025`（mailpit）会被 SSRF guard 拒吗？
+- 审计日志默认保留多久？要写 cron 吗？
+- 报表订阅端点需不需要单独启？
+
+**落地**：
+
+**`DEPLOY.md`** 三处增量：
+
+1. **环境变量表加 `AUDIT_LOG_RETENTION_DAYS`**（之前完全缺失——`.env.example` 也没列）。说明 `0` = 永久保留，lifespan **不**自动 purge，operator 自己接 cron 调 `purge_old_audit_logs(db, days)`（批 11.1 设计选择——避免和 in-flight audit write 抢锁）。
+
+2. **新增 `## 通知与订阅（批 8.3 / 批 8.4）` 一节**（env var 表之后、数据库说明之前）—— 三段子子：
+   - **邮件通知**：明确走 SMTP_* env vars；未设置时仅记 `smtp_unconfigured` metric + 不发邮件；本地开发推荐 mailpit（`docker run -p 1025:1025 -p 8025:8025 axllent/mailpit:latest`）+ `.env` 模板（`SMTP_HOST=localhost SMTP_PORT=1025 SMTP_USE_STARTTLS=false SMTP_USE_SSL=false`，无 auth）。
+   - **IM 通知**：明确说 **无环境变量**——每个报表在编辑器里配自己的机器人；钉钉/飞书/企微三种 variant（`app/schemas/notification.py`）+ 各自签名机制；**SSRF guard** 警告（webhook 不能指向内网，部署到同主机被拒）。
+   - **报表订阅**：端点 `/reports/{id}/subscriptions` + 前端入口 + 投递失败 3 次重试 + 写 ERROR + metric，不阻塞下次调度。
+
+3. **新增 `## 审计日志（批 9.5 / 批 11.1）` 一节**——端点 admin 专属 + 支持 8 种 filter + retention 配置指向 `AUDIT_LOG_RETENTION_DAYS` + request_id 跨链解释（log 行 + audit row 同一个 id）。
+
+4. **生产环境检查清单加 3 项**：邮件订阅 SMTP_* / IM 通知 SSRF + 机器人签名验证 / audit_log_retention_days + cron 配置。
+
+**`backend/.env.example`** 加 `AUDIT_LOG_RETENTION_DAYS` 注释段（之前缺失，DEPLOY.md 现在引用 .env.example 时不一致会误导）。
+
+**关键设计**：
+- **不重写 SMTP_* 部分**——已经写得很清楚（批 8.3 写 SMTP 章节时就考虑过），只在"邮件通知"段引用 + 加 mailpit 推荐。
+- **IM 不引入"机器人创建指南"**——那是钉钉/飞书产品文档的工作，不是 isee-workbench 的 deploy doc；只说"在机器人后台拿 webhook URL + 可选 secret，填到 Report 编辑器的通知配置里"。
+- **SSRF 警告显眼**——一个常见踩坑：本地 mailpit 在 `localhost:8025` 跑 webhook 测试，部署到 prod 同主机时忘记改 → SSRF 拒，notification 静默失败。文档显式说清。
+- **不加过多 env var**——计划说"P3-3 同步 SMTP/Prometheus/SubscriptionModal"，我就只加这三组 + audit retention（一句话的环境变量表更新）。其他十几条 env var（`SENTRY_DSN` / `WEBHOOK_SECRET` / `EXPLORER_QUERY_RATE_LIMIT` 等）**有意不补**——surgical，且用户没要。
+
+**未做**（YAGNI）：
+- 不补 17 条未文档化的 env var（Sentry / Webhook / Cookie / Rate Limit / CSRF）——**Surgical Change** + 用户没要。如未来需要另开 P3.x。
+- 不写"创建钉钉机器人" / "飞书应用"教程——那是供应商文档。
+- 不写 `purge_old_audit_logs` 的具体 cron 配置——operator 环境差异大（systemd timer / k8s CronJob / pg_cron），给个调用点足够。
+
+**验证基线**：
+- DEPLOY.md 仅 doc 改动，无 lint/test 影响
+- 后端未动，pytest 仍 674 + 4 skipped
+- 前端未动，vitest 仍 45/45
+- ruff / mypy / tsc / eslint 全 0（未动 source）
+
 | P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |
 | P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
 
