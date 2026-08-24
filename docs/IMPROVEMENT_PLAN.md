@@ -1173,7 +1173,56 @@ npx playwright test                     # smoke 全过
 - 前端未动，vitest 仍 45/45
 - ruff / mypy / tsc / eslint 全 0（未动 source）
 
-| P3-4 | `backend/scripts/` 清理 | `seed_reports.py` + 其他 helper 脚本 currentness 没检查过 |
+### P3-4 ✅：backend/scripts/ 清理 — 2026-08-24
+
+**问题**：plan 说"seed_reports.py + 其他 helper 脚本 currentness 没检查过"——审计发现：
+
+**Inventory 实际只有 2 个脚本**（CLAUDE.md 提到旧的 `smoke_*.py` 在 `308e97a` 已删）：
+- `backend/scripts/seed_erp_demo.py` (772 行，6月20日) — 建 `backend/data/erp_demo.db`（12 张财务域 warehouse 表）+ ~400 行样本
+- `backend/scripts/seed_reports.py` (443 行，8月23日) — 在 `app.db` 里建 3 张示例报表（id=1/2/3，蓝色「示例」Tag）
+
+**Currentness 检查**：
+- `seed_erp_demo.py`：跑通，~5s 完成建表 + 灌样本，无错误
+- `seed_reports.py`：跑通，default 找 DataSource `'sqlite_demo'` (id=200) + 删 4 个旧 report + 插 3 个新 report
+- 没有任何 TODO/FIXME/DEPRECATED 注释（`grep -E "^\s*#\s*(TODO|FIXME|XXX|HACK|DEPRECATED)"` 0 命中）
+- 最后修改 8月23日（`ad201e5` is_demo flag + 7f9274a backfill owner）— 都是 active work
+
+**引用**：
+- `seed_reports.py`：被 `tests/conftest.py` + `tests/test_preview_endpoint.py` + `tests/test_xss_regression.py` 通过 `pytest.skip()` 间接依赖（无 seed 时 3 个 test 跳过）
+- `seed_erp_demo.py`：被 `seed_reports.py` 引用（默认 DataSource 指向 `data/erp_demo.db`），production 用户需要 demo 数据时一并跑
+- `seed_reports.py` 在 `backend/app/models/report.py:50` + `schemas/report.py:251` 注释里被标记为 `is_demo` flag 的来源
+
+**结论**：
+- 代码本身 **不 stale**——两个脚本都跑得通，3 个 test 文件 + 报表 demo badge 链路全依赖
+- **唯一缺口**：README.md + DEPLOY.md 都没提到这两个脚本，新人 onboarding 时不知道 demo 数据怎么灌
+
+**清理做了什么**：
+
+**`README.md`** 2 处增量：
+1. 项目结构图加 `│   ├── scripts/               # 开发辅助脚本（seed_demo + seed_reports）`
+2. 快速启动第 4 步 "Demo 数据（可选）"——两行命令 + 解释 12 张表 + 3 张示例报表 + 不跑也能用 + 第二次跑会 drop & recreate
+
+**`DEPLOY.md`** 1 处增量：
+- 方式一第 5 步 "灌示例数据（可选）"——同样的两行命令（conda activate 步骤对 dev workflow 重复一遍有意义，因为 DEPLOY.md 顺序不一样）
+
+**关键设计**：
+- **不动脚本代码**——CLAUDE.md "Surgical Changes — 不顺手改进无关代码"。两个脚本工作正常，跑通验证了，没必要改。
+- **加 README + DEPLOY，不加 docstring 之外的内容**——两个脚本的 docstring 顶部都有 usage 说明，外部 doc 重复一遍就够。
+- **不写"重置 / 清理"流程**——`seed_erp_demo.py --reset` + `seed_reports.py` 默认 delete 已存在，够用了；operator 真要"全清从头来"可以删 `app.db` + `data/erp_demo.db` 再跑，不值得文档化。
+
+**未做**（YAGNI）：
+- 不写 `scripts/` 的 README（独立 INSTRUCTIONS.md）——两个脚本 docstring 已说清用法，独立 README 重复
+- 不加 wrapper `seed_demo.sh` 串联两个脚本——operator / CI 顺序跑一下即可，wrapper 增加路径无 ROI
+- 不加 `--dry-run`——admin 脚本不需要，删 / 重灌是幂等操作
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45
+- `pytest -q` 674 + 4 skipped
+- ruff / mypy 全 0
+- 手动跑两个脚本：`seed_erp_demo.py` 完成 12 表 + ~400 行；`seed_reports.py` 完成 DataSource 'sqlite_demo' (id=200) + 3 张示例报表
+
 | P3-5 | antd-vendor chunk 阈值 | 1.22 MB raw / 372 KB gzip 单独超 500 KB；目前 entry index 15KB 所以 vite 没 warning，但按 chunk 单独设阈值更合理 |
 
 ### P3-1 ✅：Audit log UI 快速链接 — 2026-08-24

@@ -52,6 +52,16 @@ npm run dev
 - 后端 API：http://localhost:8000
 - API 文档：http://localhost:8000/docs
 
+#### 5. 灌示例数据（可选）
+
+```bash
+cd backend && source .venv/bin/activate
+python scripts/seed_erp_demo.py        # 建 backend/data/erp_demo.db（12 张财务域 warehouse 表）
+python scripts/seed_reports.py          # 在 app.db 里建 3 张示例报表（id=1/2/3，蓝色「示例」Tag）
+```
+
+不灌也能用，UI 空；灌完后 DataExplorer 模板 + ReportList 立刻有内容。
+
 > **PDF 导出（批 8.1）**：本地开发需装 weasyprint 系统依赖。
 > macOS: `brew install pango cairo gdk-pixbuf libffi`；
 > Debian/Ubuntu: 见 `backend/Dockerfile` 的 `apt-get install` 行（`libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 fonts-noto-cjk`）。

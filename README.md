@@ -20,6 +20,7 @@ isee-workbench/
 │   │   ├── services/          # 业务逻辑（连接、报表生成、调度、SQL 校验、SSRF 防护等）
 │   │   └── middleware/        # 中间件（限流、安全头、代理头）
 │   ├── tests/                 # pytest 测试套件（~200 用例）
+│   ├── scripts/               # 开发辅助脚本（seed_demo + seed_reports）
 │   ├── alembic/               # 数据库迁移
 │   ├── pyproject.toml
 │   └── requirements.txt
@@ -71,6 +72,18 @@ API 文档: http://localhost:8000/docs
 ```
 
 可在 `backend/.env` 用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `JWT_SECRET_KEY` 覆盖。Token 存浏览器 localStorage（access 24h，refresh 7d）。
+
+### 4. Demo 数据（可选）
+
+跑 `seed_erp_demo.py` 生成 `backend/data/erp_demo.db`（12 张财务域 warehouse 表），再跑 `seed_reports.py` 在 `app.db` 里建 3 张示例报表（id=1/2/3，蓝色「示例」Tag）。不跑也能用，UI 是空的；跑完 DataExplorer 模板 + ReportList 都立刻有内容。
+
+```bash
+cd backend && source .venv/bin/activate
+python scripts/seed_erp_demo.py        # ~5s，建表 + 灌 ~400 行样本
+python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id=200)
+```
+
+跑第二次会 **drop & recreate**（`seed_erp_demo.py` 不带 `--reset` 不动；`seed_reports.py` 默认 delete 后 insert）。
 
 ## 功能特性
 
