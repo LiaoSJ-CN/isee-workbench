@@ -5,8 +5,13 @@ import { SaveOutlined, EyeOutlined } from '@ant-design/icons';
 import { arrayMove } from '@dnd-kit/sortable';
 import type { DragEndEvent } from '@dnd-kit/core';
 import type {
-  Report, ReportItem, ReportItemCreate, ReportItemUpdate,
-  ReportParameter, ReportParameterCreate, ReportParameterUpdate,
+  Report,
+  ReportItem,
+  ReportItemCreate,
+  ReportItemUpdate,
+  ReportParameter,
+  ReportParameterCreate,
+  ReportParameterUpdate,
 } from '../../types';
 import { formatError } from '../../utils/error';
 import {
@@ -223,7 +228,12 @@ export default function ReportEditor() {
     persistOrder(updatedItems);
   };
 
-  if (reportLoading || dsLoading) return <div style={{ padding: 24 }}><CardSkeleton rows={6} /></div>;
+  if (reportLoading || dsLoading)
+    return (
+      <div style={{ padding: 24 }}>
+        <CardSkeleton rows={6} />
+      </div>
+    );
   if (!report || !buffer) return <div style={{ padding: 24 }}>报表不存在</div>;
 
   return (
@@ -256,11 +266,7 @@ export default function ReportEditor() {
             key: 'config',
             label: '报表配置',
             children: (
-              <ConfigTab
-                buffer={buffer}
-                dataSources={dataSources}
-                onBufferChange={setBuffer}
-              />
+              <ConfigTab buffer={buffer} dataSources={dataSources} onBufferChange={setBuffer} />
             ),
           },
           {

@@ -26,12 +26,7 @@ interface ColumnLeafMeta {
   qualified: string;
 }
 
-export function SchemaTree({
-  tables,
-  loading,
-  error,
-  onInsertColumn,
-}: SchemaTreeProps) {
+export function SchemaTree({ tables, loading, error, onInsertColumn }: SchemaTreeProps) {
   if (loading) {
     return (
       <div style={{ padding: 16, textAlign: 'center' }}>
@@ -63,9 +58,7 @@ export function SchemaTree({
         <TableOutlined style={{ marginRight: 6 }} />
         {table.name}
         {table.schema_name ? (
-          <span style={{ color: '#999', marginLeft: 6, fontSize: 12 }}>
-            ({table.schema_name})
-          </span>
+          <span style={{ color: '#999', marginLeft: 6, fontSize: 12 }}>({table.schema_name})</span>
         ) : null}
       </span>
     ),

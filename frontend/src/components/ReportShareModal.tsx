@@ -1,12 +1,20 @@
 import { useEffect } from 'react';
 import {
-  Modal, Form, Select, Radio, Button, Space, Table, Tag, Popconfirm, Alert, message,
+  Modal,
+  Form,
+  Select,
+  Radio,
+  Button,
+  Space,
+  Table,
+  Tag,
+  Popconfirm,
+  Alert,
+  message,
 } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 
-import type {
-  Report, ReportShare, ReportSharePermission,
-} from '../types';
+import type { Report, ReportShare, ReportSharePermission } from '../types';
 import type { UserSummary } from '../api';
 
 export interface ReportShareModalProps {
@@ -45,8 +53,17 @@ interface AddShareForm {
  * across re-grants) — the ``id`` column is only used to DELETE.
  */
 export function ReportShareModal({
-  visible, report, shares, sharesLoading, users, usersLoading,
-  onCreate, onRevoke, onCancel, createPending, revokePending,
+  visible,
+  report,
+  shares,
+  sharesLoading,
+  users,
+  usersLoading,
+  onCreate,
+  onRevoke,
+  onCancel,
+  createPending,
+  revokePending,
 }: ReportShareModalProps) {
   const [form] = Form.useForm<AddShareForm>();
 
@@ -112,11 +129,7 @@ export function ReportShareModal({
                 style={{ width: '100%' }}
               />
             ) : (
-              <Select
-                placeholder="暂无可选用户"
-                disabled
-                style={{ width: '100%' }}
-              />
+              <Select placeholder="暂无可选用户" disabled style={{ width: '100%' }} />
             )}
           </Form.Item>
 

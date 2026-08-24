@@ -37,8 +37,7 @@ export function initSentry(): boolean {
     environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || undefined,
     // Trace sample rate defaults to 0.1 in production. Set via env if
     // you want a different rate — 0 disables performance entirely.
-    tracesSampleRate:
-      Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE) || 0.1,
+    tracesSampleRate: Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE) || 0.1,
   });
   initialized = true;
   return true;
@@ -48,10 +47,7 @@ export function initSentry(): boolean {
  * Forward an error to Sentry. No-op when Sentry isn't initialized,
  * so callers don't need to gate calls.
  */
-export function captureException(
-  err: unknown,
-  context?: Record<string, unknown>,
-): void {
+export function captureException(err: unknown, context?: Record<string, unknown>): void {
   if (!initialized) return;
   if (context) {
     Sentry.captureException(err, { extra: context });

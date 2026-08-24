@@ -28,9 +28,7 @@ export default function Login() {
             message.error('用户名或密码错误');
           } else if (axios.isAxiosError(err)) {
             // CORS preflight failure, network error, 5xx, etc — surface details.
-            message.error(
-              `登录失败 (${err.response?.status ?? 'network'}): ${err.message}`
-            );
+            message.error(`登录失败 (${err.response?.status ?? 'network'}): ${err.message}`);
             // Debug-only: full axios error includes request URL + headers; never
             // leak to production browser console.
             if (import.meta.env.DEV) console.error('login error', err);

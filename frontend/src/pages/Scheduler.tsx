@@ -1,6 +1,26 @@
 import { useState } from 'react';
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Alert } from 'antd';
-import { PlusOutlined, DeleteOutlined, ClockCircleOutlined, PauseCircleOutlined, PlayCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import {
+  Card,
+  Table,
+  Button,
+  Space,
+  Tag,
+  Modal,
+  Form,
+  Input,
+  Select,
+  message,
+  Popconfirm,
+  Alert,
+} from 'antd';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  ClockCircleOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  SyncOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, SchedulerJob } from '../types';
 import { formatError } from '../utils/error';
@@ -14,9 +34,7 @@ import { useReports } from '../queries/useReports';
 
 type NotificationType = 'none' | 'webhook' | 'email' | 'feishu' | 'wechatwork';
 
-function buildNotificationConfig(
-  values: Record<string, unknown>,
-): Record<string, unknown> | null {
+function buildNotificationConfig(values: Record<string, unknown>): Record<string, unknown> | null {
   const t = values.notification_type as NotificationType | undefined;
   if (t === 'webhook' || t === 'feishu') {
     return {
@@ -108,8 +126,7 @@ export default function SchedulerPage() {
       },
       {
         onSuccess: () => message.success(nextActive ? '已启用' : '已暂停'),
-        onError: (err) =>
-          message.error(formatError(err, nextActive ? '启用失败' : '暂停失败')),
+        onError: (err) => message.error(formatError(err, nextActive ? '启用失败' : '暂停失败')),
       },
     );
   };
@@ -197,7 +214,11 @@ export default function SchedulerPage() {
                     </Popconfirm>
                   </Space>
                 ) : (
-                  <Button type="link" icon={<PlusOutlined />} onClick={() => handleAddSchedule(record)}>
+                  <Button
+                    type="link"
+                    icon={<PlusOutlined />}
+                    onClick={() => handleAddSchedule(record)}
+                  >
                     添加定时任务
                   </Button>
                 ),
@@ -267,9 +288,7 @@ export default function SchedulerPage() {
 
           <Form.Item
             noStyle
-            shouldUpdate={(prev, curr) =>
-              prev.notification_type !== curr.notification_type
-            }
+            shouldUpdate={(prev, curr) => prev.notification_type !== curr.notification_type}
           >
             {({ getFieldValue }) => {
               const t = getFieldValue('notification_type') as NotificationType;
@@ -307,20 +326,14 @@ export default function SchedulerPage() {
                     {(t === 'webhook' || t === 'feishu') && (
                       <Form.Item
                         name="secret"
-                        label={
-                          t === 'feishu'
-                            ? '飞书签名密钥 (可选)'
-                            : 'Webhook 签名密钥 (可选)'
-                        }
+                        label={t === 'feishu' ? '飞书签名密钥 (可选)' : 'Webhook 签名密钥 (可选)'}
                         tooltip={
                           t === 'feishu'
                             ? '开启签名校验后，飞书会在 JSON body 里追加 timestamp + sign 字段'
                             : '设置后，webhook 请求会带上 X-Webhook-Timestamp 与 X-Webhook-Signature 头；不填则沿用后端 WEBHOOK_SECRET 全局配置'
                         }
                       >
-                        <Input.Password
-                          placeholder={t === 'feishu' ? 'SEC...' : 'shared-secret'}
-                        />
+                        <Input.Password placeholder={t === 'feishu' ? 'SEC...' : 'shared-secret'} />
                       </Form.Item>
                     )}
                   </>
@@ -336,9 +349,15 @@ export default function SchedulerPage() {
               <div>
                 <p>分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-6) 年</p>
                 <p>* = 任意值, - = 范围, / = 步长</p>
-                <p>例: <code>0 9 * * * *</code> = 每天9:00</p>
-                <p>例: <code>0 */2 * * * *</code> = 每2小时</p>
-                <p>例: <code>0 0 * * 1 *</code> = 每周一0:00</p>
+                <p>
+                  例: <code>0 9 * * * *</code> = 每天9:00
+                </p>
+                <p>
+                  例: <code>0 */2 * * * *</code> = 每2小时
+                </p>
+                <p>
+                  例: <code>0 0 * * 1 *</code> = 每周一0:00
+                </p>
               </div>
             }
             type="info"

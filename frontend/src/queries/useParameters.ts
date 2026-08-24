@@ -1,11 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { parametersApi } from '../api';
-import type {
-  ReportParameter,
-  ReportParameterCreate,
-  ReportParameterUpdate,
-} from '../types';
+import type { ReportParameter, ReportParameterCreate, ReportParameterUpdate } from '../types';
 import { queryKeys } from './keys';
 
 /**
@@ -15,9 +11,8 @@ import { queryKeys } from './keys';
  */
 export function useReportParameters(reportId: number | null | undefined) {
   return useQuery({
-    queryKey: reportId != null
-      ? queryKeys.parameters.list(reportId)
-      : queryKeys.parameters.list(-1),
+    queryKey:
+      reportId != null ? queryKeys.parameters.list(reportId) : queryKeys.parameters.list(-1),
     queryFn: () => parametersApi.list(reportId as number),
     enabled: reportId != null,
   });
@@ -32,8 +27,7 @@ export function useReportParameters(reportId: number | null | undefined) {
 export function useCreateReportParameter(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: ReportParameterCreate) =>
-      parametersApi.create(reportId, payload),
+    mutationFn: (payload: ReportParameterCreate) => parametersApi.create(reportId, payload),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.parameters.list(reportId) });
     },
@@ -48,13 +42,8 @@ export function useCreateReportParameter(reportId: number) {
 export function useUpdateReportParameter(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      paramId,
-      payload,
-    }: {
-      paramId: number;
-      payload: ReportParameterUpdate;
-    }) => parametersApi.update(reportId, paramId, payload),
+    mutationFn: ({ paramId, payload }: { paramId: number; payload: ReportParameterUpdate }) =>
+      parametersApi.update(reportId, paramId, payload),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.parameters.list(reportId) });
     },

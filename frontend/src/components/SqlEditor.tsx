@@ -127,31 +127,26 @@ const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function SqlEditor
   // 关键字高亮的 editor，然后在 ms 级延迟后高亮与补全补上。
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      import('@codemirror/lang-sql'),
-      import('@codemirror/autocomplete'),
-    ]).then(([sqlMod, acMod]) => {
-      if (cancelled) return;
-      const view = viewRef.current;
-      if (!view) return;
-      const customSql = sqlMod.SQLDialect.define({
-        keywords:
-          'select,from,where,and,or,order,by,group,having,limit,join,left,right,inner,outer,on,as,distinct,count,sum,avg,max,min,in,not,null,like,is,union,all,case,when,then,else,end,between,exists,cross,full,self',
-      });
-      view.dispatch({
-        effects: [
-          langCompartment.reconfigure([sqlMod.sql({ dialect: customSql })]),
-          complCompartment.reconfigure([acMod.autocompletion()]),
-          keymapCompartment.reconfigure(
-            keymap.of([
-              ...defaultKeymap,
-              ...historyKeymap,
-              ...acMod.completionKeymap,
-            ]),
-          ),
-        ],
-      });
-    });
+    Promise.all([import('@codemirror/lang-sql'), import('@codemirror/autocomplete')]).then(
+      ([sqlMod, acMod]) => {
+        if (cancelled) return;
+        const view = viewRef.current;
+        if (!view) return;
+        const customSql = sqlMod.SQLDialect.define({
+          keywords:
+            'select,from,where,and,or,order,by,group,having,limit,join,left,right,inner,outer,on,as,distinct,count,sum,avg,max,min,in,not,null,like,is,union,all,case,when,then,else,end,between,exists,cross,full,self',
+        });
+        view.dispatch({
+          effects: [
+            langCompartment.reconfigure([sqlMod.sql({ dialect: customSql })]),
+            complCompartment.reconfigure([acMod.autocompletion()]),
+            keymapCompartment.reconfigure(
+              keymap.of([...defaultKeymap, ...historyKeymap, ...acMod.completionKeymap]),
+            ),
+          ],
+        });
+      },
+    );
     return () => {
       cancelled = true;
     };

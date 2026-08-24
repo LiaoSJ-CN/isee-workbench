@@ -20,7 +20,8 @@ export function ParametersTab({ parameters, onAdd, onEdit, onDelete }: Parameter
       }
     >
       <p style={{ color: '#999', marginBottom: 16 }}>
-        报表运行参数，用户在预览页可填写。例如：<code>{'{region}'}</code> / <code>{'{start_date}'}</code>。
+        报表运行参数，用户在预览页可填写。例如：<code>{'{region}'}</code> /{' '}
+        <code>{'{start_date}'}</code>。
       </p>
       {parameters.length > 0 ? (
         <Table<ReportParameter>
@@ -50,16 +51,22 @@ export function ParametersTab({ parameters, onAdd, onEdit, onDelete }: Parameter
               dataIndex: 'default',
               key: 'default',
               render: (d: unknown) =>
-                d === null || d === undefined ? <span style={{ color: '#999' }}>-</span> : String(d),
+                d === null || d === undefined ? (
+                  <span style={{ color: '#999' }}>-</span>
+                ) : (
+                  String(d)
+                ),
             },
             {
               title: '选项',
               dataIndex: 'options',
               key: 'options',
               render: (opts: string[] | null) =>
-                opts && opts.length > 0
-                  ? opts.map((o) => <Tag key={o}>{o}</Tag>)
-                  : <span style={{ color: '#999' }}>-</span>,
+                opts && opts.length > 0 ? (
+                  opts.map((o) => <Tag key={o}>{o}</Tag>)
+                ) : (
+                  <span style={{ color: '#999' }}>-</span>
+                ),
             },
             {
               title: '操作',
@@ -75,10 +82,7 @@ export function ParametersTab({ parameters, onAdd, onEdit, onDelete }: Parameter
                   >
                     编辑
                   </Button>
-                  <Popconfirm
-                    title="确定删除该参数？"
-                    onConfirm={() => onDelete(record.id)}
-                  >
+                  <Popconfirm title="确定删除该参数？" onConfirm={() => onDelete(record.id)}>
                     <Button type="link" size="small" danger icon={<DeleteOutlined />}>
                       删除
                     </Button>

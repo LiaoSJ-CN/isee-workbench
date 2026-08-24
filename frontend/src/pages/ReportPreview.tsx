@@ -140,7 +140,12 @@ export default function ReportPreview() {
     }
   };
 
-  if (loading) return <div style={{ padding: 24 }}><TableSkeleton rows={8} columns={4} /></div>;
+  if (loading)
+    return (
+      <div style={{ padding: 24 }}>
+        <TableSkeleton rows={8} columns={4} />
+      </div>
+    );
   if (!report) return <div style={{ padding: 24 }}>报表不存在</div>;
 
   const excelStatus = excelJob.data?.status;
@@ -163,11 +168,7 @@ export default function ReportPreview() {
           <h2 style={{ margin: 0 }}>{report.name} - 预览</h2>
         </Space>
         <Space>
-          <Button
-            icon={<ReloadOutlined />}
-            loading={previewQ.isFetching}
-            onClick={handlePreview}
-          >
+          <Button icon={<ReloadOutlined />} loading={previewQ.isFetching} onClick={handlePreview}>
             刷新预览
           </Button>
           {/* Toolbar shortcut only when there are no parameters — otherwise
@@ -228,11 +229,7 @@ export default function ReportPreview() {
                 下载 Excel
               </Button>
             )}
-            <Button
-              size="small"
-              icon={<CloseCircleOutlined />}
-              onClick={() => setExcelJobId(null)}
-            >
+            <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setExcelJobId(null)}>
               {excelDone || excelFailed ? '关闭' : '取消关注'}
             </Button>
           </Space>
@@ -267,11 +264,7 @@ export default function ReportPreview() {
                 下载 PDF
               </Button>
             )}
-            <Button
-              size="small"
-              icon={<CloseCircleOutlined />}
-              onClick={() => setPdfJobId(null)}
-            >
+            <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setPdfJobId(null)}>
               {pdfDone || pdfFailed ? '关闭' : '取消关注'}
             </Button>
           </Space>
@@ -296,7 +289,9 @@ export default function ReportPreview() {
             {report.is_active ? <Tag color="green">启用</Tag> : <Tag>禁用</Tag>}
           </Descriptions.Item>
           {report.description && (
-            <Descriptions.Item label="描述" span={4}>{report.description}</Descriptions.Item>
+            <Descriptions.Item label="描述" span={4}>
+              {report.description}
+            </Descriptions.Item>
           )}
         </Descriptions>
       </Card>
@@ -312,7 +307,12 @@ export default function ReportPreview() {
               { title: '名称', dataIndex: 'name', key: 'name' },
               { title: '类型', dataIndex: 'item_type', key: 'item_type' },
               { title: '表名', dataIndex: 'table_name', key: 'table_name' },
-              { title: '字段', dataIndex: 'fields', key: 'fields', render: (f) => f?.join(', ') || '-' },
+              {
+                title: '字段',
+                dataIndex: 'fields',
+                key: 'fields',
+                render: (f) => f?.join(', ') || '-',
+              },
               {
                 title: '查询条件',
                 dataIndex: 'where_conditions',
@@ -333,7 +333,7 @@ export default function ReportPreview() {
               width: '100%',
               height: '2400px',
               border: '1px solid #d9d9d9',
-              borderRadius: 4
+              borderRadius: 4,
             }}
             title="Report Preview"
           />

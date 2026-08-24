@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import {
-  Modal, Form, Input, Select, InputNumber, DatePicker, Switch,
-} from 'antd';
+import { Modal, Form, Input, Select, InputNumber, DatePicker, Switch } from 'antd';
 import dayjs from 'dayjs';
 import type {
-  ReportParameter, ParameterType, ReportParameterCreate, ReportParameterUpdate,
+  ReportParameter,
+  ParameterType,
+  ReportParameterCreate,
+  ReportParameterUpdate,
 } from '../../types';
 
 export interface ParameterEditorModalProps {
@@ -16,7 +17,11 @@ export interface ParameterEditorModalProps {
 }
 
 export function ParameterEditorModal({
-  visible, parameter, onSave, onCancel, saving,
+  visible,
+  parameter,
+  onSave,
+  onCancel,
+  saving,
 }: ParameterEditorModalProps) {
   const [form] = Form.useForm();
   const [paramType, setParamType] = useState<ParameterType>('string');
@@ -34,9 +39,10 @@ export function ParameterEditorModal({
         type: parameter.type,
         required: parameter.required,
         options: parameter.options ?? [],
-        default: parameter.type === 'date' && parameter.default
-          ? dayjs(parameter.default as string)
-          : (parameter.default ?? null),
+        default:
+          parameter.type === 'date' && parameter.default
+            ? dayjs(parameter.default as string)
+            : (parameter.default ?? null),
       });
       setParamType(parameter.type);
     } else {
@@ -98,7 +104,10 @@ export function ParameterEditorModal({
           label="名称 (标识符)"
           rules={[
             { required: true, message: '请输入参数名' },
-            { pattern: /^[A-Za-z_][A-Za-z0-9_]*$/, message: '只能以字母/下划线开头，后跟字母/数字/下划线' },
+            {
+              pattern: /^[A-Za-z_][A-Za-z0-9_]*$/,
+              message: '只能以字母/下划线开头，后跟字母/数字/下划线',
+            },
           ]}
         >
           <Input placeholder="例如: region" disabled={!!parameter} />
@@ -133,7 +142,9 @@ export function ParameterEditorModal({
         )}
         <Form.Item name="default" label="默认值 (可选)">
           {paramType === 'string' && <Input allowClear placeholder="例如: hello" />}
-          {paramType === 'number' && <InputNumber style={{ width: '100%' }} placeholder="例如: 100" />}
+          {paramType === 'number' && (
+            <InputNumber style={{ width: '100%' }} placeholder="例如: 100" />
+          )}
           {paramType === 'date' && <DatePicker style={{ width: '100%' }} />}
           {paramType === 'enum' && (
             <Select

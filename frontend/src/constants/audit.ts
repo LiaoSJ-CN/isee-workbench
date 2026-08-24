@@ -62,5 +62,5 @@ export const AUDIT_TARGET_TYPES = [
   'explorer_query',
 ] as const;
 
-export type AuditAction = typeof AUDIT_ACTIONS[number];
-export type AuditTargetType = typeof AUDIT_TARGET_TYPES[number];
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];

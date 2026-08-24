@@ -92,7 +92,7 @@ api.interceptors.response.use(
       window.location.href = '/login';
     }
     return Promise.reject(err);
-  }
+  },
 );
 
 // ============ Auth ============
@@ -100,7 +100,7 @@ api.interceptors.response.use(
 export const authApi = {
   login: async (
     username: string,
-    password: string
+    password: string,
   ): Promise<{ access_token: string; refresh_token: string; token_type: string }> => {
     const { data } = await api.post('/auth/login', { username, password });
     localStorage.setItem(ACCESS_KEY, data.access_token);
@@ -233,7 +233,9 @@ async function downloadBlob(responsePromise: Promise<unknown>, filename: string)
       try {
         const parsed = JSON.parse(text);
         detail = parsed.detail || text;
-      } catch { /* use raw text */ }
+      } catch {
+        /* use raw text */
+      }
       throw { response: { data: { detail } } };
     }
     const blob = new Blob([response.data]);
@@ -260,7 +262,9 @@ async function downloadBlob(responsePromise: Promise<unknown>, filename: string)
         try {
           const parsed = JSON.parse(text);
           detail = parsed.detail || text;
-        } catch { /* use raw text */ }
+        } catch {
+          /* use raw text */
+        }
         throw { response: { data: { detail } } };
       }
     }
@@ -335,7 +339,7 @@ export const reportApi = {
   updateItem: async (
     reportId: number,
     itemId: number,
-    payload: ReportItemUpdate
+    payload: ReportItemUpdate,
   ): Promise<ReportItem> => {
     const { data } = await api.put(`/reports/${reportId}/items/${itemId}`, payload);
     return data;
@@ -343,7 +347,7 @@ export const reportApi = {
 
   reorderItems: async (
     reportId: number,
-    items: { item_id: number; order_index: number }[]
+    items: { item_id: number; order_index: number }[],
   ): Promise<{ updated: number }> => {
     const { data } = await api.patch(`/reports/${reportId}/items/order`, { items });
     return data;
@@ -357,7 +361,7 @@ export const reportApi = {
   generate: async (
     reportId: number,
     outputFormat: 'excel' | 'html',
-    parameters?: Record<string, unknown>
+    parameters?: Record<string, unknown>,
   ): Promise<ReportGenerateResponse> => {
     const { data } = await api.post('/reports/generate', {
       report_id: reportId,
@@ -369,7 +373,7 @@ export const reportApi = {
 
   preview: async (
     reportId: number,
-    format: 'html' = 'html'
+    format: 'html' = 'html',
   ): Promise<{ preview_data: unknown }> => {
     const { data } = await api.get(`/reports/${reportId}/preview`, { params: { format } });
     return data;
@@ -519,10 +523,7 @@ export const parametersApi = {
     paramId: number,
     payload: ReportParameterUpdate,
   ): Promise<ReportParameter> => {
-    const { data } = await api.put(
-      `/reports/${reportId}/parameters/${paramId}`,
-      payload,
-    );
+    const { data } = await api.put(`/reports/${reportId}/parameters/${paramId}`, payload);
     return data;
   },
 
@@ -561,11 +562,7 @@ export const auditLogApi = {
 export const subscriptionApi = {
   /** List the current user's subscriptions. ``reportId`` is an
    *  optional filter for the per-report subscriptions panel. */
-  list: async (
-    reportId?: number,
-    limit = 50,
-    offset = 0,
-  ): Promise<ReportSubscription[]> => {
+  list: async (reportId?: number, limit = 50, offset = 0): Promise<ReportSubscription[]> => {
     const params: Record<string, unknown> = { limit, offset };
     if (reportId !== undefined) params.report_id = reportId;
     const { data } = await api.get('/subscriptions', { params });
@@ -588,9 +585,7 @@ export const subscriptionApi = {
     }
   },
 
-  create: async (
-    payload: ReportSubscriptionCreate,
-  ): Promise<ReportSubscription> => {
+  create: async (payload: ReportSubscriptionCreate): Promise<ReportSubscription> => {
     const { data } = await api.post('/subscriptions', payload);
     return data;
   },

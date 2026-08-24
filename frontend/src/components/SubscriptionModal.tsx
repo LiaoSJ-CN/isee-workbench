@@ -13,23 +13,10 @@
  */
 
 import { useEffect, useMemo } from 'react';
-import {
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Typography,
-  message,
-} from 'antd';
+import { Form, Input, Modal, Select, Space, Typography, message } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { subscriptionApi } from '../api';
-import type {
-  NotificationConfig,
-  NotificationType,
-  Report,
-  ReportSubscription,
-} from '../types';
+import type { NotificationConfig, NotificationType, Report, ReportSubscription } from '../types';
 
 const { Text } = Typography;
 
@@ -64,9 +51,7 @@ interface SubscriptionModalProps {
  *  ``null`` when the user picked "no notification" — the backend
  *  stores ``notification_config=NULL`` in that case and the
  *  worker still produces the file (just doesn't deliver it). */
-function buildNotificationConfig(
-  values: SubscriptionFormValues,
-): NotificationConfig | null {
+function buildNotificationConfig(values: SubscriptionFormValues): NotificationConfig | null {
   const t = values.notification_type;
   if (!t || t === 'none') return null;
   switch (t) {
@@ -112,11 +97,7 @@ function buildNotificationConfig(
 
 // ---- component ----
 
-export function SubscriptionModal({
-  open,
-  report,
-  onClose,
-}: SubscriptionModalProps) {
+export function SubscriptionModal({ open, report, onClose }: SubscriptionModalProps) {
   const [form] = Form.useForm<SubscriptionFormValues>();
   const queryClient = useQueryClient();
 
@@ -134,9 +115,7 @@ export function SubscriptionModal({
   }, [open, report, form]);
 
   const createMut = useMutation({
-    mutationFn: async (
-      values: SubscriptionFormValues,
-    ): Promise<ReportSubscription> => {
+    mutationFn: async (values: SubscriptionFormValues): Promise<ReportSubscription> => {
       if (!report) throw new Error('No report selected');
       return subscriptionApi.create({
         report_id: report.id,
@@ -168,14 +147,10 @@ export function SubscriptionModal({
     return (
       <Form.Item
         noStyle
-        shouldUpdate={(prev, curr) =>
-          prev.notification_type !== curr.notification_type
-        }
+        shouldUpdate={(prev, curr) => prev.notification_type !== curr.notification_type}
       >
         {({ getFieldValue }) => {
-          const t: NotificationType | undefined = getFieldValue(
-            'notification_type',
-          );
+          const t: NotificationType | undefined = getFieldValue('notification_type');
           switch (t) {
             case 'email':
               return (
@@ -183,24 +158,20 @@ export function SubscriptionModal({
                   <Form.Item
                     name="email_to"
                     label="收件人"
-                    rules={[
-                      { required: true, message: '请输入收件人邮箱' },
-                    ]}
+                    rules={[{ required: true, message: '请输入收件人邮箱' }]}
                   >
                     <Input placeholder="ops@example.com, finance@example.com" />
                   </Form.Item>
                   <Form.Item
                     name="email_subject"
                     label="邮件主题"
-                    rules={[
-                      { required: true, message: '请输入邮件主题' },
-                    ]}
+                    rules={[{ required: true, message: '请输入邮件主题' }]}
                   >
                     <Input placeholder="报表已生成" />
                   </Form.Item>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    SMTP 服务器需在 backend/.env 中配置 SMTP_HOST / SMTP_PORT /
-                    SMTP_USER / SMTP_PASSWORD，未配置时邮件会记录错误但订阅本身仍生效。
+                    SMTP 服务器需在 backend/.env 中配置 SMTP_HOST / SMTP_PORT / SMTP_USER /
+                    SMTP_PASSWORD，未配置时邮件会记录错误但订阅本身仍生效。
                   </Text>
                 </>
               );
@@ -218,13 +189,8 @@ export function SubscriptionModal({
                   >
                     <Input placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
                   </Form.Item>
-                  <Form.Item
-                    name="webhook_secret"
-                    label="签名密钥 (可选)"
-                  >
-                    <Input.Password
-                      placeholder="SEC... (留空则使用后端全局密钥)"
-                    />
+                  <Form.Item name="webhook_secret" label="签名密钥 (可选)">
+                    <Input.Password placeholder="SEC... (留空则使用后端全局密钥)" />
                   </Form.Item>
                 </>
               );
@@ -241,10 +207,7 @@ export function SubscriptionModal({
                   >
                     <Input placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
                   </Form.Item>
-                  <Form.Item
-                    name="feishu_secret"
-                    label="签名密钥 (可选)"
-                  >
+                  <Form.Item name="feishu_secret" label="签名密钥 (可选)">
                     <Input.Password placeholder="SEC..." />
                   </Form.Item>
                 </>
@@ -323,9 +286,7 @@ export function SubscriptionModal({
                 if (!value) return Promise.resolve();
                 const parts = value.trim().split(/\s+/);
                 if (parts.length !== 6) {
-                  return Promise.reject(
-                    new Error('cron 必须包含 6 个字段'),
-                  );
+                  return Promise.reject(new Error('cron 必须包含 6 个字段'));
                 }
                 return Promise.resolve();
               },

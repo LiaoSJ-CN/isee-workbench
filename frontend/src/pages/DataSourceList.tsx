@@ -1,6 +1,26 @@
 import { useState } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined, ShareAltOutlined, CopyOutlined } from '@ant-design/icons';
+import {
+  Table,
+  Button,
+  Space,
+  Modal,
+  Form,
+  Input,
+  Select,
+  message,
+  Popconfirm,
+  Tag,
+  Alert,
+} from 'antd';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  SyncOutlined,
+  ExclamationCircleOutlined,
+  ShareAltOutlined,
+  CopyOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, DataSourceCreate } from '../types';
 import { formatError } from '../utils/error';
@@ -179,7 +199,8 @@ export default function DataSourceList() {
         // Share button: only the owner or an admin can manage grants.
         // The backend enforces the same — we hide the affordance
         // client-side so non-owners don't see a broken button.
-        const canShare = isAdmin || (currentUserId != null && record.owner_user_id === currentUserId);
+        const canShare =
+          isAdmin || (currentUserId != null && record.owner_user_id === currentUserId);
         return (
           <Space size="small">
             <Button
@@ -191,7 +212,12 @@ export default function DataSourceList() {
             >
               测试
             </Button>
-            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
               编辑
             </Button>
             <Button

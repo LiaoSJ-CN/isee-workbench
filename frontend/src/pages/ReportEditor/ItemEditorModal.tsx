@@ -1,9 +1,21 @@
 import { useEffect, useState } from 'react';
 import {
-  Modal, Form, Input, Select, InputNumber, Divider, Card, Button, Space, message,
+  Modal,
+  Form,
+  Input,
+  Select,
+  InputNumber,
+  Divider,
+  Card,
+  Button,
+  Space,
+  message,
 } from 'antd';
 import {
-  TableOutlined, BarChartOutlined, NumberOutlined, FontSizeOutlined,
+  TableOutlined,
+  BarChartOutlined,
+  NumberOutlined,
+  FontSizeOutlined,
 } from '@ant-design/icons';
 import type { ReportItem, ReportItemCreate, ReportItemUpdate } from '../../types';
 
@@ -16,7 +28,14 @@ export interface ItemEditorModalProps {
   saving?: boolean;
 }
 
-export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving }: ItemEditorModalProps) {
+export function ItemEditorModal({
+  visible,
+  item,
+  onSave,
+  onCancel,
+  isNew,
+  saving,
+}: ItemEditorModalProps) {
   const [form] = Form.useForm();
   // State initialized from item prop; onValuesChange keeps them in sync with form
   const [itemType, setItemType] = useState<string>(item?.item_type || 'table');
@@ -55,33 +74,36 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
   }, [item, form]);
 
   const handleSubmit = () => {
-    form.validateFields().then((values) => {
-      // Item-type-specific validation beyond what Form.Item rules cover
-      if (itemType === 'chart' && !values.display_config?.chart_type) {
-        message.warning('图表类型必须选择图表类型（如柱状图、折线图等）');
-        return;
-      }
-      if (itemType === 'text' && !values.display_config?.content?.trim()) {
-        message.warning('文本类型必须填写文本内容');
-        return;
-      }
-      const needsFields = ['table', 'chart', 'metric'].includes(itemType) && !useCustomSql;
-      if (needsFields && (!values.fields || values.fields.length === 0)) {
-        message.warning('至少需要一个查询字段');
-        return;
-      }
-      const processedValues = {
-        ...values,
-        display_config: values.display_config || {},
-      };
-      // Remove display_config columns if empty
-      if (processedValues.display_config && !Object.keys(processedValues.display_config).length) {
-        delete processedValues.display_config;
-      }
-      onSave(processedValues);
-    }).catch(() => {
-      // Ant Design already highlights invalid fields — no extra handling needed.
-    });
+    form
+      .validateFields()
+      .then((values) => {
+        // Item-type-specific validation beyond what Form.Item rules cover
+        if (itemType === 'chart' && !values.display_config?.chart_type) {
+          message.warning('图表类型必须选择图表类型（如柱状图、折线图等）');
+          return;
+        }
+        if (itemType === 'text' && !values.display_config?.content?.trim()) {
+          message.warning('文本类型必须填写文本内容');
+          return;
+        }
+        const needsFields = ['table', 'chart', 'metric'].includes(itemType) && !useCustomSql;
+        if (needsFields && (!values.fields || values.fields.length === 0)) {
+          message.warning('至少需要一个查询字段');
+          return;
+        }
+        const processedValues = {
+          ...values,
+          display_config: values.display_config || {},
+        };
+        // Remove display_config columns if empty
+        if (processedValues.display_config && !Object.keys(processedValues.display_config).length) {
+          delete processedValues.display_config;
+        }
+        onSave(processedValues);
+      })
+      .catch(() => {
+        // Ant Design already highlights invalid fields — no extra handling needed.
+      });
   };
 
   return (
@@ -113,16 +135,24 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
           >
             <Select onChange={(v) => setItemType(v)}>
               <Select.Option value="table">
-                <Space><TableOutlined /> 表格</Space>
+                <Space>
+                  <TableOutlined /> 表格
+                </Space>
               </Select.Option>
               <Select.Option value="chart">
-                <Space><BarChartOutlined /> 图表</Space>
+                <Space>
+                  <BarChartOutlined /> 图表
+                </Space>
               </Select.Option>
               <Select.Option value="metric">
-                <Space><NumberOutlined /> 指标卡</Space>
+                <Space>
+                  <NumberOutlined /> 指标卡
+                </Space>
               </Select.Option>
               <Select.Option value="text">
-                <Space><FontSizeOutlined /> 文本</Space>
+                <Space>
+                  <FontSizeOutlined /> 文本
+                </Space>
               </Select.Option>
             </Select>
           </Form.Item>
@@ -141,7 +171,10 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
             <Divider>数据查询</Divider>
 
             <Form.Item label="使用自定义SQL">
-              <Select value={useCustomSql ? 'yes' : 'no'} onChange={(v) => setUseCustomSql(v === 'yes')}>
+              <Select
+                value={useCustomSql ? 'yes' : 'no'}
+                onChange={(v) => setUseCustomSql(v === 'yes')}
+              >
                 <Select.Option value="no">否，使用配置生成</Select.Option>
                 <Select.Option value="yes">是，自定义SQL</Select.Option>
               </Select>
@@ -164,7 +197,9 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                 <Form.Item name="fields" label="查询字段">
                   <Select mode="tags" placeholder="field1, field2, SUM(amount) as total">
                     {form.getFieldValue('fields')?.map((f: string) => (
-                      <Select.Option key={f} value={f}>{f}</Select.Option>
+                      <Select.Option key={f} value={f}>
+                        {f}
+                      </Select.Option>
                     ))}
                   </Select>
                 </Form.Item>
@@ -174,7 +209,11 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                     {(fields, { add, remove }) => (
                       <>
                         {fields.map(({ key, name }) => (
-                          <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="start">
+                          <Space
+                            key={key}
+                            style={{ display: 'flex', marginBottom: 8 }}
+                            align="start"
+                          >
                             <Form.Item name={[name, 'field']} style={{ margin: 0 }}>
                               <Input placeholder="字段" style={{ width: 120 }} />
                             </Form.Item>
@@ -195,10 +234,14 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                             <Form.Item name={[name, 'value']} style={{ margin: 0 }}>
                               <Input placeholder="值" style={{ width: 120 }} />
                             </Form.Item>
-                            <Button type="text" danger onClick={() => remove(name)}>删除</Button>
+                            <Button type="text" danger onClick={() => remove(name)}>
+                              删除
+                            </Button>
                           </Space>
                         ))}
-                        <Button type="dashed" onClick={add} block>+ 添加条件</Button>
+                        <Button type="dashed" onClick={add} block>
+                          + 添加条件
+                        </Button>
                       </>
                     )}
                   </Form.List>
@@ -207,7 +250,9 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                 <Form.Item name="group_by" label="GROUP BY 字段" style={{ marginTop: 16 }}>
                   <Select mode="tags" placeholder="category, region">
                     {form.getFieldValue('group_by')?.map((f: string) => (
-                      <Select.Option key={f} value={f}>{f}</Select.Option>
+                      <Select.Option key={f} value={f}>
+                        {f}
+                      </Select.Option>
                     ))}
                   </Select>
                 </Form.Item>
@@ -217,7 +262,11 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                     {(fields, { add, remove }) => (
                       <>
                         {fields.map(({ key, name }) => (
-                          <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="start">
+                          <Space
+                            key={key}
+                            style={{ display: 'flex', marginBottom: 8 }}
+                            align="start"
+                          >
                             <Form.Item name={[name, 'field']} style={{ margin: 0 }}>
                               <Input placeholder="字段" style={{ width: 120 }} />
                             </Form.Item>
@@ -227,10 +276,14 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                                 <Select.Option value="DESC">降序</Select.Option>
                               </Select>
                             </Form.Item>
-                            <Button type="text" danger onClick={() => remove(name)}>删除</Button>
+                            <Button type="text" danger onClick={() => remove(name)}>
+                              删除
+                            </Button>
                           </Space>
                         ))}
-                        <Button type="dashed" onClick={add} block>+ 添加排序</Button>
+                        <Button type="dashed" onClick={add} block>
+                          + 添加排序
+                        </Button>
                       </>
                     )}
                   </Form.List>
@@ -271,10 +324,18 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                 </Form.Item>
 
                 <Space style={{ width: '100%' }} size="large">
-                  <Form.Item name={['display_config', 'height']} label="高度 (px)" style={{ flex: 1 }}>
+                  <Form.Item
+                    name={['display_config', 'height']}
+                    label="高度 (px)"
+                    style={{ flex: 1 }}
+                  >
                     <InputNumber min={200} max={800} defaultValue={400} />
                   </Form.Item>
-                  <Form.Item name={['display_config', 'show_legend']} label="显示图例" valuePropName="checked">
+                  <Form.Item
+                    name={['display_config', 'show_legend']}
+                    label="显示图例"
+                    valuePropName="checked"
+                  >
                     <Select defaultValue={true}>
                       <Select.Option value={true}>是</Select.Option>
                       <Select.Option value={false}>否</Select.Option>
@@ -292,7 +353,11 @@ export function ItemEditorModal({ visible, item, onSave, onCancel, isNew, saving
                 </Form.Item>
 
                 <Space style={{ width: '100%' }} size="large">
-                  <Form.Item name={['display_config', 'show_grid']} label="显示网格线" valuePropName="checked">
+                  <Form.Item
+                    name={['display_config', 'show_grid']}
+                    label="显示网格线"
+                    valuePropName="checked"
+                  >
                     <Select defaultValue={true}>
                       <Select.Option value={true}>是</Select.Option>
                       <Select.Option value={false}>否</Select.Option>

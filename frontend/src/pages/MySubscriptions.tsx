@@ -41,9 +41,7 @@ const { Title, Text } = Typography;
  *  deliberately keep this short — the full config (URLs, secrets,
  *  recipient lists) doesn't belong on the listing row. Clicking
  *  "Edit" opens the modal with the full config. */
-function summarizeNotification(
-  cfg: ReportSubscription['notification_config'],
-): string {
+function summarizeNotification(cfg: ReportSubscription['notification_config']): string {
   if (!cfg) return '— (no notification)';
   switch (cfg.type) {
     case 'email':
@@ -64,9 +62,7 @@ function summarizeNotification(
 
 /** Map backend NotificationConfig variants to a coloured Ant tag so
  *  providers stand out at a glance. */
-function notificationTagColor(
-  cfg: ReportSubscription['notification_config'],
-): string {
+function notificationTagColor(cfg: ReportSubscription['notification_config']): string {
   if (!cfg) return 'default';
   switch (cfg.type) {
     case 'email':
@@ -169,9 +165,7 @@ export default function MySubscriptionsPage() {
         const cfg = row.notification_config;
         return (
           <Space size={4}>
-            <Tag color={notificationTagColor(cfg)}>
-              {cfg?.type ?? 'none'}
-            </Tag>
+            <Tag color={notificationTagColor(cfg)}>{cfg?.type ?? 'none'}</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {summarizeNotification(cfg)}
             </Text>
@@ -183,25 +177,19 @@ export default function MySubscriptionsPage() {
       title: '状态',
       key: 'status',
       render: (_: unknown, row: ReportSubscription) =>
-        row.is_active ? (
-          <Tag color="green">运行中</Tag>
-        ) : (
-          <Tag color="default">已暂停</Tag>
-        ),
+        row.is_active ? <Tag color="green">运行中</Tag> : <Tag color="default">已暂停</Tag>,
     },
     {
       title: '上次运行',
       dataIndex: 'last_run_at',
       key: 'last_run',
-      render: (ts: string | null) =>
-        ts ? new Date(ts).toLocaleString('zh-CN') : '—',
+      render: (ts: string | null) => (ts ? new Date(ts).toLocaleString('zh-CN') : '—'),
     },
     {
       title: '下次运行',
       dataIndex: 'next_run_at',
       key: 'next_run',
-      render: (ts: string | null) =>
-        ts ? new Date(ts).toLocaleString('zh-CN') : '—',
+      render: (ts: string | null) => (ts ? new Date(ts).toLocaleString('zh-CN') : '—'),
     },
     {
       title: '操作',

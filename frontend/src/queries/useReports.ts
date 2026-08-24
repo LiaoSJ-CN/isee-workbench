@@ -52,10 +52,7 @@ export function useReport(id: number | null | undefined) {
  * `staleTime: Infinity` because previews are point-in-time snapshots;
  * `gcTime: 30_000` so the (potentially large) HTML string releases quickly.
  */
-export function useReportPreviewHtml(
-  id: number | null | undefined,
-  enabled: boolean,
-) {
+export function useReportPreviewHtml(id: number | null | undefined, enabled: boolean) {
   return useQuery({
     queryKey: id != null ? queryKeys.reports.preview(id) : queryKeys.reports.preview(-1),
     queryFn: () => reportApi.previewHtml(id as number),
@@ -89,16 +86,18 @@ export function useDeleteReport() {
       await qc.cancelQueries({ queryKey: queryKeys.reports.all });
       const snapshots: { key: readonly unknown[]; data: unknown }[] = [];
       // Capture and patch every cached list (covers filter variants).
-      qc.getQueryCache().findAll({ queryKey: queryKeys.reports.lists() }).forEach((q) => {
-        const prev = q.state.data as Report[] | undefined;
-        if (prev) {
-          snapshots.push({ key: q.queryKey, data: prev });
-          qc.setQueryData<Report[]>(
-            q.queryKey,
-            prev.filter((r) => r.id !== id),
-          );
-        }
-      });
+      qc.getQueryCache()
+        .findAll({ queryKey: queryKeys.reports.lists() })
+        .forEach((q) => {
+          const prev = q.state.data as Report[] | undefined;
+          if (prev) {
+            snapshots.push({ key: q.queryKey, data: prev });
+            qc.setQueryData<Report[]>(
+              q.queryKey,
+              prev.filter((r) => r.id !== id),
+            );
+          }
+        });
       return { snapshots };
     },
     onError: (_err, _vars, ctx) => {
@@ -118,8 +117,7 @@ export function useDeleteReport() {
 export function useDuplicateReport() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: number; name?: string }) =>
-      reportApi.duplicate(id, name),
+    mutationFn: ({ id, name }: { id: number; name?: string }) => reportApi.duplicate(id, name),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.reports.all });
     },
@@ -319,13 +317,8 @@ export function useReportShares(reportId: number | null | undefined) {
 export function useUpsertReportShare() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      reportId,
-      payload,
-    }: {
-      reportId: number;
-      payload: ReportShareCreate;
-    }) => reportApi.createShare(reportId, payload),
+    mutationFn: ({ reportId, payload }: { reportId: number; payload: ReportShareCreate }) =>
+      reportApi.createShare(reportId, payload),
     onSuccess: (_share, { reportId }) => {
       void qc.invalidateQueries({ queryKey: queryKeys.reports.shares(reportId) });
     },

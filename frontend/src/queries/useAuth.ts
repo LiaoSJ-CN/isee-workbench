@@ -35,8 +35,7 @@ interface LoginInput {
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ username, password }: LoginInput) =>
-      authApi.login(username, password),
+    mutationFn: ({ username, password }: LoginInput) => authApi.login(username, password),
     onSuccess: () => {
       // Force `RequireAuth` to re-evaluate and let the user in.
       void qc.invalidateQueries({ queryKey: queryKeys.auth.me });

@@ -21,13 +21,7 @@ export type ReportSharePermission = 'read' | 'write';
 // so the Subscription / Scheduler forms can render the right
 // inputs per provider without a runtime introspection pass.
 
-export type NotificationType =
-  | 'none'
-  | 'webhook'
-  | 'email'
-  | 'dingtalk'
-  | 'feishu'
-  | 'wechatwork';
+export type NotificationType = 'none' | 'webhook' | 'email' | 'dingtalk' | 'feishu' | 'wechatwork';
 
 export interface WebhookConfig {
   type: 'webhook';
@@ -59,11 +53,7 @@ export interface WeChatWorkConfig {
 }
 
 export type NotificationConfig =
-  | WebhookConfig
-  | EmailConfig
-  | DingTalkConfig
-  | FeishuConfig
-  | WeChatWorkConfig;
+  WebhookConfig | EmailConfig | DingTalkConfig | FeishuConfig | WeChatWorkConfig;
 
 // ---- Subscriptions (批 8.3) ----
 // Per-user, per-report, per-cron subscription. The backend owns
@@ -201,7 +191,8 @@ export type ChartType =
   | 'bubble'
   | 'area'
   | 'horizontalBar';
-export type OperatorType = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
+export type OperatorType =
+  '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
 
 export interface WhereCondition {
   field: string;

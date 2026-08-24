@@ -36,9 +36,7 @@ export function ReportParameterForm({
   submitLabel = '提交',
 }: ReportParameterFormProps) {
   if (parameters.length === 0) {
-    return (
-      <div style={{ color: '#999', padding: '12px 0' }}>该报表未声明参数，可直接导出。</div>
-    );
+    return <div style={{ color: '#999', padding: '12px 0' }}>该报表未声明参数，可直接导出。</div>;
   }
 
   // Pre-fill from defaults — keyed by `parameter.name` because the form

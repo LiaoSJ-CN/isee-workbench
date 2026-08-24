@@ -1,5 +1,13 @@
 import { lazy, Suspense, useState } from 'react';
-import { BrowserRouter, Routes, Route, Link, Navigate, useLocation, useParams } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Link,
+  Navigate,
+  useLocation,
+  useParams,
+} from 'react-router-dom';
 import { Layout, Menu, Button } from 'antd';
 import {
   AuditOutlined,
@@ -157,7 +165,17 @@ function AppShell() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center' }}>
-        <div style={{ color: 'white', fontSize: 18, fontWeight: 'bold', marginRight: 32, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div
+          style={{
+            color: 'white',
+            fontSize: 18,
+            fontWeight: 'bold',
+            marginRight: 32,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
           <FundOutlined />
           iSee数据分析工作台
         </div>

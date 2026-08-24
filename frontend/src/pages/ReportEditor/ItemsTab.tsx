@@ -1,12 +1,17 @@
 import { Card, Button } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import {
-  DndContext, closestCenter, KeyboardSensor, PointerSensor,
-  useSensor, useSensors,
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
-  SortableContext, sortableKeyboardCoordinates,
+  SortableContext,
+  sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { SortableItem } from './SortableItem';
@@ -23,7 +28,13 @@ export interface ItemsTabProps {
 }
 
 export function ItemsTab({
-  items, onAdd, onEdit, onDelete, onMoveUp, onMoveDown, onDragEnd,
+  items,
+  onAdd,
+  onEdit,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  onDragEnd,
 }: ItemsTabProps) {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -39,9 +50,7 @@ export function ItemsTab({
         </Button>
       }
     >
-      <p style={{ color: '#999', marginBottom: 16 }}>
-        拖拽排序，点击编辑按钮配置报表项详情
-      </p>
+      <p style={{ color: '#999', marginBottom: 16 }}>拖拽排序，点击编辑按钮配置报表项详情</p>
 
       {items.length > 0 ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>

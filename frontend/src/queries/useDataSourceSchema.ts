@@ -15,10 +15,7 @@ import { queryKeys } from './keys';
  * otherwise the server falls back to the data source's ``schema_name``
  * (or ``public`` / ``main`` for the dialect default).
  */
-export function useDataSourceSchema(
-  dataSourceId: number | null | undefined,
-  schema?: string,
-) {
+export function useDataSourceSchema(dataSourceId: number | null | undefined, schema?: string) {
   return useQuery<DataSourceSchema>({
     queryKey: queryKeys.dataSources.schema(dataSourceId ?? -1, schema),
     queryFn: () => dataSourceApi.schema(dataSourceId as number, schema),

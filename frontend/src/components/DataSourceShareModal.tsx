@@ -1,12 +1,20 @@
 import { useEffect } from 'react';
 import {
-  Modal, Form, Select, Radio, Button, Space, Table, Tag, Popconfirm, Alert, message,
+  Modal,
+  Form,
+  Select,
+  Radio,
+  Button,
+  Space,
+  Table,
+  Tag,
+  Popconfirm,
+  Alert,
+  message,
 } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 
-import type {
-  DataSource, DataSourceGrant, DataSourceGrantPermission,
-} from '../types';
+import type { DataSource, DataSourceGrant, DataSourceGrantPermission } from '../types';
 import type { UserSummary } from '../api';
 
 export interface DataSourceShareModalProps {
@@ -45,8 +53,17 @@ interface AddGrantForm {
  * rather than failing the modal.
  */
 export function DataSourceShareModal({
-  visible, dataSource, grants, grantsLoading, users, usersLoading,
-  onCreate, onRevoke, onCancel, createPending, revokePending,
+  visible,
+  dataSource,
+  grants,
+  grantsLoading,
+  users,
+  usersLoading,
+  onCreate,
+  onRevoke,
+  onCancel,
+  createPending,
+  revokePending,
 }: DataSourceShareModalProps) {
   const [form] = Form.useForm<AddGrantForm>();
 
@@ -103,11 +120,7 @@ export function DataSourceShareModal({
                 style={{ width: '100%' }}
               />
             ) : (
-              <Select
-                placeholder="暂无可选用户"
-                disabled
-                style={{ width: '100%' }}
-              />
+              <Select placeholder="暂无可选用户" disabled style={{ width: '100%' }} />
             )}
           </Form.Item>
 

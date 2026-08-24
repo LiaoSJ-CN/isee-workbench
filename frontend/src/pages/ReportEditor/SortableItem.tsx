@@ -1,7 +1,13 @@
 import { Card, Button, Space, Popconfirm } from 'antd';
 import {
-  TableOutlined, BarChartOutlined, NumberOutlined, FontSizeOutlined,
-  DragOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined,
+  TableOutlined,
+  BarChartOutlined,
+  NumberOutlined,
+  FontSizeOutlined,
+  DragOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -19,7 +25,17 @@ export interface SortableItemProps {
   isLast: boolean;
 }
 
-export function SortableItem({ id, item, index, onEdit, onDelete, onMoveUp, onMoveDown, isFirst, isLast }: SortableItemProps) {
+export function SortableItem({
+  id,
+  item,
+  index,
+  onEdit,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
+}: SortableItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
 
   const style = {
@@ -29,11 +45,16 @@ export function SortableItem({ id, item, index, onEdit, onDelete, onMoveUp, onMo
 
   const getIcon = () => {
     switch (item.item_type) {
-      case 'table': return <TableOutlined />;
-      case 'chart': return <BarChartOutlined />;
-      case 'metric': return <NumberOutlined />;
-      case 'text': return <FontSizeOutlined />;
-      default: return <TableOutlined />;
+      case 'table':
+        return <TableOutlined />;
+      case 'chart':
+        return <BarChartOutlined />;
+      case 'metric':
+        return <NumberOutlined />;
+      case 'text':
+        return <FontSizeOutlined />;
+      default:
+        return <TableOutlined />;
     }
   };
 
@@ -43,10 +64,14 @@ export function SortableItem({ id, item, index, onEdit, onDelete, onMoveUp, onMo
         size="small"
         style={{
           borderLeft: `3px solid ${
-            item.item_type === 'table' ? '#1890ff' :
-            item.item_type === 'chart' ? '#faad14' :
-            item.item_type === 'metric' ? '#52c41a' : '#722ed1'
-          }`
+            item.item_type === 'table'
+              ? '#1890ff'
+              : item.item_type === 'chart'
+                ? '#faad14'
+                : item.item_type === 'metric'
+                  ? '#52c41a'
+                  : '#722ed1'
+          }`,
         }}
         bodyStyle={{ padding: '8px 12px' }}
       >
@@ -68,13 +93,15 @@ export function SortableItem({ id, item, index, onEdit, onDelete, onMoveUp, onMo
 
           <Space size="small">
             <Button
-              type="text" size="small"
+              type="text"
+              size="small"
               icon={<ArrowUpOutlined />}
               disabled={isFirst}
               onClick={() => onMoveUp(index)}
             />
             <Button
-              type="text" size="small"
+              type="text"
+              size="small"
               icon={<ArrowDownOutlined />}
               disabled={isLast}
               onClick={() => onMoveDown(index)}

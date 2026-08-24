@@ -54,7 +54,10 @@ export function useUpdateDataSource() {
       await qc.cancelQueries({ queryKey: queryKeys.dataSources.detail(id) });
       const prevDetail = qc.getQueryData<DataSource>(queryKeys.dataSources.detail(id));
       if (prevDetail) {
-        qc.setQueryData<DataSource>(queryKeys.dataSources.detail(id), { ...prevDetail, ...payload });
+        qc.setQueryData<DataSource>(queryKeys.dataSources.detail(id), {
+          ...prevDetail,
+          ...payload,
+        });
       }
       const listKey = queryKeys.dataSources.list();
       await qc.cancelQueries({ queryKey: listKey });
@@ -126,8 +129,7 @@ export function useTestDataSource() {
 export function useCloneDataSource() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: number; name?: string }) =>
-      dataSourceApi.clone(id, name),
+    mutationFn: ({ id, name }: { id: number; name?: string }) => dataSourceApi.clone(id, name),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.dataSources.all });
     },

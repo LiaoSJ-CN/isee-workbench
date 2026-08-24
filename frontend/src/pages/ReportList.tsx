@@ -1,5 +1,20 @@
 import { useState } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert, Card, Spin, Dropdown } from 'antd';
+import {
+  Table,
+  Button,
+  Space,
+  Modal,
+  Form,
+  Input,
+  Select,
+  message,
+  Popconfirm,
+  Tag,
+  Alert,
+  Card,
+  Spin,
+  Dropdown,
+} from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -265,7 +280,11 @@ export default function ReportList() {
         // origin so first-time users aren't confused about a row they
         // didn't create.
         <Space size={6} align="center">
-          <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/reports/${record.id}`)}>
+          <Button
+            type="link"
+            style={{ padding: 0 }}
+            onClick={() => navigate(`/reports/${record.id}`)}
+          >
             {name}
           </Button>
           {record.is_demo && (
@@ -324,18 +343,28 @@ export default function ReportList() {
         // it (the top card shows status).
         const inFlight =
           excelJob?.report.id === record.id &&
-          (excelStatus.data?.status === 'pending' ||
-            excelStatus.data?.status === 'running');
+          (excelStatus.data?.status === 'pending' || excelStatus.data?.status === 'running');
         // Share button: only the owner or an admin can manage shares.
         // Backend enforces the same — we hide the affordance
         // client-side so non-owners don't see a broken button.
-        const canShare = isAdmin || (currentUserId != null && record.owner_user_id === currentUserId);
+        const canShare =
+          isAdmin || (currentUserId != null && record.owner_user_id === currentUserId);
         return (
           <Space size="small">
-            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/reports/${record.id}`)}>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/reports/${record.id}`)}
+            >
               编辑
             </Button>
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/reports/${record.id}/preview`)}>
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => navigate(`/reports/${record.id}/preview`)}
+            >
               预览
             </Button>
             {canShare && (
@@ -355,7 +384,8 @@ export default function ReportList() {
                     key: 'duplicate',
                     label: '复制',
                     icon: <CopyOutlined />,
-                    disabled: duplicateReport.isPending && duplicateReport.variables?.id === record.id,
+                    disabled:
+                      duplicateReport.isPending && duplicateReport.variables?.id === record.id,
                     onClick: () => handleDuplicate(record),
                   },
                   {
@@ -424,7 +454,11 @@ export default function ReportList() {
       </div>
 
       {excelJob && (
-        <Card size="small" style={{ marginBottom: 16 }} title={`Excel 导出任务 — ${excelJob.report.name}`}>
+        <Card
+          size="small"
+          style={{ marginBottom: 16 }}
+          title={`Excel 导出任务 — ${excelJob.report.name}`}
+        >
           <Space size="middle" align="center">
             {(excelStatus.data?.status === 'pending' || excelStatus.data?.status === 'running') && (
               <Spin size="small" />
@@ -445,11 +479,7 @@ export default function ReportList() {
                 下载 Excel
               </Button>
             )}
-            <Button
-              size="small"
-              icon={<CloseCircleOutlined />}
-              onClick={() => setExcelJob(null)}
-            >
+            <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setExcelJob(null)}>
               {excelStatus.data?.status === 'done' || excelStatus.data?.status === 'failed'
                 ? '关闭'
                 : '取消关注'}
@@ -468,7 +498,11 @@ export default function ReportList() {
       )}
 
       {pdfJob && (
-        <Card size="small" style={{ marginBottom: 16 }} title={`PDF 导出任务 — ${pdfJob.report.name}`}>
+        <Card
+          size="small"
+          style={{ marginBottom: 16 }}
+          title={`PDF 导出任务 — ${pdfJob.report.name}`}
+        >
           <Space size="middle" align="center">
             {(pdfStatus.data?.status === 'pending' || pdfStatus.data?.status === 'running') && (
               <Spin size="small" />
@@ -489,11 +523,7 @@ export default function ReportList() {
                 下载 PDF
               </Button>
             )}
-            <Button
-              size="small"
-              icon={<CloseCircleOutlined />}
-              onClick={() => setPdfJob(null)}
-            >
+            <Button size="small" icon={<CloseCircleOutlined />} onClick={() => setPdfJob(null)}>
               {pdfStatus.data?.status === 'done' || pdfStatus.data?.status === 'failed'
                 ? '关闭'
                 : '取消关注'}
@@ -538,7 +568,11 @@ export default function ReportList() {
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="报表名称" rules={[{ required: true, message: '请输入报表名称' }]}>
+          <Form.Item
+            name="name"
+            label="报表名称"
+            rules={[{ required: true, message: '请输入报表名称' }]}
+          >
             <Input placeholder="例如: 月度销售报表" />
           </Form.Item>
 
@@ -546,7 +580,11 @@ export default function ReportList() {
             <Input.TextArea rows={2} placeholder="可选描述信息" />
           </Form.Item>
 
-          <Form.Item name="data_source_id" label="数据源" rules={[{ required: true, message: '请选择数据源' }]}>
+          <Form.Item
+            name="data_source_id"
+            label="数据源"
+            rules={[{ required: true, message: '请选择数据源' }]}
+          >
             <Select
               placeholder="请选择数据源"
               options={dataSources.map((ds) => ({

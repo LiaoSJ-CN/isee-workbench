@@ -1,11 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
-import { Table, Select, Button, Space, Card, message, Alert, Popconfirm, Input, Tag, Layout } from 'antd';
-import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined, HistoryOutlined } from '@ant-design/icons';
+import {
+  Table,
+  Select,
+  Button,
+  Space,
+  Card,
+  message,
+  Alert,
+  Popconfirm,
+  Input,
+  Tag,
+  Layout,
+} from 'antd';
+import {
+  PlayCircleOutlined,
+  SaveOutlined,
+  ClearOutlined,
+  ExportOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  BranchesOutlined,
+  HistoryOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { HistoryEntry } from '../types';
 import { formatError } from '../utils/error';
 import { csvEscape } from '../utils/csv';
-import { DEFAULT_TEMPLATES, groupTemplatesByCategory, type SavedTemplate } from '../utils/sqlTemplates';
+import {
+  DEFAULT_TEMPLATES,
+  groupTemplatesByCategory,
+  type SavedTemplate,
+} from '../utils/sqlTemplates';
 import SqlEditor, { type SqlEditorHandle } from '../components/SqlEditor';
 import { CardSkeleton } from '../components/Skeleton';
 import { SchemaTree } from '../components/SchemaTree';
@@ -19,15 +44,30 @@ const { Sider, Content } = Layout;
 // SQL keyword list, longest-first so multi-word keywords (LEFT JOIN) match
 // before their prefixes (JOIN). Module-level: built once, not per call.
 const SQL_KEYWORDS = [
-  'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
-  'ORDER BY', 'GROUP BY',
-  'SELECT', 'FROM', 'WHERE', 'HAVING', 'DISTINCT',
-  'AND', 'OR', 'LIMIT', 'JOIN', 'ON', 'AS', 'UNION', 'ALL',
+  'LEFT JOIN',
+  'RIGHT JOIN',
+  'INNER JOIN',
+  'OUTER JOIN',
+  'ORDER BY',
+  'GROUP BY',
+  'SELECT',
+  'FROM',
+  'WHERE',
+  'HAVING',
+  'DISTINCT',
+  'AND',
+  'OR',
+  'LIMIT',
+  'JOIN',
+  'ON',
+  'AS',
+  'UNION',
+  'ALL',
 ];
 // Multi-word keywords need \s+ between words; single words stay literal.
 const KEYWORDS_PATTERN = new RegExp(
   '\\b(' + SQL_KEYWORDS.map((kw) => kw.replace(/\s+/g, '\\s+')).join('|') + ')\\b',
-  'gi'
+  'gi',
 );
 
 // Simple SQL formatter - idempotent (safe to run multiple times)
@@ -96,7 +136,12 @@ function appendHistory(history: HistoryEntry[], entry: HistoryEntry): HistoryEnt
   // Dedup: drop any prior entry with the same ds+sql inside the window —
   // the new entry replaces it at the top with the latest ts/result.
   const filtered = history.filter(
-    (h) => !(h.ds_id === entry.ds_id && h.sql === entry.sql && entry.ts - h.ts < HISTORY_DEDUP_WINDOW_MS)
+    (h) =>
+      !(
+        h.ds_id === entry.ds_id &&
+        h.sql === entry.sql &&
+        entry.ts - h.ts < HISTORY_DEDUP_WINDOW_MS
+      ),
   );
   const next = [entry, ...filtered].slice(0, HISTORY_MAX_ENTRIES);
   localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
@@ -120,7 +165,10 @@ function newHistoryId(): string {
 /** Build a stable row-key from column values. More robust than array index
  * for React reconciliation when the same row appears across re-renders. */
 function resultRowKey(record: Record<string, unknown>, columns: string[], index?: number): string {
-  const content = columns.slice(0, 4).map((c) => String(record[c] ?? '\x00')).join('\x1f');
+  const content = columns
+    .slice(0, 4)
+    .map((c) => String(record[c] ?? '\x00'))
+    .join('\x1f');
   return content || String(index ?? 0);
 }
 
@@ -132,7 +180,9 @@ export default function DataExplorer() {
   // Universal default that runs on every supported backend (sqlite,
   // postgresql, opengauss, dws) — gives new users a friendly placeholder
   // instead of failing because the seed table isn't there.
-  const [sql, setSql] = useState("SELECT '请编辑 SQL 后执行查询' AS hint, current_timestamp AS now");
+  const [sql, setSql] = useState(
+    "SELECT '请编辑 SQL 后执行查询' AS hint, current_timestamp AS now",
+  );
   // Schema-browser data: only fetched once a data source is picked.
   // The hook internally disables itself when ``selectedDs`` is null.
   const schemaQuery = useDataSourceSchema(selectedDs);
@@ -174,7 +224,7 @@ export default function DataExplorer() {
         setIsDirty(false);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
   }, [selectedTemplateId]);
 
   // Track if current state differs from selected template
@@ -227,7 +277,7 @@ export default function DataExplorer() {
               row_count: data.success ? data.row_count : null,
               success: data.success,
               error: data.error,
-            })
+            }),
           );
         },
         onError: (err) => {
@@ -243,7 +293,7 @@ export default function DataExplorer() {
               row_count: null,
               success: false,
               error: '请求失败',
-            })
+            }),
           );
         },
       },
@@ -329,7 +379,7 @@ export default function DataExplorer() {
     if (selectedTemplateId) {
       // Update existing template
       const newTemplates = templates.map((t) =>
-        t.id === selectedTemplateId ? { ...t, name: templateName, sql } : t
+        t.id === selectedTemplateId ? { ...t, name: templateName, sql } : t,
       );
       setTemplates(newTemplates);
       saveTemplates(newTemplates);
@@ -380,11 +430,13 @@ export default function DataExplorer() {
     if (!r || !r.success || r.rows.length === 0) return;
     const headers = r.columns.join(',');
     const csvRows = r.rows.map((row) =>
-      r.columns.map((col) => {
-        const val = row[col];
-        if (val === null || val === undefined) return '';
-        return csvEscape(String(val));
-      }).join(',')
+      r.columns
+        .map((col) => {
+          const val = row[col];
+          if (val === null || val === undefined) return '';
+          return csvEscape(String(val));
+        })
+        .join(','),
     );
     const csv = [headers, ...csvRows].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -415,9 +467,8 @@ export default function DataExplorer() {
     : [];
 
   // Apply ds filter to history (newest first, already sorted at insert time).
-  const filteredHistory: HistoryEntry[] = historyDsFilter == null
-    ? history
-    : history.filter((h) => h.ds_id === historyDsFilter);
+  const filteredHistory: HistoryEntry[] =
+    historyDsFilter == null ? history : history.filter((h) => h.ds_id === historyDsFilter);
 
   const historyColumns: ColumnsType<HistoryEntry> = [
     {
@@ -436,17 +487,19 @@ export default function DataExplorer() {
       title: 'SQL',
       dataIndex: 'sql',
       ellipsis: true,
-      render: (s: string) => (
-        <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{s}</span>
-      ),
+      render: (s: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{s}</span>,
     },
     {
       title: '结果',
       width: 110,
       render: (_, entry: HistoryEntry) =>
-        entry.success
-          ? <Tag color="green">{entry.row_count ?? 0} 行</Tag>
-          : <Tag color="red" title={entry.error}>失败</Tag>,
+        entry.success ? (
+          <Tag color="green">{entry.row_count ?? 0} 行</Tag>
+        ) : (
+          <Tag color="red" title={entry.error}>
+            失败
+          </Tag>
+        ),
     },
     {
       title: '操作',
@@ -497,225 +550,246 @@ export default function DataExplorer() {
       <Content style={{ padding: '0 24px 24px 0' }}>
         <h2 style={{ marginBottom: 16 }}>数据探索</h2>
 
-      <Card style={{ marginBottom: 16 }}>
-        {/* 数据源选择 */}
-        <Space style={{ marginBottom: 16 }} wrap>
-          <div>
-            <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
-              数据源
-            </span>
-            <Select
-              style={{ width: 200 }}
-              value={selectedDs}
-              onChange={(v) => setSelectedDs(v)}
-              placeholder="选择数据源"
-              aria-label="数据源"
-            >
-              {dataSources.map((ds) => (
-                <Option key={ds.id} value={ds.id}>
-                  {ds.name} ({ds.db_type})
-                </Option>
-              ))}
-            </Select>
-          </div>
-
-          {/* 模板选择 */}
-          <div>
-            <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
-              模板
-            </span>
-            <Space>
+        <Card style={{ marginBottom: 16 }}>
+          {/* 数据源选择 */}
+          <Space style={{ marginBottom: 16 }} wrap>
+            <div>
+              <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>数据源</span>
               <Select
-                style={{ width: 180 }}
-                aria-label="模板"
-                placeholder="选择或新建模板"
-                value={selectedTemplateId}
-                onChange={handleSelectTemplate}
-                allowClear
+                style={{ width: 200 }}
+                value={selectedDs}
+                onChange={(v) => setSelectedDs(v)}
+                placeholder="选择数据源"
+                aria-label="数据源"
               >
-                {groupTemplatesByCategory(templates).map((group) => (
-                  <OptGroup key={group.category.id} label={group.category.label}>
-                    {group.templates.map((t) => (
-                      <Option key={t.id} value={t.id}>
-                        {t.name}
-                      </Option>
-                    ))}
-                  </OptGroup>
+                {dataSources.map((ds) => (
+                  <Option key={ds.id} value={ds.id}>
+                    {ds.name} ({ds.db_type})
+                  </Option>
                 ))}
               </Select>
-              <Button size="small" icon={<PlusOutlined />} onClick={handleNew}>
-                新建
-              </Button>
-              {selectedTemplateId && (
-                <Popconfirm
-                  title="确定删除此模板?"
-                  onConfirm={handleDelete}
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
+            </div>
+
+            {/* 模板选择 */}
+            <div>
+              <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>模板</span>
+              <Space>
+                <Select
+                  style={{ width: 180 }}
+                  aria-label="模板"
+                  placeholder="选择或新建模板"
+                  value={selectedTemplateId}
+                  onChange={handleSelectTemplate}
+                  allowClear
                 >
-                  <Button size="small" danger icon={<DeleteOutlined />}>
-                    删除
-                  </Button>
-                </Popconfirm>
-              )}
-            </Space>
-          </div>
-        </Space>
+                  {groupTemplatesByCategory(templates).map((group) => (
+                    <OptGroup key={group.category.id} label={group.category.label}>
+                      {group.templates.map((t) => (
+                        <Option key={t.id} value={t.id}>
+                          {t.name}
+                        </Option>
+                      ))}
+                    </OptGroup>
+                  ))}
+                </Select>
+                <Button size="small" icon={<PlusOutlined />} onClick={handleNew}>
+                  新建
+                </Button>
+                {selectedTemplateId && (
+                  <Popconfirm
+                    title="确定删除此模板?"
+                    onConfirm={handleDelete}
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </div>
+          </Space>
 
-        {/* 模板名称（内联编辑） */}
-        <div style={{ marginBottom: 16 }}>
-          <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
-            模板名称 {isDirty && <span style={{ color: '#faad14', fontSize: 12 }}>(有未保存的更改)</span>}
-          </span>
-          <Input
-            placeholder="输入模板名称"
-            aria-label="模板名称"
-            value={templateName}
-            onChange={handleNameChange}
-            style={{ maxWidth: 400 }}
-          />
-        </div>
-
-        {/* SQL 编辑器 */}
-        <div style={{ marginBottom: 16 }}>
-          <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
-            SQL 语句
-          </span>
-          <div aria-label="SQL 编辑器">
-            <SqlEditor
-              ref={sqlEditorRef}
-              value={sql}
-              onChange={handleSqlChange}
-              height="180px"
-              placeholder="输入 SQL (SELECT only)"
-            />
-          </div>
-        </div>
-
-        {/* 操作按钮 */}
-        <Space>
-          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} loading={execute.isPending}>
-            执行查询
-          </Button>
-          <Button icon={<BranchesOutlined />} onClick={handleFormat}>
-            格式化
-          </Button>
-          <Button icon={<ClearOutlined />} onClick={() => { setSql(''); setIsDirty(true); }}>
-            清空
-          </Button>
-          <Button
-            type="default"
-            icon={<SaveOutlined />}
-            onClick={handleSave}
-            disabled={!templateName.trim() || !sql.trim()}
-          >
-            {selectedTemplateId ? '保存' : '保存为新模板'}
-          </Button>
-          {execute.data?.success && execute.data.rows.length > 0 && (
-            <Button icon={<ExportOutlined />} onClick={handleExport}>
-              导出 CSV
-            </Button>
-          )}
-        </Space>
-      </Card>
-
-      {/* 执行历史 */}
-      <Card
-        title={
-          <Space>
-            <HistoryOutlined />
-            <span>执行历史</span>
-            <span style={{ color: '#999', fontSize: 12 }}>
-              ({filteredHistory.length}{historyDsFilter != null ? ` / ${history.length}` : ''})
+          {/* 模板名称（内联编辑） */}
+          <div style={{ marginBottom: 16 }}>
+            <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
+              模板名称{' '}
+              {isDirty && <span style={{ color: '#faad14', fontSize: 12 }}>(有未保存的更改)</span>}
             </span>
-          </Space>
-        }
-        extra={
-          <Space>
-            <Select
-              placeholder="按数据源过滤"
-              allowClear
-              style={{ width: 180 }}
-              size="small"
-              value={historyDsFilter}
-              onChange={(v) => setHistoryDsFilter(v ?? null)}
-            >
-              {dataSources.map((ds) => (
-                <Option key={ds.id} value={ds.id}>{ds.name}</Option>
-              ))}
-            </Select>
-            <Popconfirm
-              title="确定清空所有执行历史?"
-              description="此操作不可撤销"
-              okText="清空"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-              onConfirm={handleClearHistory}
-            >
-              <Button
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                disabled={history.length === 0}
-              >
-                清空
-              </Button>
-            </Popconfirm>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        {history.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 24, color: '#999' }}>
-            暂无执行历史，执行一次查询后会出现在这里
+            <Input
+              placeholder="输入模板名称"
+              aria-label="模板名称"
+              value={templateName}
+              onChange={handleNameChange}
+              style={{ maxWidth: 400 }}
+            />
           </div>
-        ) : (
-          <Table
-            columns={historyColumns}
-            dataSource={filteredHistory}
-            rowKey="id"
-            size="small"
-            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t: number) => '共 ' + t + ' 条' }}
-          />
-        )}
-      </Card>
 
-      {/* 查询结果 */}
-      {execute.isPending && (
-        <Card>
-          <CardSkeleton rows={6} />
+          {/* SQL 编辑器 */}
+          <div style={{ marginBottom: 16 }}>
+            <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>SQL 语句</span>
+            <div aria-label="SQL 编辑器">
+              <SqlEditor
+                ref={sqlEditorRef}
+                value={sql}
+                onChange={handleSqlChange}
+                height="180px"
+                placeholder="输入 SQL (SELECT only)"
+              />
+            </div>
+          </div>
+
+          {/* 操作按钮 */}
+          <Space>
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleExecute}
+              loading={execute.isPending}
+            >
+              执行查询
+            </Button>
+            <Button icon={<BranchesOutlined />} onClick={handleFormat}>
+              格式化
+            </Button>
+            <Button
+              icon={<ClearOutlined />}
+              onClick={() => {
+                setSql('');
+                setIsDirty(true);
+              }}
+            >
+              清空
+            </Button>
+            <Button
+              type="default"
+              icon={<SaveOutlined />}
+              onClick={handleSave}
+              disabled={!templateName.trim() || !sql.trim()}
+            >
+              {selectedTemplateId ? '保存' : '保存为新模板'}
+            </Button>
+            {execute.data?.success && execute.data.rows.length > 0 && (
+              <Button icon={<ExportOutlined />} onClick={handleExport}>
+                导出 CSV
+              </Button>
+            )}
+          </Space>
         </Card>
-      )}
 
-      {execute.data && !execute.isPending && (
-        <Card title={execute.data.success ? `查询结果 (${execute.data.row_count} 条)` : '查询错误'}>
-          {!execute.data.success && execute.data.error && (
-            <Alert
-              type="error"
-              message="SQL 执行错误"
-              description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{execute.data.error}</pre>}
-              style={{ marginBottom: 16 }}
-            />
-          )}
-
-          {execute.data.success && execute.data.rows.length > 0 && (
+        {/* 执行历史 */}
+        <Card
+          title={
+            <Space>
+              <HistoryOutlined />
+              <span>执行历史</span>
+              <span style={{ color: '#999', fontSize: 12 }}>
+                ({filteredHistory.length}
+                {historyDsFilter != null ? ` / ${history.length}` : ''})
+              </span>
+            </Space>
+          }
+          extra={
+            <Space>
+              <Select
+                placeholder="按数据源过滤"
+                allowClear
+                style={{ width: 180 }}
+                size="small"
+                value={historyDsFilter}
+                onChange={(v) => setHistoryDsFilter(v ?? null)}
+              >
+                {dataSources.map((ds) => (
+                  <Option key={ds.id} value={ds.id}>
+                    {ds.name}
+                  </Option>
+                ))}
+              </Select>
+              <Popconfirm
+                title="确定清空所有执行历史?"
+                description="此操作不可撤销"
+                okText="清空"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={handleClearHistory}
+              >
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled={history.length === 0}
+                >
+                  清空
+                </Button>
+              </Popconfirm>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          {history.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 24, color: '#999' }}>
+              暂无执行历史，执行一次查询后会出现在这里
+            </div>
+          ) : (
             <Table
-              columns={columns}
-              dataSource={execute.data.rows}
-              rowKey={(record, idx) => resultRowKey(record, execute.data!.columns, idx)}
+              columns={historyColumns}
+              dataSource={filteredHistory}
+              rowKey="id"
               size="small"
-              virtual
-              scroll={{ x: execute.data.columns.length * 150, y: 500 }}
-              pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => '共 ' + t + ' 条' }}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (t: number) => '共 ' + t + ' 条',
+              }}
             />
           )}
-
-          {execute.data.success && execute.data.rows.length === 0 && (
-            <Alert type="warning" message="查询成功，但没有返回任何数据" />
-          )}
         </Card>
-      )}
+
+        {/* 查询结果 */}
+        {execute.isPending && (
+          <Card>
+            <CardSkeleton rows={6} />
+          </Card>
+        )}
+
+        {execute.data && !execute.isPending && (
+          <Card
+            title={execute.data.success ? `查询结果 (${execute.data.row_count} 条)` : '查询错误'}
+          >
+            {!execute.data.success && execute.data.error && (
+              <Alert
+                type="error"
+                message="SQL 执行错误"
+                description={
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{execute.data.error}</pre>
+                }
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            {execute.data.success && execute.data.rows.length > 0 && (
+              <Table
+                columns={columns}
+                dataSource={execute.data.rows}
+                rowKey={(record, idx) => resultRowKey(record, execute.data!.columns, idx)}
+                size="small"
+                virtual
+                scroll={{ x: execute.data.columns.length * 150, y: 500 }}
+                pagination={{
+                  pageSize: 50,
+                  showSizeChanger: true,
+                  showTotal: (t: number) => '共 ' + t + ' 条',
+                }}
+              />
+            )}
+
+            {execute.data.success && execute.data.rows.length === 0 && (
+              <Alert type="warning" message="查询成功，但没有返回任何数据" />
+            )}
+          </Card>
+        )}
       </Content>
     </Layout>
   );
