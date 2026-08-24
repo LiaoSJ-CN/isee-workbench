@@ -6,7 +6,7 @@
 
 ## 🔖 会话断点 / Resume Point
 
-**最后会话（2026-08-16）：**
+**最后会话（2026-08-25）：**
 
 | 项 | 状态 |
 |---|---|
@@ -38,10 +38,10 @@
 **下一会话怎么接：**
 
 1. 打开本文件 → 看「当前进度」表
-2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂（**当前基线：pytest 478/478、coverage 83.9%、lint 0、tsc 0、vitest 29/29**）
-3. 读 plan 文件 `~/.claude/plans/cozy-brewing-falcon.md` § 8.1（weasyprint PDF 导出，复用 8.5 异步队列）
-4. 建 TaskCreate 覆盖批 8.1 子项，开始干
-5. 注意 `useEnqueueReportJob` 的 `reportId` 闭包陷阱（见 session-checkpoint-2026-08-16-post-8.5 gotcha #1）—— 别在 PDF 改造里破坏这个
+2. 跑 `make test-fast && make lint && make typecheck && make build` 确认基线没漂（**当前基线：pytest 685/685（4 skipped）、coverage ≥70%、ruff 0、mypy 0、eslint 0、tsc 0、vitest 45/45**）
+3. 读 `docs/ROADMAP.md` 看产品功能特性演进的 8 个候选方向（用户已确认进入产品阶段，不再起 audit）
+4. 跟用户确认要走哪个方向，再 plan + TaskCreate
+5. 注意：drift guard CI job（`docs-vs-code`）现在每次 push 都跑——加新路由 / Settings 字段必须同步 README / DEPLOY，否则 CI 红
 
 完整状态 + 修正记录见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/improvement-plan.md`。
 
@@ -135,7 +135,8 @@
 | 批 10.3 | ✅ 已完成 (2026-08-24) | `d59a345` | DataSource.clone + Report.duplicate — `<name> (副本)` 自动后缀 / 显式 name / 409 collision / 404 ACL / audit log / 前端 "复制" 按钮（DataSourceList + ReportList 后者直接跳编辑器）。复制重置 visibility=private + is_demo=false + is_scheduled=False + 不复制 shares |
 | TODO-9a | ✅ 已完成 (2026-08-23) | `a810842` | Prometheus + Grafana dashboard (`isee-workbench-dashboard.json`，9 面板：HTTP RPS / 5xx / 4xx / p50-p99 / Top routes / 报表 p95 / 报表 errors / SQL 校验 / webhook outcome) |
 | TODO-9b | ✅ 已完成 (2026-08-23) | `6376f06` | 8 条 alert rules (`isee-workbench.yml`) + alertmanager wiring + 6 pytest 防 typo + DEPLOY.md 配置告警段 |
-| 批 11.4 UI sweep | ✅ 已完成 (2026-08-24) | `5094ab9` | 8 页 sweep 找到 3 真问题：ReportList 操作列「更多」Dropdown + data-source-list `tableLayout="fixed"` + 修复死链 `/reports/:id/edit` → `/reports/:id` 重定向 + 删 dropdown 重构后的 dead state |
+| 批 11.4 UI sweep | ✅ 已完成 (2026-08-24) | `5094ab9` | 8 页 sweep 找到 3 真问题：ReportList 操作列「更多」Dropdown + data-source-list `tableLayout="fixed"` + 修复死链 `/reports/:id/edit` → `/reports/{id}` 重定向 + 删 dropdown 重构后的 dead state |
+| 文档 / 格式 闭环 | ✅ 已完成 (2026-08-25) | `01ab22e` `ba95d5c` `e3c2ece` `8f06ea1` `4a2afc7` | doc vs code 审计后落地：README/DEPLOY/frontend/README/ARCHITECTURE 同步（增 9 router + 16 env var + 8 alert rule + 异步 job + RBAC/订阅/审计 描述）；`ruff format` 83 文件 + `prettier` 47 文件；Makefile `format:` 修成真 `ruff format` + 加 `format-check*` 系列；CI `backend-lint` 加 `ruff format --check` + `frontend-lint` 加 `prettier --check`；新 `docs-vs-code` job 跑 `scripts/diff_docs_vs_code.py --strict`（parse Settings + 路由 AST vs README/DEPLOY，coverage 100%）；pre-commit 加 prettier hook（之前注释里说"批 10 之后再接"，批 10 早完了）；`backend/tests/test_diff_docs_vs_code.py` 11 tests。pytest 685 / vitest 45 / ruff 0 / eslint 0 |
 
 ## 每批结束的验证清单
 

@@ -387,7 +387,7 @@ HTTP 客户端禁用重定向跟随（`follow_redirects=False`），防 302 跳�
 | `app/schemas/` | Pydantic 校验模型 |
 | `app/routers/` | API 路由 |
 | `app/services/` | 业务逻辑 |
-| `tests/` | pytest 测试套件（678 用例 + 4 跳过，含 PG-safe 子集 + alert rules 校验） |
+| `tests/` | pytest 测试套件（685 用例 + 4 跳过，含 PG-safe 子集 + alert rules 校验） |
 
 ---
 

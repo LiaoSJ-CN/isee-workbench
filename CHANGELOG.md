@@ -32,8 +32,24 @@
   - `/reports/:id/edit` 死链白屏 → 复制成功回调改 `/reports/{id}` + 加 `NavigateToReports` 重定向处理历史书签
 - ReportList dropdown 重构后清理死代码：删 `enqueuing` / `enqueuingPdf` state 和它们的 setter（4 处）
 
+### 工程化（文档 / 格式 闭环）
+
+- **文档与代码同步**：审计发现 README / DEPLOY / frontend/README 与代码有显著漂移
+  - README：API 表补到 9 router（auth/data_source/report/jobs/scheduler/explorer/subscription/audit）+ 增订阅 + ACL + 审计 + 异步 job + clone/duplicate 描述；功能特性段加 RBAC / 审计日志 / 可观测性；测试数 `~200` → `685`；项目结构图加 `routers/services/middleware` 真实数量
+  - DEPLOY：环境变量表从 `backend/.env.example` 同步所有 45 字段（增 `csrf_enabled` / `cookie_*` x5 / `trusted_proxies` / `security_headers_enabled` / `webhook_*` x3 / `explorer_*` x2 / `sentry_*` x3 / `audit_log_retention_days`）；告警规则 `7 条` → `8 条`；CI/CD 段加 backend-test-pg job + format check；异步任务段；PDF 导出 prereq checklist；生产检查清单 +4 项
+  - `frontend/README.md`：替换 Vite boilerplate（"This template provides a minimal setup..."） → 真实技术栈 / 目录 / 命令 / 鉴权 / 测试要点
+  - `docs/ARCHITECTURE.md`：目录映射补 routers/services/middleware 计数 + PDF 输出格式行 + `db_migrations.py` 当前定位（lifespan 不再调用）
+- **Format 闭环**：`ruff format .` 83 Python 文件 + `npm run format` 47 前端文件，纯机械变更
+  - Makefile `format:` target 之前错跑 `ruff check . --fix`（lint fix 不是 formatter），修成 `ruff format .`；新增 `format-frontend` / `format-all` / `format-check` / `format-check-frontend` / `format-check-all` 系列
+  - CI 加 format check：`backend-lint` job 末尾 `ruff format --check .`；`frontend-lint` job 末尾 `npm run format:check`
+- **Doc-vs-code drift guard**：新 `scripts/diff_docs_vs_code.py` + CI job `docs-vs-code`
+  - 解析 `app.config.Settings` 字段 + `app/routers/*.py` 的 `@router.X(path)` AST（处理多行装饰器 / 双 APIRouter / prefix join / `{id}` vs `{source_id}` 模板归一）
+  - 对照 DEPLOY.md env-var 表 + README.md API 表，drift 立刻 exit 1
+  - 新 `backend/tests/test_diff_docs_vs_code.py` 11 个单测覆盖 normalize / section 解析 / env-var scoping / 端到端
+- **pre-commit 加 prettier hook**（之前注释里说"批 10 之后再接"，批 10 早就完了；frontend 因此飘 47 文件无人拦）
+
 ### 计划中
-见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/`
+见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/` 和 `docs/ROADMAP.md`（产品功能特性演进候选）
 
 ---
 

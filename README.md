@@ -30,7 +30,7 @@ isee-workbench/
 │   │   │                            #   notification_migration / report）
 │   │   └── middleware/              # 中间件（CORS / ProxyHeaders / SecurityHeaders /
 │   │                                #   RateLimit / CSRF / RequestID / Metrics / Sentry）
-│   ├── tests/                       # pytest 测试套件（678 用例 + 4 跳过）
+│   ├── tests/                       # pytest 测试套件（685 用例 + 4 跳过）
 │   ├── scripts/                     # seed_erp_demo + seed_reports + alembic
 │   ├── alembic/                     # 数据库迁移脚本（autogenerate）
 │   ├── pyproject.toml
@@ -268,7 +268,7 @@ cd backend
 source .venv/bin/activate
 pip install pytest pytest-asyncio httpx
 
-pytest                  # 全部测试（678 用例 + 4 跳过）
+pytest                  # 全部测试（685 用例 + 4 跳过）
 pytest -k xss           # 关键字过滤
 pytest --lf             # 只跑上次失败的
 pytest --cov=app        # 覆盖率

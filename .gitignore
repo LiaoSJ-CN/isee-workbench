@@ -98,3 +98,6 @@ frontend/playwright-report/
 frontend/test-results/
 frontend/blob-report/
 frontend/playwright/.cache/
+
+# Vitest / Playwright top-level output (vitest default reporter, playwright .last-run.json)
+test-results/

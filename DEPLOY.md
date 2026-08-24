@@ -488,7 +488,7 @@ CI（`.github/workflows/ci.yml` 的 `backend-test-pg`）每次 push 都跑 PG16 
 
 - `alembic upgrade head` — DDL/FK/CHECK 与 Postgres 方言对齐检查
 - 23 个 PG-safe pytest 文件（auth/csrf/jwt/RBAC/validator/scheduler_runner/metrics/sentry/...），不依赖 SQLite 默认宽容的 FK 行为
-- 完整 678 用例仍在 SQLite 上跑（部分 cleanup 路径靠 SQLite 容错，等单独清理）
+- 完整 685 用例仍在 SQLite 上跑（部分 cleanup 路径靠 SQLite 容错，等单独清理）
 
 **手动验证 OpenGauss**（CI 还没接 OpenGauss image，需 operator 自验）：
 
@@ -574,7 +574,7 @@ pm2 save
 
 GitHub Actions 工作流（`.github/workflows/ci.yml`）每次 push 自动执行：
 
-- 后端：ruff lint + **ruff format --check** + mypy 类型检查 + pytest（678 用例 + 4 跳过）
+- 后端：ruff lint + **ruff format --check** + mypy 类型检查 + pytest（685 用例 + 4 跳过）
 - 后端：PG16 容器跑 `backend-test-pg` job（alembic + 23 PG-safe pytest）
 - 前端：eslint + prettier --check + tsc 类型检查 + Vite 构建 + vitest
 - 缓存：pip + npm cache 复用，minimize wall-clock
