@@ -198,6 +198,7 @@ jobs:
         run: |
           pytest \
             tests/test_alert_rules.py \
+            tests/test_alembic_migration_replay.py \
             tests/test_auth.py \
             tests/test_csrf.py \
             tests/test_db_migrations.py \

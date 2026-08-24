@@ -1082,9 +1082,50 @@ npx playwright test                     # smoke 全过
 **验证基线**：
 - `ruff check .` 0
 - `mypy app` 0
-- `pytest -q` 661 passed + 1 skipped（promtool 缺失，pre-existing）— 之前 653 + P2-2 新增 8
+- `pytest -q` 674 passed + 4 skipped（promtool 缺失 pre-existing + 3 个 SQLite-incompatible migration downgrade，PG CI 覆盖）— 之前 661 + P2-3 新增 13
 - 前端未动，e2e 仍 4 passed + 2 skipped
-| P2-3 | Alembic migration 重放验证 | `alembic upgrade head` 干净跑过；`downgrade -1` 再 `upgrade head` 循环没测过。`env.py` 不再 `fileConfig()` 可能藏坑。| ~1 hr |
+
+### P2-3 ✅：Alembic migration 重放验证 — 2026-08-24
+
+**问题**：批 5 → 批 11 期间 alembic 迁移链从 1 个涨到 11 个，但 `alembic upgrade head` 是唯一被 CI 跑过的路径。`downgrade -1` → `upgrade head` 循环从没测过——可能藏：migrate 顺序 bug（顺序反了）、downgrade 残留 index/constraint、`env.py` 不再 `fileConfig()` 是否真不破坏 root logger。本地 dev 用 SQLite；`backend-test-pg` 跑 PG16 但只跑 upgrade，不跑 downgrade。
+
+**落地**：
+
+**`backend/tests/test_alembic_migration_replay.py`**（新文件，13 个 SQLite test + 3 个 SQLite-skipped + 2 个 shape-only，PG CI 上完整 16 个全跑）：
+
+1. **`test_migration_chain_is_linear_and_contains_all_revisions`** — 在 import 时解析 `alembic/versions/*.py` 的 `revision` + `down_revision`，断言 11 个迁移构成单链 root → head，无 fork。**未来 contributor 加 fork migration 会 fail 这条**——直接挡掉破坏 round-trip 不变量的源头。
+
+2. **`test_env_py_does_not_call_file_config`** — grep `env.py` 源码断言没有 `logging.config.fileConfig(` 调用 + 没有 `import logging.config`。**注释里出现的字符串不算**（用 `\(` + `\s*` + `^import` 锚定，避免误伤 `engine_from_config` 子串）。
+
+3. **`test_upgrade_head_on_fresh_db`** — fresh tmp sqlite → `command.upgrade(cfg, 'head')` → 断言 `alembic_version.version_num = HEAD` + 12 个用户表都在（`data_sources` / `reports` / `report_items` / `report_jobs` / `report_parameters` / `users` / `revoked_jti` / `rate_limit_events` / `data_source_access` / `report_access` / `audit_log` / `report_subscriptions`）。**lifespan 启动路径同形**——这条失败即本地新装失败。
+
+4. **`test_root_logger_handlers_preserved_after_alembic_run`** — root logger 加 sentinel `NullHandler` → 跑 `command.upgrade(cfg, 'head')` → 断言 sentinel 仍在 `root.handlers`。**runtime 对照 `test_env_py_does_not_call_file_config`**（静态）——一起锁死 logging 契约。**复现 515bbd9 移除 `?token=` 时遇到的 logger clobber 教训**。
+
+5. **`test_round_trip_each_revision[REV]`** × 11（parametrize）— 每个 revision：upgrade→downgrade -1→upgrade head，**最终 schema fingerprint 必须等于 fresh `upgrade head` 的 fingerprint**。fingerprint = `{(table, '__table__')} ∪ {(table, f'idx:{name}')}`，所以"downgrade 残留 index"也抓得到。
+
+6. **`test_full_downgrade_then_upgrade`** — upgrade head → downgrade base（断言只剩 `alembic_version`）→ upgrade head → 真插 + 查 `data_sources` 行。**功能性回归**：不只 shape 对，rebuild 后的表能 INSERT + SELECT。
+
+**SQLite 限制（透明记录）**：两个 migration (`01a6b1ebae29` 批 9.3 data_source_acl + `921b7fe787b0` 批 9.4 report_acl) 的 downgrade 用 `op.drop_constraint(...)` 改 FK，SQLite 不支持 ALTER on FK（需要 batch_alter_table 模式）。3 个 SQLite test skip 这两个 revision，`test_full_downgrade_then_upgrade` 整个 skip on SQLite。**PG CI job (`backend-test-pg`) 已加入 `test_alembic_migration_replay.py`，跑完整 16 个**——SQLite 跳过的 3 个在 PG 上实际跑。
+
+**关键设计**：
+- **从 `alembic/versions/*.py` 解析 migration chain**——不让 alembic 在 import 时跑任何 migration（会污染 dev `app.db`）。`_linear_chain()` 只 grep `revision:` / `down_revision:` 字段。**`Union[str, Sequence[str], None]` 类型注释挡 regex**——第一次写用 `\S+` 锚 type token 失败，改成"找行 + anchor `=` 后第一个 quoted string + 处理 `= None`"三段式。
+- **schema fingerprint 不是列对列** — `(table, '__table__')` + `(table, 'idx:xxx')` 集合比较。**足够抓"drop table 残留 index" / "downgrade 不完全"；不会因为加列 churn 误报**。列对列断言太脆（每加列都要更新 baseline）。
+- **每测试独立 fresh tmp sqlite** — `tmp_path` 自动清理，无 dev DB 污染，无 conftest 干扰。
+- **`_alembic_config()` 不加载 `alembic.ini`** — 加载 ini 会触发 alembic 默认 logging 配置，正是我们要防的。手动 `set_main_option('script_location', ...)` + `('sqlalchemy.url', ...)` 即可。
+
+**`backend/test_alembic_migration_replay.py` 加入 `backend-test-pg` CI 子集**——`ci.yml` 的 `- name: Run PG-safe pytest subset` 加一行。**PG job 才是 downgrade 路径完整测试点**（SQLite skip 是已知约束）。
+
+**未做**（YAGNI）：
+- **不重写迁移用 batch_alter_table** — 批 5/9 期间决定不引入，因为 (a) production 是 PG，SQLite 不跑 downgrade；(c) 重写 2 个 migration 引入新风险 vs 一个明确 skip 标记。
+- **不测 alembic 顺序反过来的初始 install** — `command.upgrade(cfg, 'head')` 永远正向，reverse order 是 dev 误用场景，罕见。
+- **不测并发跑 alembic** — alembic 自己 advisory lock，单进程假设没问题；并发跑不在部署路径里。
+
+**验证基线**：
+- `ruff check .` 0
+- `mypy app` 0
+- `pytest -q` 674 passed + 4 skipped（promtool + 3 个 SQLite-incompatible migration downgrade，PG CI 覆盖）— 之前 661 + P2-3 新增 13
+- 前端未动，e2e 仍 4 passed + 2 skipped
+
 | P2-4 | CI cache | `.github/workflows/ci.yml` 每次 lint + test + build 都重装。`actions/cache` 加 npm + pip cache 提速 ~30s。| ~30 min |
 
 ### P3 — 锦上添花
