@@ -229,41 +229,43 @@ export default function AuditLogPage() {
           layout="inline"
           onFinish={handleSearch}
           initialValues={{}}
-          // Uniform label width across the whole filter form so labels
-          // right-align at the same x and inputs left-align at the same
-          // x — earlier varying ``Form.Item width`` (160 / 180 / 200 / 220
-          // / 320) made labels and inputs stagger as the row wrapped.
+          // Uniform label width so labels right-align at the same x
+          // across all items. Combined with the uniform item width
+          // (300) below, every input also left-aligns at the same x —
+          // regardless of which row the item lands on.
           labelCol={{ style: { width: 80 } }}
         >
-          {/* Filter form order mirrors the table column order top-to-bottom
-              (时间 → 操作者 → 操作 → 对象 → IP → 请求 ID) so an admin can
-              scan both in the same direction. Layout:
-                Row 1: 时间范围 (320px, owns the row because the
-                  showTime range picker is unreadable below ~300px).
-                Row 2..: 6 filters + buttons, all width 240, so every
-                  label right-aligns at x=80 and every input left-aligns
-                  at x=88 across wrapped sub-rows.
-              The empty ``flexBasis: 100%`` div is a flexbox row-break
-              that forces the next Form.Item onto a new line — without it
-              the 320-wide range would sit next to a 240-wide filter and
-              the wrapping point would shift around as the viewport
-              resized. */}
-          <Form.Item name="range" label="时间范围" style={{ width: 320 }}>
+          {/* Two explicit rows. The user review after fd98c82 noted that
+              even with uniform widths, 7 filters + buttons wrapped
+              unpredictably across 2-3 rows as the viewport shrank and
+              the buttons dragged onto their own line. Forcing exactly
+              two rows via ``flexBasis: 100%`` row-breaks keeps the
+              layout stable.
+
+              Filter order mirrors the table column order top-to-bottom
+              (时间 → 操作者 → 操作 → 对象 → IP → 请求 ID):
+                Row 1: 时间范围 | 操作者 ID | 操作 | 对象类型
+                Row 2: 对象 ID | 客户端 IP | 请求 ID | 查询 重置
+
+              All 7 items share ``width: 300`` so within each row the
+              label / input columns line up. RangePicker with showTime
+              at 300 has ~110px per side — fits "YYYY-MM-DD HH:mm"
+              comfortably. */}
+          <Form.Item name="range" label="时间范围" style={{ width: 300 }}>
             <RangePicker
               showTime={{ format: 'HH:mm' }}
               format="YYYY-MM-DD HH:mm"
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <div style={{ flexBasis: '100%', height: 0 }} />
-          <Form.Item name="actor_user_id" label="操作者 ID" style={{ width: 240 }}>
+          <Form.Item name="actor_user_id" label="操作者 ID" style={{ width: 300 }}>
             <InputNumber
               placeholder="用户 ID"
               min={1}
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="action" label="操作" style={{ width: 240 }}>
+          <Form.Item name="action" label="操作" style={{ width: 300 }}>
             <Select
               allowClear
               showSearch
@@ -272,7 +274,7 @@ export default function AuditLogPage() {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="target_type" label="对象类型" style={{ width: 240 }}>
+          <Form.Item name="target_type" label="对象类型" style={{ width: 300 }}>
             <Select
               allowClear
               showSearch
@@ -281,13 +283,14 @@ export default function AuditLogPage() {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item name="target_id" label="对象 ID" style={{ width: 240 }}>
+          <div style={{ flexBasis: '100%', height: 0 }} />
+          <Form.Item name="target_id" label="对象 ID" style={{ width: 300 }}>
             <InputNumber placeholder="对象 ID" min={1} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="ip_address" label="客户端 IP" style={{ width: 240 }}>
+          <Form.Item name="ip_address" label="客户端 IP" style={{ width: 300 }}>
             <Input placeholder="如 10.0.0.5" allowClear />
           </Form.Item>
-          <Form.Item name="request_id" label="请求 ID" style={{ width: 240 }}>
+          <Form.Item name="request_id" label="请求 ID" style={{ width: 300 }}>
             <Input placeholder="如 abc12345..." allowClear />
           </Form.Item>
           <Form.Item>

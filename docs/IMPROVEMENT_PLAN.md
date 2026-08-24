@@ -1364,6 +1364,29 @@ Row 3: [对象 ID 240] [IP 240] [请求 ID 240] [按钮]    ← 对应 240 栅�
 - `npx tsc --noEmit` 0
 - `npx vitest run` 45/45（4 AuditLog 测试 0 改动仍过）
 
+### P3-1 后续 3：强制两行布局 — 2026-08-24
+
+**问题**：`fd98c82` 把 6 个非 range 字段统一 width: 240 + 1 个 row break 之后，实际 viewport（admin 屏幕 1366-1920px 不等）下 row 2 还会再 wrap 到 row 3，按钮漂到 row 3 末尾。User 反馈"还是歪的，太多筛选器了，不行排两行吧"。
+
+**修法**：所有 7 个 `Form.Item` 统一 `width: 300`，加 **1 个 `flexBasis: 100%` row-break** 在前 4 个之后：
+
+```
+Row 1: [时间范围 300] [操作者 ID 300] [操作 300] [对象类型 300]
+       ↓ flexBasis: 100% ↓
+Row 2: [对象 ID 300] [IP 300] [请求 ID 300] [查询 重置]
+```
+
+`width: 300` 是 `labelCol: 80 + input: 204 + gap: 16` 的总和。RangePicker with `showTime` 在 300 宽时两侧各 ~135px——`YYYY-MM-DD HH:mm`（16 chars × 7px = 112px）+ 时钟 icon 16px = 128px < 135px，余 7px 不会裁字。
+
+**为什么不再纠结 1 个 row-break 的位置**：用户直接说"排两行吧"，明确只要 2 行。1 个 break 在前 4 个后是最自然切分（primary 4 + secondary 3+buttons），Row 1 总宽 4×300+24=1224，Row 2 总宽 3×300+buttons(~180)+24=1104，两行都不超 1366px 屏。
+
+**`frontend/src/pages/AuditLogPage.tsx`** — 7 个 `style.width` 改 300 + 1 个 `<div flexBasis: 100% />` 位置挪到第 4 个 Form.Item 后。0 测试改动。
+
+**验证基线**：
+- `npm run lint` 0
+- `npx tsc --noEmit` 0
+- `npx vitest run` 45/45（4 AuditLog 测试 0 改动仍过）
+
 ### P3-2 ✅ (no-op)：ReportEditor import path 统一 — 2026-08-24
 
 **问题**：plan 描述 `pages/ReportEditor/` 7 文件混相对/绝对路径，要统一。
