@@ -26,6 +26,11 @@ import type {
   ReportParameter,
   ReportParameterCreate,
   ReportParameterUpdate,
+  ReportVersionCreate,
+  ReportVersionDiff,
+  ReportVersionResponse,
+  ReportVersionRestoreResponse,
+  ReportVersionSummary,
   SchedulerStatus,
   SchedulerJob,
 } from '../types';
@@ -611,6 +616,49 @@ export const subscriptionApi = {
   /** Resume a paused subscription. */
   resume: async (subscriptionId: number): Promise<ReportSubscription> => {
     const { data } = await api.post(`/subscriptions/${subscriptionId}/resume`);
+    return data;
+  },
+};
+
+// ============ Report Versions ============
+
+export const reportVersionsApi = {
+  list: async (reportId: number): Promise<ReportVersionSummary[]> => {
+    const { data } = await api.get(`/reports/${reportId}/versions`);
+    return data;
+  },
+  get: async (reportId: number, versionId: number): Promise<ReportVersionResponse> => {
+    const { data } = await api.get(`/reports/${reportId}/versions/${versionId}`);
+    return data;
+  },
+  create: async (
+    reportId: number,
+    payload: ReportVersionCreate,
+  ): Promise<ReportVersionResponse> => {
+    const { data } = await api.post(`/reports/${reportId}/versions`, payload);
+    return data;
+  },
+  restore: async (
+    reportId: number,
+    versionId: number,
+  ): Promise<ReportVersionRestoreResponse> => {
+    const { data } = await api.post(
+      `/reports/${reportId}/versions/${versionId}/restore`,
+    );
+    return data;
+  },
+  delete: async (reportId: number, versionId: number): Promise<void> => {
+    await api.delete(`/reports/${reportId}/versions/${versionId}`);
+  },
+  diff: async (
+    reportId: number,
+    versionId: number,
+    against: number | 'current' = 'current',
+  ): Promise<ReportVersionDiff> => {
+    const { data } = await api.get(
+      `/reports/${reportId}/versions/${versionId}/diff`,
+      { params: { against: against === 'current' ? 'current' : String(against) } },
+    );
     return data;
   },
 };
