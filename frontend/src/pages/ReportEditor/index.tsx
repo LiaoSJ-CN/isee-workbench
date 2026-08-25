@@ -30,6 +30,7 @@ import {
 } from '../../queries/useParameters';
 import { useDataSources } from '../../queries/useDataSources';
 import { CardSkeleton } from '../../components/Skeleton';
+import { SaveVersionModal } from '../../components/SaveVersionModal';
 import { ConfigTab } from './ConfigTab';
 import { ItemsTab } from './ItemsTab';
 import { ParametersTab } from './ParametersTab';
@@ -116,6 +117,7 @@ export default function ReportEditor() {
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<ReportItem | null>(null);
   const [activeTab, setActiveTab] = useState('config');
+  const [saveVersionOpen, setSaveVersionOpen] = useState(false);
 
   const handleSaveReport = () => {
     if (!buffer || !reportId) return;
@@ -248,6 +250,13 @@ export default function ReportEditor() {
             预览
           </Button>
           <Button
+            icon={<SaveOutlined />}
+            onClick={() => setSaveVersionOpen(true)}
+            disabled={!reportId}
+          >
+            保存为版本
+          </Button>
+          <Button
             type="primary"
             icon={<SaveOutlined />}
             loading={updateReport.isPending}
@@ -315,6 +324,14 @@ export default function ReportEditor() {
         onCancel={() => setParamModalVisible(false)}
         saving={createParam.isPending || updateParam.isPending}
       />
+
+      {reportId && (
+        <SaveVersionModal
+          open={saveVersionOpen}
+          reportId={reportId}
+          onClose={() => setSaveVersionOpen(false)}
+        />
+      )}
     </div>
   );
 }
