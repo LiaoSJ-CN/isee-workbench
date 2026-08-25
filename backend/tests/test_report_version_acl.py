@@ -11,10 +11,16 @@ from fastapi import HTTPException
 
 from app.database import SessionLocal
 from app.models.data_source import DataSource
+from app.models.data_source_access import DataSourceAccess
 from app.models.report import VISIBILITY_PRIVATE, VISIBILITY_PUBLIC, Report
 from app.models.report_access import ReportAccess
 from app.models.user import ROLE_ADMIN, ROLE_EDITOR, User
-from app.services.report import ensure_report_visible, is_owner_or_admin
+from app.services.report import (
+    PERMISSION_READ,
+    PERMISSION_WRITE,
+    ensure_report_visible,
+    is_owner_or_admin,
+)
 
 
 @pytest.fixture
@@ -50,6 +56,7 @@ def _make_report(db, owner=None, visibility=VISIBILITY_PUBLIC):
         name=f"ds-{owner.username if owner else 'x'}",
         db_type="sqlite",
         database=":memory:",
+        owner_user_id=owner.id if owner else None,
     )
     db.add(ds)
     db.commit()
@@ -83,6 +90,13 @@ def test_ensure_report_visible_public_seen_by_stranger(db):
     owner = _make_user(db, username="owner")
     stranger = _make_user(db, username="stranger")
     report = _make_report(db, owner=owner, visibility=VISIBILITY_PUBLIC)
+    # Layered ACL: stranger also needs DS access to see the report.
+    db.add(
+        DataSourceAccess(
+            data_source_id=report.data_source_id, user_id=stranger.id, permission="read"
+        )
+    )
+    db.commit()
     assert ensure_report_visible(db, stranger, report.id).id == report.id
 
 
@@ -90,24 +104,55 @@ def test_ensure_report_visible_grantee_sees(db):
     owner = _make_user(db, username="owner")
     grantee = _make_user(db, username="grantee")
     report = _make_report(db, owner=owner, visibility=VISIBILITY_PRIVATE)
+    # Layered ACL: grantee also needs DS access to see the report.
+    db.add(
+        DataSourceAccess(
+            data_source_id=report.data_source_id, user_id=grantee.id, permission="read"
+        )
+    )
     db.add(ReportAccess(report_id=report.id, user_id=grantee.id, permission="read"))
     db.commit()
     assert ensure_report_visible(db, grantee, report.id).id == report.id
 
 
-def test_ensure_report_visible_private_403(db):
+def test_ensure_report_visible_private_404(db):
     owner = _make_user(db, username="owner")
     stranger = _make_user(db, username="stranger")
     report = _make_report(db, owner=owner, visibility=VISIBILITY_PRIVATE)
     with pytest.raises(HTTPException) as exc:
         ensure_report_visible(db, stranger, report.id)
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 404
 
 
 def test_ensure_report_visible_missing_404(db):
     user = _make_user(db, username="u")
     with pytest.raises(HTTPException) as exc:
         ensure_report_visible(db, user, 99999)
+    assert exc.value.status_code == 404
+
+
+def test_ensure_report_visible_write_requires_write_grant(db):
+    """A read-only grant must NOT satisfy a write request — uniform 404.
+
+    Public visibility never grants write (per
+    :func:`get_report_for_user`), and a ``permission=read`` grant
+    on a private report must likewise be rejected at the write
+    level so callers can't accidentally mutate via the read path.
+    """
+    owner = _make_user(db, username="owner")
+    grantee = _make_user(db, username="grantee")
+    report = _make_report(db, owner=owner, visibility=VISIBILITY_PRIVATE)
+    # Layered ACL: grantee also needs DS access so the failure is
+    # attributable to the Report-level read-only grant, not DS ACL.
+    db.add(
+        DataSourceAccess(
+            data_source_id=report.data_source_id, user_id=grantee.id, permission="read"
+        )
+    )
+    db.add(ReportAccess(report_id=report.id, user_id=grantee.id, permission=PERMISSION_READ))
+    db.commit()
+    with pytest.raises(HTTPException) as exc:
+        ensure_report_visible(db, grantee, report.id, level=PERMISSION_WRITE)
     assert exc.value.status_code == 404
 
 

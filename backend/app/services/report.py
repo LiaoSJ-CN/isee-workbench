@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import copy
 
+from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy.orm import Session
 
 from app.models.data_source_access import DataSourceAccess  # noqa: F401  # noqa
@@ -409,34 +411,27 @@ def duplicate_report(
 # ---- Versioning helpers (批 versioning Task 4) ----
 
 
-def ensure_report_visible(db: Session, user: User, report_id: int) -> Report:
-    """Load a Report and enforce visibility — 404 if missing, 403 if invisible.
+def ensure_report_visible(
+    db: Session,
+    user: User,
+    report_id: int,
+    *,
+    level: str = PERMISSION_READ,
+) -> Report:
+    """Load a Report and raise 404 if missing OR inaccessible (uniform 404).
 
-    Visibility rules (mirrors ``list_accessible_reports``):
-    - admin sees everything
-    - owner sees their own
-    - public reports visible to all authenticated users
-    - explicit :class:`ReportAccess` grants visible too
+    Thin wrapper over :func:`get_report_for_user` so all ACL checks
+    (data-source layer + report layer + read/write split) are reused
+    rather than re-implemented. ``level=PERMISSION_WRITE`` requires an
+    explicit write grant — public visibility never grants write.
     """
-    from fastapi import HTTPException, status as http_status
-
-    report = db.get(Report, report_id)
+    report = get_report_for_user(db, report_id, user, level=level)
     if report is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Report not found")
-    if user.role == ROLE_ADMIN:
-        return report
-    if report.owner_user_id == user.id:
-        return report
-    if report.visibility == "public":
-        return report
-    granted = (
-        db.query(ReportAccess)
-        .filter(ReportAccess.report_id == report_id, ReportAccess.user_id == user.id)
-        .first()
-    )
-    if granted is not None:
-        return report
-    raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="No access to this report")
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Report not found",
+        )
+    return report
 
 
 def is_owner_or_admin(user: User, report: Report) -> bool:
