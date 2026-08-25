@@ -36,6 +36,7 @@ from app.routers import (
     explorer,
     jobs,
     report,
+    report_version,
     scheduler,
     subscription,
 )
@@ -229,6 +230,8 @@ app.add_middleware(CSRFMiddleware)
 app.include_router(auth.router)
 app.include_router(data_source.router)
 app.include_router(report.router)
+# Report versioning (snapshot / list / diff / restore / delete).
+app.include_router(report_version.router)
 app.include_router(scheduler.router)
 app.include_router(explorer.router)
 # Async report-generation jobs (批 3a). Two routers because the surface
