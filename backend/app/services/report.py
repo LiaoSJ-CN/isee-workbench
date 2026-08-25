@@ -33,7 +33,7 @@ from app.models.report import (
 )
 from app.models.report_access import ReportAccess
 from app.models.report_parameter import ReportParameter
-from app.models.user import User
+from app.models.user import ROLE_ADMIN, User
 from app.services.data_source import (
     PERMISSION_READ,
     PERMISSION_WRITE,
@@ -404,3 +404,43 @@ def duplicate_report(
 
     db.flush()
     return original, clone
+
+
+# ---- Versioning helpers (批 versioning Task 4) ----
+
+
+def ensure_report_visible(db: Session, user: User, report_id: int) -> Report:
+    """Load a Report and enforce visibility — 404 if missing, 403 if invisible.
+
+    Visibility rules (mirrors ``list_accessible_reports``):
+    - admin sees everything
+    - owner sees their own
+    - public reports visible to all authenticated users
+    - explicit :class:`ReportAccess` grants visible too
+    """
+    from fastapi import HTTPException, status as http_status
+
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Report not found")
+    if user.role == ROLE_ADMIN:
+        return report
+    if report.owner_user_id == user.id:
+        return report
+    if report.visibility == "public":
+        return report
+    granted = (
+        db.query(ReportAccess)
+        .filter(ReportAccess.report_id == report_id, ReportAccess.user_id == user.id)
+        .first()
+    )
+    if granted is not None:
+        return report
+    raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="No access to this report")
+
+
+def is_owner_or_admin(user: User, report: Report) -> bool:
+    """True for admin role or report owner."""
+    if user.role == ROLE_ADMIN:
+        return True
+    return report.owner_user_id == user.id
