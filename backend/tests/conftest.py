@@ -153,114 +153,125 @@ def _cleanup_leaked_data_source_rows():
 
     from app.database import SessionLocal
 
+    def _cleanup() -> None:
+        db = SessionLocal()
+        try:
+            db.execute(text("DELETE FROM data_sources WHERE port = 0"))
+            db.execute(text("DELETE FROM data_sources WHERE name LIKE 'bad-test-source-%'"))
+            db.execute(text("DELETE FROM data_sources WHERE name LIKE 'pytest\\_%' ESCAPE '\\'"))
+            db.execute(text("DELETE FROM data_sources WHERE name LIKE 'happy-sqlite-source-%'"))
+            db.execute(text("DELETE FROM data_sources WHERE name LIKE 'debug_%'"))
+            # T4 / T5 report-versioning fixtures use a uuid-suffixed
+            # ``ds-owner_<uuid>`` / ``ds_<uuid>`` pattern. Prune both shapes.
+            db.execute(
+                text(
+                    "DELETE FROM data_sources "
+                    "WHERE name LIKE 'ds-owner\\_%' ESCAPE '\\' "
+                    "   OR name LIKE 'ds\\_%' ESCAPE '\\'"
+                )
+            )
+            # ``test_render_html_error_message_is_html_escaped`` and friends used
+            # to leave scratch ``report_items`` rows with the giveaway shape
+            # ``name='x' AND table_name IN ('t','x')``. Prune anything that looks
+            # like that — they're attached to real reports (by id) so we can't
+            # safely drop by report_id, but the marker combo is unique enough.
+            db.execute(
+                text(
+                    "DELETE FROM report_items "
+                    "WHERE name = 'x' "
+                    "  AND table_name IN ('t', 'x') "
+                    "  AND fields = '[\"a\"]'"
+                )
+            )
+            # T4 / T5 report-versioning fixtures create Report + ReportItem +
+            # ReportParameter rows that share a uuid-suffixed ``r-owner_<uuid>``
+            # / ``r_<uuid>`` name. Delete the child rows explicitly first (the
+            # SQLAlchemy cascade is ORM-level; the raw DELETE below doesn't
+            # trigger it), then the parent reports. Without this the XSS
+            # regression test iterates all active reports and crashes on
+            # ``sqlite3.OperationalError`` for missing test tables like
+            # ``orders``.
+            db.execute(
+                text(
+                    "DELETE FROM report_items "
+                    "WHERE report_id IN ("
+                    "    SELECT id FROM reports "
+                    "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
+                    "       OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    ")"
+                )
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_parameters "
+                    "WHERE report_id IN ("
+                    "    SELECT id FROM reports "
+                    "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
+                    "       OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    ")"
+                )
+            )
+            # T5 tests also call ``create_snapshot()`` which inserts
+            # ``report_versions`` + ``report_version_items`` +
+            # ``report_version_parameters`` rows. The FKs declare ON DELETE
+            # CASCADE but SQLite only enforces that when
+            # ``PRAGMA foreign_keys = ON``, which the app connection does not
+            # set. Prune the grandchild + child + parent rows explicitly so
+            # the next ``test_list_versions_ordered_desc`` run starts from a
+            # clean slate (otherwise stale versions show up against a
+            # re-incremented ``reports.id``).
+            db.execute(
+                text(
+                    "DELETE FROM report_version_items "
+                    "WHERE version_id IN ("
+                    "    SELECT v.id FROM report_versions v "
+                    "    JOIN reports r ON r.id = v.report_id "
+                    "    WHERE r.name LIKE 'r-owner\\_%' ESCAPE '\\' "
+                    "       OR r.name LIKE 'r\\_%' ESCAPE '\\'"
+                    ")"
+                )
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_version_parameters "
+                    "WHERE version_id IN ("
+                    "    SELECT v.id FROM report_versions v "
+                    "    JOIN reports r ON r.id = v.report_id "
+                    "    WHERE r.name LIKE 'r-owner\\_%' ESCAPE '\\' "
+                    "       OR r.name LIKE 'r\\_%' ESCAPE '\\'"
+                    ")"
+                )
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_versions "
+                    "WHERE report_id IN ("
+                    "    SELECT id FROM reports "
+                    "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
+                    "       OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    ")"
+                )
+            )
+            db.execute(
+                text(
+                    "DELETE FROM reports "
+                    "WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
+                    "   OR name LIKE 'r\\_%' ESCAPE '\\'"
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+
+    # Run cleanup both before AND after each test: the post-test prune
+    # catches what THIS test left behind, but a fresh ``pytest`` invocation
+    # starts against whatever the previous invocation's last test leaked
+    # (since the previous yield's post-cleanup never ran). Running
+    # pre-cleanup too makes every first-test-of-the-run start from a
+    # known-empty slate (regression for
+    # ``test_clone_data_source_leaves_source_grants_intact`` race).
+    _cleanup()
     yield
-    db = SessionLocal()
-    try:
-        db.execute(text("DELETE FROM data_sources WHERE port = 0"))
-        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'bad-test-source-%'"))
-        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'pytest\\_%' ESCAPE '\\'"))
-        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'happy-sqlite-source-%'"))
-        db.execute(text("DELETE FROM data_sources WHERE name LIKE 'debug_%'"))
-        # T4 / T5 report-versioning fixtures use a uuid-suffixed
-        # ``ds-owner_<uuid>`` / ``ds_<uuid>`` pattern. Prune both shapes.
-        db.execute(
-            text(
-                "DELETE FROM data_sources "
-                "WHERE name LIKE 'ds-owner\\_%' ESCAPE '\\' "
-                "   OR name LIKE 'ds\\_%' ESCAPE '\\'"
-            )
-        )
-        # ``test_render_html_error_message_is_html_escaped`` and friends used
-        # to leave scratch ``report_items`` rows with the giveaway shape
-        # ``name='x' AND table_name IN ('t','x')``. Prune anything that looks
-        # like that — they're attached to real reports (by id) so we can't
-        # safely drop by report_id, but the marker combo is unique enough.
-        db.execute(
-            text(
-                "DELETE FROM report_items "
-                "WHERE name = 'x' "
-                "  AND table_name IN ('t', 'x') "
-                "  AND fields = '[\"a\"]'"
-            )
-        )
-        # T4 / T5 report-versioning fixtures create Report + ReportItem +
-        # ReportParameter rows that share a uuid-suffixed ``r-owner_<uuid>``
-        # / ``r_<uuid>`` name. Delete the child rows explicitly first (the
-        # SQLAlchemy cascade is ORM-level; the raw DELETE below doesn't
-        # trigger it), then the parent reports. Without this the XSS
-        # regression test iterates all active reports and crashes on
-        # ``sqlite3.OperationalError`` for missing test tables like
-        # ``orders``.
-        db.execute(
-            text(
-                "DELETE FROM report_items "
-                "WHERE report_id IN ("
-                "    SELECT id FROM reports "
-                "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                "       OR name LIKE 'r\\_%' ESCAPE '\\'"
-                ")"
-            )
-        )
-        db.execute(
-            text(
-                "DELETE FROM report_parameters "
-                "WHERE report_id IN ("
-                "    SELECT id FROM reports "
-                "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                "       OR name LIKE 'r\\_%' ESCAPE '\\'"
-                ")"
-            )
-        )
-        # T5 tests also call ``create_snapshot()`` which inserts
-        # ``report_versions`` + ``report_version_items`` +
-        # ``report_version_parameters`` rows. The FKs declare ON DELETE
-        # CASCADE but SQLite only enforces that when
-        # ``PRAGMA foreign_keys = ON``, which the app connection does not
-        # set. Prune the grandchild + child + parent rows explicitly so
-        # the next ``test_list_versions_ordered_desc`` run starts from a
-        # clean slate (otherwise stale versions show up against a
-        # re-incremented ``reports.id``).
-        db.execute(
-            text(
-                "DELETE FROM report_version_items "
-                "WHERE version_id IN ("
-                "    SELECT v.id FROM report_versions v "
-                "    JOIN reports r ON r.id = v.report_id "
-                "    WHERE r.name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                "       OR r.name LIKE 'r\\_%' ESCAPE '\\'"
-                ")"
-            )
-        )
-        db.execute(
-            text(
-                "DELETE FROM report_version_parameters "
-                "WHERE version_id IN ("
-                "    SELECT v.id FROM report_versions v "
-                "    JOIN reports r ON r.id = v.report_id "
-                "    WHERE r.name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                "       OR r.name LIKE 'r\\_%' ESCAPE '\\'"
-                ")"
-            )
-        )
-        db.execute(
-            text(
-                "DELETE FROM report_versions "
-                "WHERE report_id IN ("
-                "    SELECT id FROM reports "
-                "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                "       OR name LIKE 'r\\_%' ESCAPE '\\'"
-                ")"
-            )
-        )
-        db.execute(
-            text(
-                "DELETE FROM reports "
-                "WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                "   OR name LIKE 'r\\_%' ESCAPE '\\'"
-            )
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-    finally:
-        db.close()
+    _cleanup()
