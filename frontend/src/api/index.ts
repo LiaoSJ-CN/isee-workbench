@@ -35,6 +35,13 @@ import type {
   SchedulerJob,
 } from '../types';
 
+// T13: re-export `ReportVersionCreate` so consumers (e.g.
+// `useReportVersions.ts`) can import it as a type from `../api`.
+// The import block above pulls the type for use in this file's
+// function signatures; without this re-export `verbatimModuleSyntax`
+// makes the consumer import fail at type-check time.
+export type { ReportVersionCreate };
+
 // VITE_API_BASE_URL can be set at build time for production deployments.
 // Defaults to '/api' which works with the Vite dev proxy and nginx reverse proxy.
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';

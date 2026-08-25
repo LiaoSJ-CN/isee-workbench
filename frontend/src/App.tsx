@@ -39,6 +39,7 @@ const SchedulerPage = lazy(() => import('./pages/Scheduler'));
 const DataExplorer = lazy(() => import('./pages/DataExplorer'));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
 const MySubscriptionsPage = lazy(() => import('./pages/MySubscriptions'));
+const ReportHistoryPage = lazy(() => import('./pages/ReportHistory'));
 
 const { Header, Content } = Layout;
 
@@ -199,6 +200,7 @@ function AppShell() {
             <Route path="/reports/:id" element={<ReportEditor />} />
             <Route path="/reports/:id/edit" element={<NavigateToReports />} />
             <Route path="/reports/:id/preview" element={<ReportPreview />} />
+            <Route path="/reports/:id/history" element={<ReportHistoryPage />} />
             <Route path="/scheduler" element={<SchedulerPage />} />
             <Route path="/my-subscriptions" element={<MySubscriptionsPage />} />
             <Route
