@@ -529,3 +529,95 @@ export interface AuditLogFilters {
   limit?: number;
   offset?: number;
 }
+
+// ============ Report Versions (批 report-versioning) ============
+
+export interface ReportVersionItem {
+  id: number;
+  name: string;
+  item_type: ItemType;
+  order_index: number;
+  table_name?: string;
+  fields?: string[];
+  where_conditions?: WhereCondition[];
+  group_by?: string[];
+  order_by?: OrderByItem[];
+  limit?: number;
+  display_config?: DisplayConfig;
+  custom_sql?: string;
+}
+
+export interface ReportVersionParameter {
+  id: number;
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  options?: string[];
+  order_index: number;
+}
+
+export interface ReportVersionSummary {
+  id: number;
+  report_id: number;
+  version_number: number;
+  label?: string | null;
+  is_pinned: boolean;
+  created_by?: number | null;
+  created_at: string;
+}
+
+export interface ReportVersionResponse extends ReportVersionSummary {
+  name: string;
+  description?: string | null;
+  data_source_id: number;
+  layout_config?: Record<string, unknown>;
+  is_scheduled: boolean;
+  cron_expression?: string | null;
+  schedule_description?: string | null;
+  notification_config?: Record<string, unknown> | null;
+  output_formats?: string[];
+  is_active: boolean;
+  visibility: string;
+  owner_user_id?: number | null;
+  org_id?: number | null;
+  items: ReportVersionItem[];
+  parameters: ReportVersionParameter[];
+}
+
+export interface ReportVersionCreate {
+  label?: string;
+}
+
+export interface FieldChange {
+  field: string;
+  old_value: unknown;
+  new_value: unknown;
+}
+
+export interface ItemDiff {
+  name: string;
+  changes: FieldChange[];
+}
+
+export interface ParameterDiff {
+  name: string;
+  changes: FieldChange[];
+}
+
+export interface ReportVersionDiff {
+  base_version: number;
+  target_version?: number | null;
+  report_changes: FieldChange[];
+  items_added: ReportVersionItem[];
+  items_removed: ReportVersionItem[];
+  items_modified: ItemDiff[];
+  parameters_added: ReportVersionParameter[];
+  parameters_removed: ReportVersionParameter[];
+  parameters_modified: ParameterDiff[];
+}
+
+export interface ReportVersionRestoreResponse {
+  report: Report;
+}
