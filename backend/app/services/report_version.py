@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy.orm import Session
 
-from app.models.report import Report
+from app.models.report import Report, ReportItem
+from app.models.report_parameter import ReportParameter
 from app.models.report_version import (
     ReportVersion,
     ReportVersionItem,
@@ -117,3 +120,90 @@ def list_versions(db: Session, *, report_id: int) -> Sequence[ReportVersion]:
 
 def get_version(db: Session, *, version_id: int) -> ReportVersion | None:
     return db.get(ReportVersion, version_id)
+
+
+class PinnedVersionError(Exception):
+    """Raised when attempting to delete a pinned version."""
+
+
+def restore_version(db: Session, *, user: User, report_id: int, version_id: int) -> Report:
+    """Overwrite live Report + items + parameters with snapshot state.
+
+    Caller MUST have already verified owner/admin via
+    :func:`app.services.report.is_owner_or_admin`.
+    """
+    version = db.get(ReportVersion, version_id)
+    if version is None or version.report_id != report_id:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Version not found")
+
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    # Overwrite Report scalar columns
+    report.name = version.name
+    report.description = version.description
+    report.data_source_id = version.data_source_id
+    report.layout_config = version.layout_config
+    report.is_scheduled = version.is_scheduled
+    report.cron_expression = version.cron_expression
+    report.schedule_description = version.schedule_description
+    report.notification_config = version.notification_config
+    report.output_formats = version.output_formats
+    report.is_active = version.is_active
+    # is_demo deliberately preserved — it's a system flag, not user content
+    report.visibility = version.visibility
+    report.owner_user_id = version.owner_user_id
+    report.org_id = version.org_id
+
+    # Replace items: delete current, re-create from snapshot
+    db.query(ReportItem).filter(ReportItem.report_id == report_id).delete()
+    db.flush()
+    for v_item in version.items:
+        db.add(
+            ReportItem(
+                report_id=report_id,
+                name=v_item.name,
+                item_type=v_item.item_type,
+                order_index=v_item.order_index,
+                table_name=v_item.table_name,
+                fields=v_item.fields,
+                where_conditions=v_item.where_conditions,
+                group_by=v_item.group_by,
+                order_by=v_item.order_by,
+                limit=v_item.limit,
+                display_config=v_item.display_config,
+                custom_sql=v_item.custom_sql,
+            )
+        )
+
+    # Replace parameters: same pattern
+    db.query(ReportParameter).filter(ReportParameter.report_id == report_id).delete()
+    db.flush()
+    for v_param in version.parameters:
+        db.add(
+            ReportParameter(
+                report_id=report_id,
+                name=v_param.name,
+                label=v_param.label,
+                type=v_param.type,
+                required=v_param.required,
+                default=v_param.default,
+                options=v_param.options,
+                order_index=v_param.order_index,
+            )
+        )
+
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def delete_version(db: Session, *, version_id: int) -> None:
+    version = db.get(ReportVersion, version_id)
+    if version is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Version not found")
+    if version.is_pinned:
+        raise PinnedVersionError("Version is pinned; unpin before delete")
+    db.delete(version)
+    db.commit()

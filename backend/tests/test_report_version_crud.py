@@ -10,7 +10,13 @@ from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.models.report_parameter import ReportParameter
 from app.models.user import ROLE_ADMIN, User
-from app.services.report_version import create_snapshot, get_version, list_versions
+from app.services.report_version import (
+    PinnedVersionError,
+    create_snapshot,
+    delete_version,
+    get_version,
+    list_versions,
+)
 
 
 @pytest.fixture
@@ -126,3 +132,26 @@ def test_get_version_returns_full_snapshot(db, editor, report):
     assert fetched.id == v.id
     assert fetched.items[0].table_name == "orders"
     assert fetched.parameters[0].name == "region"
+
+
+def test_delete_version(db, editor, report):
+    v = create_snapshot(db, user=editor, report_id=report.id)
+    delete_version(db, version_id=v.id)
+    assert get_version(db, version_id=v.id) is None
+
+
+def test_delete_pinned_version_raises(db, editor, report):
+    v = create_snapshot(db, user=editor, report_id=report.id)
+    v.is_pinned = True
+    db.commit()
+    with pytest.raises(PinnedVersionError):
+        delete_version(db, version_id=v.id)
+    assert get_version(db, version_id=v.id) is not None
+
+
+def test_delete_missing_version_raises(db, editor):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        delete_version(db, version_id=99999)
+    assert exc.value.status_code == 404
