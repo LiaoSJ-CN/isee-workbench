@@ -156,6 +156,56 @@ def _cleanup_leaked_data_source_rows():
     def _cleanup() -> None:
         db = SessionLocal()
         try:
+            # Orphan cleanup: child rows whose parent has been deleted.
+            # SQLite FK enforcement is OFF by default, so DELETE on the
+            # parent does not cascade. These queries sweep up orphans across
+            # all the tables that can leak test data. Without this, SQLite
+            # rowid reuse lets a later test's `original.id` = 345 match an
+            # orphan `DataSourceAccess.data_source_id = 345`, breaking
+            # `assert count == 1` style assertions (root cause of the ~30%
+            # flake rate observed after T5 fixtures started creating
+            # ``ds-owner_<uuid>`` DataSources).
+            db.execute(
+                text(
+                    "DELETE FROM data_source_access "
+                    "WHERE data_source_id NOT IN (SELECT id FROM data_sources)"
+                )
+            )
+            db.execute(
+                text("DELETE FROM report_access WHERE report_id NOT IN (SELECT id FROM reports)")
+            )
+            db.execute(
+                text("DELETE FROM report_items WHERE report_id NOT IN (SELECT id FROM reports)")
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_parameters WHERE report_id NOT IN (SELECT id FROM reports)"
+                )
+            )
+            db.execute(
+                text("DELETE FROM report_versions WHERE report_id NOT IN (SELECT id FROM reports)")
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_version_items "
+                    "WHERE version_id NOT IN (SELECT id FROM report_versions)"
+                )
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_version_parameters "
+                    "WHERE version_id NOT IN (SELECT id FROM report_versions)"
+                )
+            )
+            db.execute(
+                text(
+                    "DELETE FROM report_subscriptions "
+                    "WHERE report_id NOT IN (SELECT id FROM reports)"
+                )
+            )
+            db.execute(
+                text("DELETE FROM report_jobs WHERE report_id NOT IN (SELECT id FROM reports)")
+            )
             db.execute(text("DELETE FROM data_sources WHERE port = 0"))
             db.execute(text("DELETE FROM data_sources WHERE name LIKE 'bad-test-source-%'"))
             db.execute(text("DELETE FROM data_sources WHERE name LIKE 'pytest\\_%' ESCAPE '\\'"))
