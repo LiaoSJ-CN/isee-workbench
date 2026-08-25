@@ -17,7 +17,6 @@ from app.models import report_access  # noqa: F401  # 批 9.4
 from app.models import report_job  # noqa: F401
 from app.models import report_parameter  # noqa: F401
 from app.models import report_subscription  # noqa: F401
-from app.models import report_version  # noqa: F401  -- register for autogenerate
 from app.models import revoked_token  # noqa: F401
 from app.models import user  # noqa: F401
 
