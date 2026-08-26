@@ -11,7 +11,9 @@ vi.mock('../../queries/useUsers', () => ({
   useUsers: () => mockUseUsers(),
 }));
 
-let mockUseUsers: () => { data: { id: number; username: string; role: string }[] | undefined } = () => ({
+let mockUseUsers: () => {
+  data: { id: number; username: string; role: string }[] | undefined;
+} = () => ({
   data: undefined,
 });
 
