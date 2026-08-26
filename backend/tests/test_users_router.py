@@ -96,3 +96,35 @@ def test_list_users_limit_capped(client: TestClient) -> None:
     # Below the floor (1) → 422.
     r = client.get("/users?limit=0", headers=_auth())
     assert r.status_code == 422
+
+
+def test_list_users_excludes_disabled(client: TestClient, db) -> None:
+    """Disabled users are filtered out (consistent with ``auth.py``).
+
+    ``User.disabled`` is treated as a soft-delete flag throughout the
+    codebase — ``auth.py`` rejects disabled users at login and
+    ``/auth/refresh`` — so the listing must match the auth path to
+    keep the report-versioning UI from showing stale usernames for
+    users that can no longer sign in. Insert a uniquely-named
+    disabled user, hit ``/users``, assert the username is absent.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    disabled_username = f"disabled_{suffix}"
+    db.add(
+        User(
+            username=disabled_username,
+            password_hash="not-used-in-this-test",
+            role=ROLE_VIEWER,
+            disabled=True,
+        )
+    )
+    db.commit()
+    try:
+        r = client.get("/users", headers=_auth())
+        assert r.status_code == 200
+        usernames = {entry["username"] for entry in r.json()}
+        assert disabled_username not in usernames
+    finally:
+        # Clean up so the dev ``app.db`` doesn't accumulate test rows.
+        db.query(User).filter(User.username == disabled_username).delete()
+        db.commit()

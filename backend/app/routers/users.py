@@ -31,14 +31,20 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get(
     "",
     response_model=list[UserSummary],
-    summary="List all users (id + username + role) for foreign-key resolution",
+    summary="List active users (id + username + role) for foreign-key resolution",
 )
 def list_users(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     limit: int = Query(default=500, ge=1, le=500),
 ) -> list[UserSummary]:
-    """Return every active user, ordered by id ascending.
+    """Return every **active** user, ordered by id ascending.
+
+    ``User.disabled`` is treated as a soft-delete flag throughout the
+    codebase (``auth.py`` rejects disabled users at login). Filtering
+    it here too keeps the listing consistent with the auth path and
+    prevents the ``created_by`` resolution UI from showing stale
+    usernames for users that can no longer sign in.
 
     Capped at 500 so a runaway ``SELECT *`` cannot sweep the whole
     table if someone bumps the count somewhere; in practice the
@@ -46,6 +52,7 @@ def list_users(
     """
     rows = (
         db.query(User)
+        .filter(User.disabled.is_(False))
         .order_by(User.id.asc())
         .limit(limit)
         .all()
