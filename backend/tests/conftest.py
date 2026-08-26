@@ -171,6 +171,20 @@ def _cleanup_leaked_data_source_rows():
                     "WHERE data_source_id NOT IN (SELECT id FROM data_sources)"
                 )
             )
+            # `reports.data_source_id` is `nullable=False`, so a leftover
+            # orphan report pointing at a long-deleted DataSource will
+            # collide on the next test: SQLAlchemy ORM cascade fires
+            # `UPDATE reports SET data_source_id = NULL` when the parent
+            # DataSource gets `db.delete()`-ed, which trips the NOT NULL
+            # constraint and aborts the test (root cause of the
+            # ``test_create_and_get_data_source`` style failures observed
+            # after T5 fixtures started deleting DataSources by id).
+            db.execute(
+                text(
+                    "DELETE FROM reports "
+                    "WHERE data_source_id NOT IN (SELECT id FROM data_sources)"
+                )
+            )
             db.execute(
                 text("DELETE FROM report_access WHERE report_id NOT IN (SELECT id FROM reports)")
             )
