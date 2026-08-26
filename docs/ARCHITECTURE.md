@@ -389,6 +389,26 @@ HTTP 客户端禁用重定向跟随（`follow_redirects=False`），防 302 跳�
 | `app/services/` | 业务逻辑 |
 | `tests/` | pytest 测试套件（685 用例 + 4 跳过，含 PG-safe 子集 + alert rules 校验） |
 
+### Report versioning (批 report-versioning)
+
+3 fully-normalized tables `report_versions` / `report_version_items` /
+`report_version_parameters` mirror the live Report schema. Manual snapshot
+via "保存为版本" button; restore is an atomic overwrite of the live state.
+Diff is field-level with items/parameters paired by `name`. ACL: list/get
+follow Report visibility; restore/delete require owner or admin.
+
+Endpoints:
+
+- `POST /reports/{id}/versions` — create snapshot (visibility-gated)
+- `GET /reports/{id}/versions` — list snapshots newest first
+- `GET /reports/{id}/versions/{vid}` — fetch full snapshot
+- `GET /reports/{id}/versions/{vid}/diff?against=<id|current>` — diff
+- `POST /reports/{id}/versions/{vid}/restore` — restore (owner/admin)
+- `DELETE /reports/{id}/versions/{vid}` — delete (owner/admin, 409 if pinned)
+
+See `docs/superpowers/specs/2026-08-25-report-versioning-design.md` for
+schema SQL, endpoint contracts, and diff algorithm.
+
 ---
 
 ## 13. 相关文档

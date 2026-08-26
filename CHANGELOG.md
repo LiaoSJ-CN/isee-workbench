@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### Added
+
+- 报表版本/历史：手动快照 + 原子 restore + 字段级 diff（批 report-versioning）。3 张规范化版本表，6 个新端点 `/reports/{id}/versions[/...]`。Spec：`docs/superpowers/specs/2026-08-25-report-versioning-design.md`。
+
 ### 新增
 - `ensure_columns` 启动期 schema 自愈：补齐 `create_all` 漏掉的「已存在表 + 新增列」（`Base.metadata.create_all` 只建表不补列）。新模块 `app/db_migrations.py`，在 `main.py` 启动时于 `create_all` 之后调用。幂等，`NOT NULL` 无 `server_default` 的列会 log warning + 跳过（要求人工迁移）
 - 调度器暂停/恢复 UI：Scheduler 页面每个定时任务增加 Pause/Resume 按钮和绿/橙状态标签，通过现有 POST 端点传递 `is_active` 控制启停

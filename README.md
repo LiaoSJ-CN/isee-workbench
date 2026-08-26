@@ -131,6 +131,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 - 自动 SQL 生成或自定义 SQL
 - 查询条件、排序、分组、参数（`/reports/{id}/parameters`）配置
 - **Duplicate**：一键复制整个报表（含所有 item + 参数 + share 配置）
+- **报表版本与回滚**：手动「保存为版本」创建完整快照；任意版本可一键恢复；字段级 diff 查看改动（批 report-versioning）
 - **ACL（批 9.4）**：报表 owner 默认 full，可设 `visibility=private/link/internal` 或显式 `share` 给指定用户
 
 ### 报表生成
@@ -219,6 +220,12 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | GET | `/reports/{id}/export/{format}` | 导出报表（`html` / `xlsx` / `pdf`） |
 | POST | `/reports/{id}/jobs` | **异步**生成报表（入队，返回 job id） |
 | GET | `/reports/{id}/jobs` | 报表的 job 历史 |
+| POST | `/reports/{id}/versions` | **保存为版本**（创建完整快照） |
+| GET | `/reports/{id}/versions` | 列出所有版本（newest first） |
+| GET | `/reports/{id}/versions/{vid}` | 获取单个版本完整内容 |
+| GET | `/reports/{id}/versions/{vid}/diff` | 字段级 diff（`?against=current\|{vid}` 指定对比基准） |
+| POST | `/reports/{id}/versions/{vid}/restore` | 恢复版本到 live（owner/admin） |
+| DELETE | `/reports/{id}/versions/{vid}` | 删除版本（owner/admin，pinned 则 409） |
 
 ### 异步任务
 

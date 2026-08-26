@@ -15,7 +15,11 @@
 
 ## 候选方向（观察到的需求，未排优先级）
 
-### 1. 报表版本/历史 (Report Versioning)
+### 1. 报表版本/历史 (Report Versioning) — **【已实现】**
+
+> Implemented: 2026-08-26.
+> Spec: `docs/superpowers/specs/2026-08-25-report-versioning-design.md`
+> Plan: `docs/superpowers/plans/2026-08-25-report-versioning.md`
 
 **现状**：`Report` 模型没有 `version` 字段，每次编辑都是 in-place 覆盖。
 
