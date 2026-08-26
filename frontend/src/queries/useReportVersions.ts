@@ -49,7 +49,14 @@ export function useCreateReportVersion(reportId: number) {
 export function useRestoreReportVersion(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (versionId: number) => reportVersionsApi.restore(reportId, versionId),
+    mutationFn: ({
+      versionId,
+      expectedUpdatedAt,
+    }: {
+      versionId: number;
+      expectedUpdatedAt?: string | null;
+    }) =>
+      reportVersionsApi.restore(reportId, versionId, { expectedUpdatedAt }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.list(reportId) });
       qc.invalidateQueries({ queryKey: ['reports', reportId] });

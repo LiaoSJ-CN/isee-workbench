@@ -73,6 +73,7 @@ export default function ReportHistoryPage() {
         open={restoreTarget !== null}
         reportId={reportId!}
         version={restoreTarget}
+        currentUpdatedAt={report.updated_at ?? null}
         onClose={() => setRestoreTarget(null)}
         onRestored={() => navigate(`/reports/${reportId}`)}
       />

@@ -644,8 +644,18 @@ export const reportVersionsApi = {
     const { data } = await api.post(`/reports/${reportId}/versions`, payload);
     return data;
   },
-  restore: async (reportId: number, versionId: number): Promise<ReportVersionRestoreResponse> => {
-    const { data } = await api.post(`/reports/${reportId}/versions/${versionId}/restore`);
+  restore: async (
+    reportId: number,
+    versionId: number,
+    options: { expectedUpdatedAt?: string | null } = {},
+  ): Promise<ReportVersionRestoreResponse> => {
+    // A5: optimistic-lock body. ``undefined`` → field omitted from
+    // payload (Pydantic default kicks in: skip the check); ``null``
+    // → explicit opt-out; ISO string → lock-check on the server.
+    const { data } = await api.post(
+      `/reports/${reportId}/versions/${versionId}/restore`,
+      { expected_updated_at: options.expectedUpdatedAt ?? null },
+    );
     return data;
   },
   delete: async (reportId: number, versionId: number): Promise<void> => {
