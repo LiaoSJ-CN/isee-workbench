@@ -15,7 +15,7 @@ import {
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 
 import type { DataSource, DataSourceGrant, DataSourceGrantPermission } from '../types';
-import type { UserSummary } from '../api';
+import type { UserSummary } from '../types';
 
 export interface DataSourceShareModalProps {
   visible: boolean;

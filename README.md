@@ -178,6 +178,12 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | POST | `/auth/logout` | 登出（access jti 进 deny-list + 清 Cookie） | 无 |
 | GET | `/auth/me` | 返回当前登录用户 | Bearer access |
 
+### 用户
+
+| 方法 | 路径 | 功能 | 鉴权 |
+|------|------|------|------|
+| GET | `/users` | 列出全部用户（`id` / `username` / `role`），报表版本化 UI 用此解析 `created_by` 外键为可读用户名 | Bearer access |
+
 ### 数据源
 
 | 方法 | 路径 | 功能 |

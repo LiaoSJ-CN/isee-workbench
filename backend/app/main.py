@@ -39,6 +39,7 @@ from app.routers import (
     report_version,
     scheduler,
     subscription,
+    users,  # A3 (post-批-report-versioning)
 )
 from app.services.job_queue import shutdown_executor
 from app.services.password import hash_password
@@ -242,6 +243,8 @@ app.include_router(jobs.jobs_router)
 app.include_router(subscription.router)
 # Admin-only audit log (批 9.5).
 app.include_router(audit.router)
+# User listing for client-side created_by resolution (A3, post-批-report-versioning).
+app.include_router(users.router)
 
 # Prometheus /metrics + default HTTP histogram. Must come AFTER the
 # routers so Instrumentator sees the final route table. Idempotent for

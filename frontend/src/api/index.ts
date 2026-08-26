@@ -33,6 +33,7 @@ import type {
   ReportVersionSummary,
   SchedulerStatus,
   SchedulerJob,
+  UserSummary,
 } from '../types';
 
 // T13: re-export `ReportVersionCreate` so consumers (e.g.
@@ -205,15 +206,13 @@ export const dataSourceApi = {
   },
 };
 
-/** Minimal user record returned by ``GET /users`` (planned for 批 9.5).
- *  In 9.3 the route does not yet exist, so the share modal falls back
- *  to manual user_id entry when this call 404s. */
-export interface UserSummary {
-  id: number;
-  username: string;
-  role: string;
-}
-
+/** Minimal user record returned by ``GET /users``.
+ *
+ * The ``UserSummary`` shape is defined in ``../types`` (single source
+ * of truth) and re-imported at the top of this file. ``usersApi.list``
+ * exists for the share modals (data source + report) and the
+ * report-versioning UI, all of which resolve foreign-key user ids to
+ * display usernames client-side. */
 export const usersApi = {
   list: async (): Promise<UserSummary[]> => {
     const { data } = await api.get('/users');

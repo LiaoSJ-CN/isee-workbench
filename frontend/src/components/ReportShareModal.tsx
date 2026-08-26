@@ -15,7 +15,7 @@ import {
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 
 import type { Report, ReportShare, ReportSharePermission } from '../types';
-import type { UserSummary } from '../api';
+import type { UserSummary } from '../types';
 
 export interface ReportShareModalProps {
   visible: boolean;

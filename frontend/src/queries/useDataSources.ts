@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { dataSourceApi, usersApi } from '../api';
+import { dataSourceApi } from '../api';
 import type {
   DataSource,
   DataSourceCreate,
@@ -182,19 +182,11 @@ export function useDeleteDataSourceAcl() {
   });
 }
 
-/** List of users for the share-modal picker. Lazy — only fetches when
- *  the consumer opts in (``enabled``), so the modal doesn't issue the
- *  call until it's actually opened. Tolerates 404 (route lands in
- *  批 9.5) so the modal degrades to manual user_id entry. */
-export function useUsers(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: queryKeys.users.list(),
-    queryFn: usersApi.list,
-    enabled: options?.enabled ?? false,
-    retry: false,
-    staleTime: 60_000,
-  });
-}
+// ``useUsers`` lives in its own file (A3, post-批-report-versioning) —
+// re-exported here for backward compatibility with the share-modal
+// pages that already import it from ``./useDataSources``. New consumers
+// should import from ``./useUsers`` directly.
+export { useUsers } from './useUsers';
 
 // Re-export so callers can grab the grant row type alongside the hooks
 // without importing from two places.

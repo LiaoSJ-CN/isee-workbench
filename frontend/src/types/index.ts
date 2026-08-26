@@ -98,6 +98,20 @@ export interface CurrentUser {
   org_id: number | null;
 }
 
+/** Single user row from ``GET /users`` (A3, post-批-report-versioning).
+ *
+ * The report-versioning UI calls this endpoint to resolve the
+ * ``created_by`` foreign key on each ``ReportVersionSummary`` into a
+ * human-readable ``username`` instead of a raw user id. ``id`` is
+ * the only stable foreign key the UI holds; ``username`` is the
+ * display projection.
+ */
+export interface UserSummary {
+  id: number;
+  username: string;
+  role: UserRole;
+}
+
 /** Schema-browser response shape — GET /data-sources/{id}/schema. */
 export interface ColumnInfo {
   name: string;
