@@ -66,10 +66,9 @@ describe('RestoreConfirmModal (A5 optimistic lock)', () => {
   it('sends null expectedUpdatedAt when not provided', async () => {
     mockMutateAsync = vi.fn().mockResolvedValue({});
     captured = null;
-    render(
-      <RestoreConfirmModal open reportId={9} version={version} onClose={vi.fn()} />,
-      { wrapper },
-    );
+    render(<RestoreConfirmModal open reportId={9} version={version} onClose={vi.fn()} />, {
+      wrapper,
+    });
     fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
     await waitFor(() => expect(captured).not.toBeNull());
     expect(captured).toEqual({ versionId: 7, expectedUpdatedAt: null });
@@ -116,10 +115,9 @@ describe('RestoreConfirmModal (A5 optimistic lock)', () => {
       response: { status: 500, data: { detail: 'kaboom' } },
     });
     const errorSpy = vi.spyOn(message, 'error');
-    render(
-      <RestoreConfirmModal open reportId={9} version={version} onClose={vi.fn()} />,
-      { wrapper },
-    );
+    render(<RestoreConfirmModal open reportId={9} version={version} onClose={vi.fn()} />, {
+      wrapper,
+    });
     fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
     await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('恢复失败'));
     errorSpy.mockRestore();
