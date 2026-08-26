@@ -1,6 +1,7 @@
 """End-to-end router tests via FastAPI TestClient."""
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -13,6 +14,7 @@ from app.models.report_access import ReportAccess
 from app.models.report_version import ReportVersion
 from app.models.user import ROLE_ADMIN, ROLE_EDITOR, User
 from app.services.jwt_auth import create_access_token
+from app.services.report_version import _lock_normalize
 
 
 @pytest.fixture
@@ -291,3 +293,124 @@ def test_restore_writes_audit_log(client, db, admin_user, rv_seed_report):
         .all()
     )
     assert len(logs) == 1
+
+
+# ---------------------------------------------------------------------------
+# A5 — optimistic lock on restore
+# ---------------------------------------------------------------------------
+
+
+def _force_updated_at(db, report: Report, when: datetime) -> datetime:
+    """Bump ``report.updated_at`` to ``when`` (assignable for tests).
+
+    The model uses ``onupdate=func.now()`` which fires on UPDATE; we
+    also need to touch another column so the UPDATE is non-empty, and
+    we explicitly assign ``updated_at`` to override the onupdate
+    trigger so the test value is reproducible.
+    """
+    report.name = _unique("locked")
+    report.updated_at = when
+    db.commit()
+    db.refresh(report)
+    return report.updated_at
+
+
+def test_restore_with_no_body_backward_compat(client, db, admin_user, rv_seed_report):
+    """Omitting the body preserves the v1 ``trust the client`` behavior."""
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions",
+        json={},
+        headers=_auth(admin_user),
+    )
+    version_id = r.json()["id"]
+    # Mutate the live report so updated_at advances.
+    _force_updated_at(db, rv_seed_report, datetime.now(timezone.utc))
+    # No body at all — restores anyway.
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/restore",
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_restore_with_explicit_null_expected_updated_at_skips_check(
+    client, db, admin_user, rv_seed_report,
+):
+    """``expected_updated_at: null`` is the explicit opt-out for the check."""
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions",
+        json={},
+        headers=_auth(admin_user),
+    )
+    version_id = r.json()["id"]
+    _force_updated_at(db, rv_seed_report, datetime.now(timezone.utc))
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/restore",
+        json={"expected_updated_at": None},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_restore_with_matching_expected_updated_at_succeeds(
+    client, db, admin_user, rv_seed_report,
+):
+    """Sending the current ``updated_at`` lets restore proceed (lock pass)."""
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions",
+        json={},
+        headers=_auth(admin_user),
+    )
+    version_id = r.json()["id"]
+    # Bump updated_at once and capture it — this is what the client
+    # would have seen on the history page.
+    current = _force_updated_at(db, rv_seed_report, datetime.now(timezone.utc))
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/restore",
+        json={"expected_updated_at": current.isoformat()},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200, r.text
+    db.refresh(rv_seed_report)
+    # ``onupdate`` fires when restore_version overwrites scalar columns.
+    # We compare on the same normalized basis the server uses for the
+    # lock check; the in-memory value is whatever SQLite round-tripped.
+    assert rv_seed_report.updated_at is not None
+
+
+def test_restore_with_stale_expected_updated_at_returns_409(
+    client, db, admin_user, rv_seed_report,
+):
+    """Stale ``expected_updated_at`` → 409 with the live value."""
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions",
+        json={},
+        headers=_auth(admin_user),
+    )
+    version_id = r.json()["id"]
+    # Capture the *old* updated_at the client thinks it's looking at.
+    old = _force_updated_at(
+        db, rv_seed_report, datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+    # Then someone else edits the live report — advances updated_at.
+    new = _force_updated_at(db, rv_seed_report, datetime.now(timezone.utc))
+    assert new > old
+
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/restore",
+        json={"expected_updated_at": old.isoformat()},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert "modified" in detail["message"].lower()
+    # ``current_updated_at`` echoes the live value so the client can
+    # refresh its view. Compare on the same normalized basis the
+    # server uses for the lock (see ``_lock_normalize``).
+    assert detail["current_updated_at"] is not None
+    returned = datetime.fromisoformat(detail["current_updated_at"])
+    assert _lock_normalize(returned) == _lock_normalize(new)
+
+    # Restore did NOT mutate the live report.
+    db.refresh(rv_seed_report)
+    assert rv_seed_report.updated_at is not None

@@ -7,6 +7,7 @@ plus its items + parameters in a single transaction. Restore
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Sequence
 
 from fastapi import HTTPException
@@ -126,11 +127,68 @@ class PinnedVersionError(Exception):
     """Raised when attempting to delete a pinned version."""
 
 
-def restore_version(db: Session, *, user: User, report_id: int, version_id: int) -> Report:
+class OptimisticLockError(Exception):
+    """Raised when ``expected_updated_at`` doesn't match the live Report.
+
+    Spec §7 step 4 (A5): the client captures ``Report.updated_at``
+    when it loads the history page and echoes it back on restore. If
+    another owner/admin edited the live Report in the interim, we
+    bail with 409 instead of silently overwriting their work.
+
+    The exception carries the *current* ``updated_at`` so the router
+    can include it in the 409 body and the client can refresh.
+    """
+
+    def __init__(self, *, current_updated_at: datetime | None) -> None:
+        super().__init__("Report was modified since the version was loaded")
+        self.current_updated_at = current_updated_at
+
+
+def _lock_normalize(dt: datetime | None) -> datetime | None:
+    """Normalize a timestamp for the optimistic-lock comparison.
+
+    Two storage quirks force this:
+
+    1. SQLite round-trips through ISO strings and strips both the
+       timezone and microsecond precision. A client that captured
+       ``2026-08-26T14:55:12.980328+00:00`` and echoed it back would
+       fail the comparison because the stored value is
+       ``2026-08-26T14:55:12`` (tz-naive, no microseconds).
+    2. ``DateTime(timezone=True)`` only preserves tz on dialects that
+       actually support it (PostgreSQL); SQLite silently demotes.
+
+    We treat DB values as UTC and truncate to seconds so the client
+    isn't penalized for our storage's lack of precision. Two writes
+    landing in the same second will both pass the lock — that's
+    acceptable since both users would have seen the same "modified at"
+    marker anyway.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.replace(microsecond=0)
+
+
+def restore_version(
+    db: Session,
+    *,
+    user: User,
+    report_id: int,
+    version_id: int,
+    expected_updated_at: datetime | None = None,
+) -> Report:
     """Overwrite live Report + items + parameters with snapshot state.
 
     Caller MUST have already verified owner/admin via
     :func:`app.services.report.is_owner_or_admin`.
+
+    If ``expected_updated_at`` is provided, compare it with the live
+    ``Report.updated_at`` and raise :class:`OptimisticLockError` on
+    mismatch. Passing ``None`` (or omitting) skips the check — the
+    v1 behavior.
     """
     version = db.get(ReportVersion, version_id)
     if version is None or version.report_id != report_id:
@@ -139,6 +197,15 @@ def restore_version(db: Session, *, user: User, report_id: int, version_id: int)
     report = db.get(Report, report_id)
     if report is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    # Optimistic-lock check (A5). Performed after both rows are
+    # loaded so a 404 / stale-report distinction is clean: a 409
+    # only fires when we *could* have restored but the client was
+    # looking at a stale view of the live Report.
+    if expected_updated_at is not None and _lock_normalize(
+        report.updated_at
+    ) != _lock_normalize(expected_updated_at):
+        raise OptimisticLockError(current_updated_at=report.updated_at)
 
     # Overwrite Report scalar columns
     report.name = version.name

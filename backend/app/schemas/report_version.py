@@ -144,8 +144,25 @@ class ReportVersionDiff(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Restore response
+# Restore request / response
 # ---------------------------------------------------------------------------
+
+
+class RestoreVersionRequest(BaseModel):
+    """Optional optimistic-lock check for POST /versions/{vid}/restore (A5).
+
+    The client captures ``Report.updated_at`` when it loads the history
+    page and echoes it here. If the live Report has changed since (e.g.
+    another owner/admin edited it), the server returns 409 with the
+    current ``updated_at`` so the client can refresh and decide whether
+    to proceed.
+
+    The field is optional — omitting the body or sending ``null``
+    preserves the v1 "trust the client" behavior. Spec §7 lists this
+    as v2 future work; A5 in the post-批-report-versioning backlog.
+    """
+
+    expected_updated_at: datetime | None = None
 
 
 class ReportVersionRestoreResponse(BaseModel):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -19,10 +19,12 @@ from app.schemas.report_version import (
     ReportVersionResponse,
     ReportVersionRestoreResponse,
     ReportVersionSummary,
+    RestoreVersionRequest,
 )
 from app.services.audit import log as write_audit_log
 from app.services.report import ensure_report_visible, is_owner_or_admin
 from app.services.report_version import (
+    OptimisticLockError,
     PinnedVersionError,
     create_snapshot,
     delete_version,
@@ -148,13 +150,36 @@ def diff_report_version(
 def restore_report_version(
     report_id: int,
     version_id: int,
+    payload: RestoreVersionRequest = Body(default_factory=RestoreVersionRequest),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ReportVersionRestoreResponse:
     report = ensure_report_visible(db, user, report_id)
     if not is_owner_or_admin(user, report):
         raise HTTPException(status_code=403, detail="Only owner or admin can restore")
-    restored = restore_version(db, user=user, report_id=report_id, version_id=version_id)
+    try:
+        restored = restore_version(
+            db,
+            user=user,
+            report_id=report_id,
+            version_id=version_id,
+            expected_updated_at=payload.expected_updated_at,
+        )
+    except OptimisticLockError as exc:
+        # A5: surface the *current* ``updated_at`` so the client can
+        # refresh its view and decide whether to retry. FastAPI
+        # serializes the dict detail verbatim into the 409 body.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Report was modified since you loaded it; refresh and try again",
+                "current_updated_at": (
+                    exc.current_updated_at.isoformat()
+                    if exc.current_updated_at is not None
+                    else None
+                ),
+            },
+        )
     write_audit_log(
         db,
         actor_user_id=user.id,
