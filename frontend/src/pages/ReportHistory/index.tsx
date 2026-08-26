@@ -50,8 +50,7 @@ export default function ReportHistoryPage() {
             description={
               <span>
                 还没有历史版本。
-                <br />
-                在{' '}
+                <br />在{' '}
                 <Button type="link" onClick={() => navigate(`/reports/${reportId}/edit`)}>
                   编辑器
                 </Button>{' '}

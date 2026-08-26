@@ -1,16 +1,5 @@
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import {
-  Alert,
-  Button,
-  Card,
-  Drawer,
-  Empty,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Typography,
-} from 'antd';
+import { Alert, Button, Card, Drawer, Empty, Select, Space, Spin, Table, Typography } from 'antd';
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useReport } from '../../queries/useReports';
@@ -28,19 +17,13 @@ export default function ReportHistoryDiffPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const againstParam = searchParams.get('against') ?? 'current';
   const againstValue: number | 'current' =
-    againstParam === 'current' || againstParam === null
-      ? 'current'
-      : Number(againstParam);
+    againstParam === 'current' || againstParam === null ? 'current' : Number(againstParam);
 
   const navigate = useNavigate();
   const { data: report } = useReport(reportId);
   const { data: version } = useReportVersion(reportId, versionId);
   const { data: versions = [] } = useReportVersions(reportId);
-  const { data: diff, isPending } = useReportVersionDiff(
-    reportId,
-    versionId,
-    againstValue,
-  );
+  const { data: diff, isPending } = useReportVersionDiff(reportId, versionId, againstValue);
 
   const [showFullSnapshot, setShowFullSnapshot] = useState(false);
 
@@ -107,10 +90,7 @@ export default function ReportHistoryDiffPage() {
         <Spin />
       ) : (
         <>
-          <Card
-            title={`报表字段差异 (${diff.report_changes.length})`}
-            style={{ marginBottom: 16 }}
-          >
+          <Card title={`报表字段差异 (${diff.report_changes.length})`} style={{ marginBottom: 16 }}>
             {diff.report_changes.length === 0 ? (
               <Empty description="无字段变更" />
             ) : (
@@ -164,20 +144,10 @@ export default function ReportHistoryDiffPage() {
             ) : (
               <Space direction="vertical" style={{ width: '100%' }}>
                 {diff.parameters_added.map((p) => (
-                  <Alert
-                    key={p.id}
-                    type="success"
-                    showIcon
-                    message={`+ 新增: ${p.name}`}
-                  />
+                  <Alert key={p.id} type="success" showIcon message={`+ 新增: ${p.name}`} />
                 ))}
                 {diff.parameters_removed.map((p) => (
-                  <Alert
-                    key={p.id}
-                    type="error"
-                    showIcon
-                    message={`- 删除: ${p.name}`}
-                  />
+                  <Alert key={p.id} type="error" showIcon message={`- 删除: ${p.name}`} />
                 ))}
                 {diff.parameters_modified.map((m) => (
                   <Card key={m.name} size="small" title={`~ 修改: ${m.name}`}>

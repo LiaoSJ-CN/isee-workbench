@@ -645,13 +645,8 @@ export const reportVersionsApi = {
     const { data } = await api.post(`/reports/${reportId}/versions`, payload);
     return data;
   },
-  restore: async (
-    reportId: number,
-    versionId: number,
-  ): Promise<ReportVersionRestoreResponse> => {
-    const { data } = await api.post(
-      `/reports/${reportId}/versions/${versionId}/restore`,
-    );
+  restore: async (reportId: number, versionId: number): Promise<ReportVersionRestoreResponse> => {
+    const { data } = await api.post(`/reports/${reportId}/versions/${versionId}/restore`);
     return data;
   },
   delete: async (reportId: number, versionId: number): Promise<void> => {
@@ -662,10 +657,9 @@ export const reportVersionsApi = {
     versionId: number,
     against: number | 'current' = 'current',
   ): Promise<ReportVersionDiff> => {
-    const { data } = await api.get(
-      `/reports/${reportId}/versions/${versionId}/diff`,
-      { params: { against: against === 'current' ? 'current' : String(against) } },
-    );
+    const { data } = await api.get(`/reports/${reportId}/versions/${versionId}/diff`, {
+      params: { against: against === 'current' ? 'current' : String(against) },
+    });
     return data;
   },
 };
