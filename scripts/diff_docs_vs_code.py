@@ -101,9 +101,7 @@ def check_env_vars(strict: bool, quiet: bool) -> list[str]:
     documented = env_vars_in_deploy(DEPLOY.read_text(encoding="utf-8"))
     missing = [name for name in declared if name not in documented]
     if missing and not quiet:
-        print(
-            "DEPLOY.md env-var table is missing these Settings fields:"
-        )
+        print("DEPLOY.md env-var table is missing these Settings fields:")
         for name in missing:
             print(f"  - {name}")
     return missing
@@ -143,10 +141,7 @@ def collect_router_paths() -> list[str]:
                 continue
             call = node.value
             # Skip non-APIRouter calls cheaply
-            if not (
-                isinstance(call.func, ast.Name)
-                and call.func.id == "APIRouter"
-            ):
+            if not (isinstance(call.func, ast.Name) and call.func.id == "APIRouter"):
                 continue
             current_prefix = ""
             for kw in call.keywords:
@@ -268,9 +263,10 @@ def check_router_paths(strict: bool, quiet: bool) -> list[str]:
     declared = collect_router_paths()
     documented = api_paths_in_readme(README.read_text(encoding="utf-8"))
     missing = [
-        d for d in declared if _normalize(d.split(" ", 1)[1]) not in {
-            _normalize(doc.split(" ", 1)[1]) for doc in documented
-        }
+        d
+        for d in declared
+        if _normalize(d.split(" ", 1)[1])
+        not in {_normalize(doc.split(" ", 1)[1]) for doc in documented}
     ]
     if missing and not quiet:
         print("README API table is missing these routes:")
