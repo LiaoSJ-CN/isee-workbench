@@ -1,13 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  reportVersionsApi,
-  type ReportVersionCreate,
-} from '../api';
-import type {
-  ReportVersionDiff,
-  ReportVersionResponse,
-  ReportVersionSummary,
-} from '../types';
+import { reportVersionsApi, type ReportVersionCreate } from '../api';
+import type { ReportVersionDiff, ReportVersionResponse, ReportVersionSummary } from '../types';
 
 const KEYS = {
   list: (reportId: number) => ['report-versions', reportId] as const,
@@ -25,10 +18,7 @@ export function useReportVersions(reportId: number | null) {
   });
 }
 
-export function useReportVersion(
-  reportId: number | null,
-  versionId: number | null,
-) {
+export function useReportVersion(reportId: number | null, versionId: number | null) {
   return useQuery<ReportVersionResponse>({
     queryKey: KEYS.detail(reportId ?? 0, versionId ?? 0),
     queryFn: () => reportVersionsApi.get(reportId!, versionId!),
@@ -51,8 +41,7 @@ export function useReportVersionDiff(
 export function useCreateReportVersion(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: ReportVersionCreate) =>
-      reportVersionsApi.create(reportId, payload),
+    mutationFn: (payload: ReportVersionCreate) => reportVersionsApi.create(reportId, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.list(reportId) }),
   });
 }
@@ -60,8 +49,7 @@ export function useCreateReportVersion(reportId: number) {
 export function useRestoreReportVersion(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (versionId: number) =>
-      reportVersionsApi.restore(reportId, versionId),
+    mutationFn: (versionId: number) => reportVersionsApi.restore(reportId, versionId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.list(reportId) });
       qc.invalidateQueries({ queryKey: ['reports', reportId] });
@@ -72,8 +60,7 @@ export function useRestoreReportVersion(reportId: number) {
 export function useDeleteReportVersion(reportId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (versionId: number) =>
-      reportVersionsApi.delete(reportId, versionId),
+    mutationFn: (versionId: number) => reportVersionsApi.delete(reportId, versionId),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.list(reportId) }),
   });
 }

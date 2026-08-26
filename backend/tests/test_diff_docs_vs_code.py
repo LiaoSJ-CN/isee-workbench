@@ -32,9 +32,7 @@ def script():
 
 def test_normalize_collapses_path_param_names(script):
     # ``{id}`` and ``{source_id}`` are the same template for diff purposes.
-    assert script._normalize("/data-sources/{source_id}") == script._normalize(
-        "/data-sources/{id}"
-    )
+    assert script._normalize("/data-sources/{source_id}") == script._normalize("/data-sources/{id}")
     assert script._normalize("/reports/{report_id}/items") == script._normalize(
         "/reports/{x}/items"
     )
