@@ -116,7 +116,7 @@ CREATE INDEX ix_report_version_parameters_version_id ON report_version_parameter
 
 | 方法 | 路径 | 权限 | 行为 |
 |------|------|------|------|
-| `POST` | `/reports/{id}/versions` | 可见 Report 的人 | 创建新版本（body: `{label?: string}`）。返回新版本摘要 |
+| `POST` | `/reports/{id}/versions` | **owner 或 admin** | 创建新版本（body: `{label?: string}`）。返回新版本摘要 |
 | `GET` | `/reports/{id}/versions` | 可见 Report 的人 | 列表（按 `version_number DESC`）。含 summary，不含 items/parameters 全文 |
 | `GET` | `/reports/{id}/versions/{vid}` | 可见 Report 的人 | 单版本完整快照（含 items + parameters 全文）|
 | `GET` | `/reports/{id}/versions/{vid}/diff?against=<other_vid\|current>` | 可见 Report 的人 | 字段级 diff。`against` 缺省 = `current` |

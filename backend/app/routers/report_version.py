@@ -50,7 +50,7 @@ def _full(version: ReportVersion) -> ReportVersionResponse:
     "/{report_id}/versions",
     response_model=ReportVersionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a new version snapshot of a Report",
+    summary="Create a new version snapshot of a Report (owner or admin only)",
 )
 def create_version(
     report_id: int,
@@ -58,7 +58,9 @@ def create_version(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Any:
-    ensure_report_visible(db, user, report_id)
+    report = ensure_report_visible(db, user, report_id)
+    if not is_owner_or_admin(user, report):
+        raise HTTPException(status_code=403, detail="Only owner or admin can create versions")
     version = create_snapshot(db, user=user, report_id=report_id, label=payload.label)
     write_audit_log(
         db,

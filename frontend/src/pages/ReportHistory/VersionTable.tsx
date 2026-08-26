@@ -1,19 +1,22 @@
 import { Button, Space, Table, Tag, Tooltip } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import type { ReportVersionSummary } from '../../types';
-import { isAdmin, useCurrentUser } from '../../queries/useCurrentUser';
+import type { Report, ReportVersionSummary } from '../../types';
+import { isOwnerOrAdmin, useCurrentUser } from '../../queries/useCurrentUser';
 
 interface Props {
   reportId: number;
+  report: Pick<Report, 'owner_user_id'>;
   versions: ReportVersionSummary[];
   onRestore: (v: ReportVersionSummary) => void;
   onDelete: (v: ReportVersionSummary) => void;
 }
 
-export function VersionTable({ reportId, versions, onRestore, onDelete }: Props) {
+export function VersionTable({ reportId, report, versions, onRestore, onDelete }: Props) {
   const user = useCurrentUser();
   const navigate = useNavigate();
-  const canMutate = isAdmin(user); // server enforces owner check too
+  // Mirrors the server's owner-or-admin gate on POST/DELETE /versions
+  // so non-owner editors don't see a button that would 403 on click.
+  const canMutate = isOwnerOrAdmin(user, report);
 
   return (
     <Table<ReportVersionSummary>

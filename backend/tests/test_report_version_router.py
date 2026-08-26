@@ -127,6 +127,37 @@ def test_create_version_invisible_returns_404(client, db, admin_user, other_user
     assert r.status_code == 404
 
 
+def test_create_version_non_owner_403(client, db, admin_user, other_user, rv_seed_report):
+    """Reader (sees report via DataSource + Report grants) cannot snapshot.
+
+    A read grant lets ``ensure_report_visible`` pass; the new owner-or-admin
+    gate below it returns 403 — mirroring the restore/delete behavior so
+    readers can't poison the version history.
+    """
+    db.add(
+        DataSourceAccess(
+            data_source_id=rv_seed_report.data_source_id,
+            user_id=other_user.id,
+            permission="read",
+        )
+    )
+    rv_seed_report.visibility = VISIBILITY_PRIVATE
+    db.add(
+        ReportAccess(
+            report_id=rv_seed_report.id,
+            user_id=other_user.id,
+            permission="read",
+        )
+    )
+    db.commit()
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions",
+        json={"label": "reader-snapshot"},
+        headers=_auth(other_user),
+    )
+    assert r.status_code == 403
+
+
 def test_restore_owner_allowed(client, db, admin_user, rv_seed_report):
     original_name = rv_seed_report.name
     r = client.post(

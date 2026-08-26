@@ -61,6 +61,7 @@ export default function ReportHistoryPage() {
         ) : (
           <VersionTable
             reportId={reportId!}
+            report={report}
             versions={versions}
             onRestore={setRestoreTarget}
             onDelete={handleDelete}
