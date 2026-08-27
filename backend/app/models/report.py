@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
 
@@ -16,16 +16,32 @@ if TYPE_CHECKING:
 # Visibility string constants — keep in sync with the validation in
 # ``schemas.report.ReportVisibility`` and the ACL helpers in
 # ``services.report``. Public reports are visible to every authenticated
-# user; private reports require an explicit grant.
+# user; private reports require an explicit grant. ``org`` (批 13)
+# requires the template's owner and the viewer to share the same
+# ``org_id``; NULL on either side is treated as a cross-tenant
+# mismatch — see ``services.report._is_template_visible_to_user``.
 VISIBILITY_PUBLIC = "public"
 VISIBILITY_PRIVATE = "private"
-ALL_VISIBILITIES: tuple[str, ...] = (VISIBILITY_PUBLIC, VISIBILITY_PRIVATE)
+VISIBILITY_ORG = "org"
+ALL_VISIBILITIES: tuple[str, ...] = (VISIBILITY_PUBLIC, VISIBILITY_PRIVATE, VISIBILITY_ORG)
 
 
 class Report(Base):
     """Business analysis report configuration."""
 
     __tablename__ = "reports"
+    __table_args__ = (
+        # 批 13 — composite index for the gallery query pattern
+        # (``WHERE is_template = 1 AND template_category = ?``). Most
+        # rows are ``is_template = 0``, so this index serves both the
+        # "all templates" scan (first column) and the "templates in a
+        # category" scan (both columns).
+        Index(
+            "ix_reports_template_category",
+            "is_template",
+            "template_category",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, unique=True)
@@ -57,6 +73,29 @@ class Report(Base):
         nullable=False,
         default=False,
         server_default="0",
+    )
+
+    # 批 13 — 模板市场. A report row can be a template (``is_template``)
+    # or an ordinary user-authored report. ``template_category`` is a
+    # free-text bucket the admin assigns at save-as-template time (no
+    # Categories table — taxonomy management is a future batch). The
+    # composite index in ``__table_args__`` speeds up the template-
+    # gallery query (``WHERE is_template = 1 AND template_category = ?``).
+    # ``template_source_id`` lets a forked report trace back to the
+    # template it came from; ON DELETE SET NULL so deleting a template
+    # doesn't cascade-wipe user forks.
+    is_template = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    template_category = Column(String(64), nullable=True)
+    template_source_id = Column(
+        Integer,
+        ForeignKey("reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     # 批 9.4: per-user ownership + visibility. ``visibility`` is the

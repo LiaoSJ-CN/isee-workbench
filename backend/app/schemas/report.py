@@ -9,11 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.schemas.notification import NotificationConfig
 from app.services.scheduler import validate_cron_expression
 
-# 批 9.4 — visibility is the coarse ACL gate. Public reports are
-# visible to every authenticated user; private reports require an
-# explicit grant or ownership. Mirrors the string constants in
-# :mod:`app.models.report`; keep in sync.
-ReportVisibility = Literal["public", "private"]
+# 批 9.4 + 批 13 — visibility is the coarse ACL gate. Public reports
+# are visible to every authenticated user; private reports require an
+# explicit grant or ownership; ``org`` (批 13) requires the owner's
+# and viewer's ``org_id`` to match (NULL on either side is treated as
+# a cross-tenant mismatch, so the operator must set ``DEFAULT_ORG_ID``
+# to opt in). Mirrors the string constants in :mod:`app.models.report`;
+# keep in sync.
+ReportVisibility = Literal["public", "private", "org"]
 
 
 class ItemType(str, Enum):
@@ -254,6 +257,14 @@ class ReportResponse(ReportBase):
     # no create/update field exposes the toggle, so the column can only
     # be flipped by editing the seed script + re-running it.
     is_demo: bool = False
+    # 批 13 — template marketplace flags. Same read-only contract as
+    # ``is_demo``: server-side derivation (save-as-template sets
+    # ``is_template=True``, fork copies set ``template_source_id``) but
+    # no client toggle. ``template_category`` is admin-supplied free
+    # text — surfaced on the gallery card for filtering/grouping.
+    is_template: bool = False
+    template_category: str | None = None
+    template_source_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
