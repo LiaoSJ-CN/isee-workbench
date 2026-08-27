@@ -635,3 +635,46 @@ export interface ReportVersionDiff {
 export interface ReportVersionRestoreResponse {
   report: Report;
 }
+
+// ============ Admin Metrics (批 12) ============
+//
+// Mirrors backend/app/schemas/admin_metrics.py — the admin monitoring
+// page uses these for the live pool-metrics dashboard.
+
+export type Health = 'green' | 'yellow' | 'red';
+
+export interface HistoryBucket {
+  bucket_ts: number; // unix seconds at bucket start
+  checkouts: number;
+  checkins: number;
+  invalidations: number;
+}
+
+export interface DataSourcePoolStats {
+  data_source_id: number;
+  name: string;
+  db_type: string;
+  active: number;
+  pool_size: number;
+  checkouts_total: number;
+  checkins_total: number;
+  invalidations_total: number;
+  timeouts_total: number;
+  avg_held_ms: number;
+  timeout_rate: number;
+  health: Health;
+  history: HistoryBucket[];
+}
+
+export interface HealthSummary {
+  green: number;
+  yellow: number;
+  red: number;
+  total: number;
+}
+
+export interface AdminMetricsResponse {
+  pools: DataSourcePoolStats[];
+  health_summary: HealthSummary;
+  generated_at: string;
+}

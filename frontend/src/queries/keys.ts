@@ -75,4 +75,10 @@ export const queryKeys = {
       offset?: number;
     }) => [...queryKeys.auditLog.all, 'list', filters ?? {}] as const,
   },
+  // Admin metrics (批 12) — admin-only. Single key (no filter params)
+  // so multiple consumers share the same cache entry.
+  adminMetrics: {
+    all: ['admin-metrics'] as const,
+    current: () => [...queryKeys.adminMetrics.all, 'current'] as const,
+  },
 } as const;

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type {
+  AdminMetricsResponse,
   AuditLogFilters,
   AuditLogListResponse,
   CurrentUser,
@@ -652,10 +653,9 @@ export const reportVersionsApi = {
     // A5: optimistic-lock body. ``undefined`` → field omitted from
     // payload (Pydantic default kicks in: skip the check); ``null``
     // → explicit opt-out; ISO string → lock-check on the server.
-    const { data } = await api.post(
-      `/reports/${reportId}/versions/${versionId}/restore`,
-      { expected_updated_at: options.expectedUpdatedAt ?? null },
-    );
+    const { data } = await api.post(`/reports/${reportId}/versions/${versionId}/restore`, {
+      expected_updated_at: options.expectedUpdatedAt ?? null,
+    });
     return data;
   },
   delete: async (reportId: number, versionId: number): Promise<void> => {
@@ -669,6 +669,17 @@ export const reportVersionsApi = {
     const { data } = await api.get(`/reports/${reportId}/versions/${versionId}/diff`, {
       params: { against: against === 'current' ? 'current' : String(against) },
     });
+    return data;
+  },
+};
+
+// ============ Admin metrics (批 12) ============
+//
+// Admin-only endpoint — the page component guards the route with
+// ``RequireAdmin``; the API client itself just shapes the request.
+export const adminMetricsApi = {
+  get: async (): Promise<AdminMetricsResponse> => {
+    const { data } = await api.get('/admin/metrics');
     return data;
   },
 };

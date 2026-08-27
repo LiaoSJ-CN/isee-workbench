@@ -18,6 +18,7 @@ import {
   LogoutOutlined,
   FundOutlined,
   BellOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -38,6 +39,8 @@ const ReportPreview = lazy(() => import('./pages/ReportPreview'));
 const SchedulerPage = lazy(() => import('./pages/Scheduler'));
 const DataExplorer = lazy(() => import('./pages/DataExplorer'));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
+// 批 12 — admin-only pool metrics dashboard. Gated by ``RequireAdmin``
+const AdminMetrics = lazy(() => import('./pages/AdminMetrics'));
 const MySubscriptionsPage = lazy(() => import('./pages/MySubscriptions'));
 const ReportHistoryPage = lazy(() => import('./pages/ReportHistory'));
 const ReportHistoryDiffPage = lazy(() => import('./pages/ReportHistory/DiffView'));
@@ -83,6 +86,11 @@ function AppMenu() {
             key: '/audit-logs',
             icon: <AuditOutlined />,
             label: <Link to="/audit-logs">审计日志</Link>,
+          },
+          {
+            key: '/admin/metrics',
+            icon: <DashboardOutlined />,
+            label: <Link to="/admin/metrics">监控仪表盘</Link>,
           },
         ]
       : []),
@@ -210,6 +218,14 @@ function AppShell() {
               element={
                 <RequireAdmin>
                   <AuditLogPage />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="/admin/metrics"
+              element={
+                <RequireAdmin>
+                  <AdminMetrics />
                 </RequireAdmin>
               }
             />
