@@ -72,13 +72,21 @@ def engine_cache_cleanup():
     Engine cache is process-global; without this, a test polluting the
     cache can leak into siblings. We also evict on teardown to free DB
     file handles on Windows / test parallelism.
+
+    批 12: also reset the connection-pool metrics store, since
+    ``get_or_create_engine`` now calls ``register_engine`` and stale
+    state would leak across tests otherwise.
     """
+    from app.services.connection_metrics import reset_for_testing
+
     _engine_cache.clear()
+    reset_for_testing()
     yield
     # Dispose any engines left behind so sqlite file handles are released.
     for engine in list(_engine_cache.values()):
         engine.dispose()
     _engine_cache.clear()
+    reset_for_testing()
 
 
 @pytest.fixture(autouse=True)

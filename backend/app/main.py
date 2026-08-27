@@ -30,6 +30,7 @@ from app.models import revoked_token as _revoked_token_module  # noqa: F401
 from app.models import user as _user_module  # noqa: F401
 from app.models.user import User
 from app.routers import (
+    admin_metrics,  # 批 12
     audit,  # 批 9.5
     auth,
     data_source,
@@ -243,6 +244,8 @@ app.include_router(jobs.jobs_router)
 app.include_router(subscription.router)
 # Admin-only audit log (批 9.5).
 app.include_router(audit.router)
+# Admin-only DataSource connection-pool metrics (批 12).
+app.include_router(admin_metrics.router)
 # User listing for client-side created_by resolution (A3, post-批-report-versioning).
 app.include_router(users.router)
 

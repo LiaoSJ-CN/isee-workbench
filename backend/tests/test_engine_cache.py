@@ -18,9 +18,14 @@ from app.services.report_generator import (
 
 def _fake_sqlite_source(source_id: int, db_path: str) -> Any:
     """Minimal DataSource stand-in: only the fields the cache and
-    ``build_connection_url`` actually read."""
+    ``build_connection_url`` actually read.
+
+    批 12: also carries ``name`` (used by the pool-metrics label) and
+    ``db_type`` (used to pick the health heuristic).
+    """
     return SimpleNamespace(
         id=source_id,
+        name=f"pytest-cache-{source_id}",
         db_type="sqlite",
         host="",
         port=0,

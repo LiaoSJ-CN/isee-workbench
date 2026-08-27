@@ -274,6 +274,12 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 |------|------|------|
 | GET | `/audit-logs` | 审计事件列表，支持多维度过滤（详见 DEPLOY.md 审计日志段） |
 
+### 监控仪表盘（admin only）
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/admin/metrics` | 每个 DataSource 的连接池实时指标（活跃连接 / 借出归还 / 超时 / 平均持有时间 / 健康度评分），供前端监控页与告警基线使用 |
+
 ## 测试
 
 ```bash

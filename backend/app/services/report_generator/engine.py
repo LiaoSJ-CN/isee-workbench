@@ -23,6 +23,11 @@ from sqlalchemy.engine import Engine
 
 from app.models.data_source import DataSource
 from app.services.connection import build_connection_url
+from app.services.connection_metrics import (
+    attach_event_listeners,
+    register_engine,
+    unregister_engine,
+)
 
 # Filename-safe subset: word chars, CJK Unified Ideographs, hyphen, dot.
 _SAFE_FILENAME_RE = re.compile(r"[^\w一-鿿\-.]+")
@@ -62,6 +67,17 @@ def get_or_create_engine(data_source: DataSource) -> Engine:
                 connect_args={"connect_timeout": 30},
                 pool_pre_ping=True,
             )
+        # Wire pool-metrics hooks (批 12) BEFORE caching so the first
+        # caller already lands inside the listener. Registration is
+        # idempotent — re-registering the same engine drops stale state
+        # so rebuild-after-evict stays clean.
+        register_engine(
+            engine,
+            data_source_id=cast(int, data_source.id),
+            name=str(data_source.name),
+            db_type=str(data_source.db_type),
+        )
+        attach_event_listeners(engine)
         _engine_cache[cast(int, data_source.id)] = engine
         return engine
 
@@ -75,6 +91,10 @@ def evict_engine(data_source_id: int) -> None:
     with _engine_cache_lock:
         engine = _engine_cache.pop(data_source_id, None)
         if engine is not None:
+            # Unregister from the metrics store BEFORE dispose so any
+            # in-flight pool events see ``state == None`` and no-op
+            # rather than mutating state for a disposed engine.
+            unregister_engine(engine)
             engine.dispose()
 
 
