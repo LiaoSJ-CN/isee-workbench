@@ -19,6 +19,7 @@ from app.models.report_access import ReportAccess
 from app.models.report_parameter import ReportParameter
 from app.models.user import User
 from app.schemas.report import (
+    ForkFromTemplateRequest,
     ReportCreate,
     ReportDetailResponse,
     ReportDuplicateRequest,
@@ -31,6 +32,7 @@ from app.schemas.report import (
     ReportShareCreate,
     ReportShareResponse,
     ReportUpdate,
+    SaveAsTemplateRequest,
 )
 from app.schemas.report_parameter import (
     ReportParameterCreate,
@@ -45,13 +47,16 @@ from app.services.data_source import (
 from app.services.parameter_validator import ParameterValidationError, validate_parameters
 from app.services.report import (
     PERMISSION_WRITE,
+    _is_template_visible_to_user,
     can_share_report,
     duplicate_report,
+    fork_from_template,
     get_report_for_user,
     is_owner,
     list_accessible_reports,
     list_shares_for_report,
     revoke_share,
+    save_as_template,
     upsert_share,
 )
 from app.services.report_generator import ReportGeneratorError, generate_report
@@ -372,6 +377,56 @@ def create_report(
     return report
 
 
+@router.get("/templates", response_model=list[ReportDetailResponse])
+def list_templates_endpoint(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    category: str | None = Query(default=None, max_length=64),
+    data_source_id: int | None = Query(default=None, ge=1),
+    visibility: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=255),
+) -> list[Report]:
+    """Browse the template gallery.
+
+    Returns templates the caller can see based on visibility:
+
+    * admin → all templates (visibility ACL skipped),
+    * everyone else → ``public`` + ``org`` (matching ``org_id``)
+      + ``private``-but-owned.
+
+    Filters (``category``, ``data_source_id``, ``q``) are applied
+    after the ACL pass so an unauthorized caller can't probe for
+    the existence of a hidden template via filter combinations.
+    ``visibility`` query param narrows further (e.g. show only
+    public templates); pass ``visibility='public'`` to make the
+    public-only filter explicit.
+    """
+    # Pull every template first (single ACL gate), then filter. The
+    # ``list_accessible_reports`` ACL pass is the cheaper approach
+    # than per-row ``_is_template_visible_to_user`` because
+    # ``list_accessible_reports`` runs the visibility subqueries once
+    # and uses an IN-set; forking a Python loop over each row would
+    # be N round-trips.
+    templates = list_accessible_reports(
+        db,
+        user,
+        is_template=True,
+        template_category=category,
+        data_source_id=data_source_id,
+        q=q,
+    )
+    if visibility is not None:
+        templates = [t for t in templates if t.visibility == visibility]
+    if not is_admin(user):
+        # Belt-and-braces: ``list_accessible_reports`` already
+        # enforces visibility at the SQL level (public + owner +
+        # org-match + grants), but ``_is_template_visible_to_user``
+        # is the single source of truth — apply it as a final
+        # guard so a regression in either layer can't leak.
+        templates = [t for t in templates if _is_template_visible_to_user(t, user)]
+    return templates
+
+
 @router.get("/{report_id}", response_model=ReportDetailResponse)
 def get_report(
     report_id: int,
@@ -431,6 +486,129 @@ def duplicate_report_endpoint(
     )
     db.commit()
     return clone
+
+
+# ---- Template marketplace endpoints (批 13) ----
+
+
+@router.post(
+    "/{report_id}/save-as-template",
+    response_model=ReportDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def save_as_template_endpoint(
+    report_id: int,
+    payload: SaveAsTemplateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Report:
+    """Publish a Report into the template pool.
+
+    Owner-or-admin only — non-owners can't republish someone else's
+    report as a template (they can clone it via the regular duplicate
+    endpoint instead). The original row is untouched; the response
+    is the new template row with ``is_template=true`` and the
+    operator-supplied ``visibility``/``category``. If
+    ``visibility=='org'`` the template is stamped with the caller's
+    ``org_id`` (caller without an org id + org visibility is rejected
+    — a NULL template can't match a NULL viewer).
+
+    Audit: ``report.save_as_template``, ``before`` = source,
+    ``after`` = new template.
+    """
+    try:
+        source, template = save_as_template(
+            db,
+            report_id,
+            user,
+            visibility=payload.visibility,
+            category=payload.category,
+        )
+    except LookupError:
+        raise _report_not_found()
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    if payload.visibility == "org" and (user.org_id is None):
+        # Save-as-template succeeded (with org_id=None on the template,
+        # which is correct), but the operator chose a tier that needs
+        # a real org — flag it so the UI can re-prompt. We don't
+        # roll back the row because the caller might also be fine
+        # with the resulting NULL-org template (it just won't be
+        # discoverable via ``org`` visibility).
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "visibility='org' requires the caller to have an "
+                "org_id; set DEFAULT_ORG_ID on the admin user or "
+                "pick a different visibility tier"
+            ),
+        )
+    db.commit()
+    db.refresh(template)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_SAVE_AS_TEMPLATE,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=cast(int, template.id),
+        before=source,
+        after=template,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    db.commit()
+    return template
+
+
+@router.post(
+    "/{report_id}/from-template",
+    response_model=ReportDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def fork_template_endpoint(
+    report_id: int,
+    request: Request,
+    payload: ForkFromTemplateRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Report:
+    """Fork a template into a personal Report.
+
+    Read ACL on the template is sufficient — anyone who can browse
+    the gallery can fork (visibility ACL + grants). The fork is a
+    fresh private report owned by the caller, with
+    ``is_template=False`` and ``template_source_id=<template_id>``
+    for lineage. Items + parameters + display_config are deep-copied
+    via the same ``duplicate_report`` machinery so post-fork edits
+    stay independent.
+
+    Audit: ``report.fork``, ``before`` = template, ``after`` = fork.
+    """
+    body = payload or ForkFromTemplateRequest()
+    try:
+        template, fork = fork_from_template(
+            db, report_id, user, new_name=body.name
+        )
+    except LookupError:
+        raise _report_not_found()
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    db.commit()
+    db.refresh(fork)
+    audit_service.log(
+        db,
+        actor_user_id=cast(int, user.id),
+        action=audit_service.ACTION_REPORT_FORK,
+        target_type=audit_service.TARGET_TYPE_REPORT,
+        target_id=cast(int, fork.id),
+        before=template,
+        after=fork,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    db.commit()
+    return fork
 
 
 @router.put("/{report_id}", response_model=ReportDetailResponse)

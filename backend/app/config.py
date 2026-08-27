@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     access_token_minutes: int = 60 * 24  # 1 day
     refresh_token_days: int = 7
 
+    # --- Multi-tenancy (批 13) ---
+    # Org id stamped on the seeded admin (and any future seed row)
+    # when ``>0``. ``None`` (the default — empty env var) leaves
+    # ``users.org_id`` NULL so the deployment stays single-tenant and
+    # ``org``-visibility templates cross-tenant-mismatch (NULL on
+    # either side never equals) — opt-in upgrade. Existing admins
+    # aren't retroactively stamped; rotate the bootstrap user or
+    # patch SQL manually.
+    default_org_id: int | None = None
+
     # --- Brute-force protection ---
     # Max login attempts per IP per minute before returning 429.
     login_rate_limit: int = 10

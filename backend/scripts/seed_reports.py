@@ -383,8 +383,9 @@ def seed(keep_existing: bool = False, data_source_id: int | None = None) -> None
                (name, description, data_source_id, owner_user_id,
                 visibility, layout_config,
                 is_scheduled, cron_expression, schedule_description,
-                output_formats, is_active, is_demo)
-               VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, 1, 1)""",
+                output_formats, is_active, is_demo, is_template,
+                template_category, template_source_id)
+               VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, 1, 1, 1, ?, NULL)""",
             (
                 r["name"],
                 r["description"],
@@ -393,6 +394,15 @@ def seed(keep_existing: bool = False, data_source_id: int | None = None) -> None
                 "public",
                 _dump({}),
                 _dump(["excel", "html"]),
+                # 批 13 — seed rows are templates in the new gallery.
+                # ``is_demo`` is the legacy seed flag (kept for the
+                # ReportList 「示例」 badge); ``is_template`` flips the
+                # template-gallery flag. Category defaults to "示例报表"
+                # so the frontend filter groups seed templates under
+                # the standard bucket. Idempotent re-runs delete +
+                # re-insert via the DELETE FROM reports above, so
+                # the flags don't accumulate.
+                "示例报表",
             ),
         )
         report_id = cur.lastrowid

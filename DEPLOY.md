@@ -315,6 +315,7 @@ docker compose --profile postgres up -d
 | `REFRESH_COOKIE_NAME` | `refresh_token` | Refresh token Cookie 名 |
 | `TRUSTED_PROXIES` | （空） | 逗号分隔的 IP / CIDR，nginx / HAProxy 配此项后 `ProxyHeadersMiddleware` 才能从 `X-Forwarded-For` 还原真实 IP；默认空（直连部署安全） |
 | `LOGIN_RATE_LIMIT` | `10` | 每 IP 每分钟最大登录尝试次数 |
+| `DEFAULT_ORG_ID` | `null` | 批 13 多租户：写入种子 `admin` 用户的 `org_id`，启用 `org` 可见性档位。空 = 单租户部署，`org` tier 模板视为跨租户不命中。仅对首次 seed 的 admin 生效；存量用户须手动 SQL 修 |
 
 ### API 限流（批 6b.2）
 

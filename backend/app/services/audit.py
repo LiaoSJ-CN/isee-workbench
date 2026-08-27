@@ -81,6 +81,14 @@ ACTION_REPORT_DELETE = "report.delete"
 # scheduler fields, drops shares. ``before`` = source report,
 # ``after`` = new report.
 ACTION_REPORT_DUPLICATE = "report.duplicate"
+# 批 13: publish a Report into the template pool (clones the row,
+# flips ``is_template`` + visibility). ``before`` = source,
+# ``after`` = new template row.
+ACTION_REPORT_SAVE_AS_TEMPLATE = "report.save_as_template"
+# 批 13: fork a template into a personal report. ``before`` =
+# template, ``after`` = new fork. Lineage via ``template_source_id``
+# is captured on the row, not in this audit entry.
+ACTION_REPORT_FORK = "report.fork"
 ACTION_REPORT_ITEM_CREATE = "report.item.create"
 ACTION_REPORT_ITEM_UPDATE = "report.item.update"
 ACTION_REPORT_ITEM_DELETE = "report.item.delete"
@@ -118,6 +126,8 @@ ALL_ACTIONS: tuple[str, ...] = (
     ACTION_REPORT_CREATE,
     ACTION_REPORT_UPDATE,
     ACTION_REPORT_DELETE,
+    ACTION_REPORT_SAVE_AS_TEMPLATE,
+    ACTION_REPORT_FORK,
     ACTION_REPORT_ITEM_CREATE,
     ACTION_REPORT_ITEM_UPDATE,
     ACTION_REPORT_ITEM_DELETE,

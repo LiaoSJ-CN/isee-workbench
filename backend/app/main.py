@@ -110,6 +110,13 @@ def _seed_admin_user() -> None:
             User(
                 username=settings.admin_username,
                 password_hash=hash_password(settings.admin_password),
+                # 批 13 — stamp org_id from settings so an admin
+                # working in a multi-tenant deployment can author
+                # ``org``-tier templates. Existing admins aren't
+                # retroactively stamped (intentional — backfilling
+                # silently would surprise operators running with
+                # user-screled accounts).
+                org_id=settings.default_org_id,
             )
         )
         db.commit()

@@ -28,7 +28,7 @@ from app.crypto import encrypt as crypto_encrypt
 from app.database import SessionLocal
 from app.models.data_source import DataSource
 from app.models.data_source_access import DataSourceAccess
-from app.models.report import Report
+from app.models.report import VISIBILITY_ORG, Report
 from app.models.report_access import ReportAccess
 from app.models.report_job import ReportJob
 from app.models.user import ROLE_VIEWER, User
@@ -282,6 +282,63 @@ def test_public_report_visible_to_anyone(
         assert rep_name in names_b
     finally:
         _cleanup(db, int(a_rep.id), int(a_ds.id))
+
+
+def test_org_visibility_requires_matching_org_id(
+    client: TestClient,
+    user_a: User,
+    user_b: User,
+    db_setup: Any,
+) -> None:
+    """批 13 ``org`` tier visibility — both viewer.org_id and template.org_id
+    must be non-null AND equal. NULL on either side is a cross-tenant
+    mismatch (deliberately — the operator opts in via ``DEFAULT_ORG_ID``).
+    """
+    db, _ = db_setup
+    a_ds = _make_ds(db, owner_user_id=int(user_a.id))
+    _grant_ds_read(db, a_ds, user_b)
+    # Template is org-tier, owner-A's org = 7. Both users start NULL-org;
+    # we mutate org_id on user_b's own session (cross-session commit
+    # would silently no-op).
+    org_rep = _make_report(
+        db,
+        owner_user_id=int(user_a.id),
+        ds_id=int(a_ds.id),
+        visibility=VISIBILITY_ORG,
+    )
+    org_rep.org_id = 7
+    db.commit()
+    db.refresh(org_rep)
+    rep_name = str(org_rep.name)
+    user_b_db = SessionLocal()
+    try:
+        u = user_b_db.get(User, user_b.id)
+        assert u is not None
+        u.org_id = 7
+        user_b_db.commit()
+        user_b.org_id = 7  # mirror in-memory for token mint
+        # Same-org viewer sees the report.
+        r_match = client.get("/reports", headers=_auth_for(user_b))
+        assert r_match.status_code == 200
+        names_match = {row["name"] for row in r_match.json()}
+        assert rep_name in names_match
+    finally:
+        # Reset viewer back to NULL-org for downstream tests.
+        u = user_b_db.get(User, user_b.id)
+        if u is not None:
+            u.org_id = None
+            user_b_db.commit()
+        user_b.org_id = None
+        user_b_db.close()
+    # Now viewer.org_id is NULL — cross-tenant mismatch, report must
+    # be invisible.
+    try:
+        r_miss = client.get("/reports", headers=_auth_for(user_b))
+        assert r_miss.status_code == 200
+        names_miss = {row["name"] for row in r_miss.json()}
+        assert rep_name not in names_miss
+    finally:
+        _cleanup(db, int(org_rep.id), int(a_ds.id))
 
 
 # ----------------- single-resource ACL -----------------

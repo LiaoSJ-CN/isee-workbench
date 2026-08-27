@@ -351,6 +351,35 @@ class ReportDuplicateRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Template marketplace (批 13)
+# ---------------------------------------------------------------------------
+
+
+class SaveAsTemplateRequest(BaseModel):
+    """Payload for ``POST /reports/{id}/save-as-template``.
+
+    ``visibility`` is mandatory and must match :data:`ReportVisibility`
+    — server-side validation in the router. ``category`` is an
+    admin-supplied free-text bucket the gallery uses for grouping;
+    no length floor, but cap at 64 chars to match the column.
+    """
+
+    visibility: ReportVisibility
+    category: str | None = Field(default=None, max_length=64)
+
+
+class ForkFromTemplateRequest(BaseModel):
+    """Payload for ``POST /reports/{id}/from-template``.
+
+    ``name`` is optional. If omitted, the server picks
+    ``<template_name> (副本)`` with a numeric suffix on collision
+    (reuses ``duplicate_report`` machinery).
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+# ---------------------------------------------------------------------------
 # Report shares (批 9.4)
 # ---------------------------------------------------------------------------
 

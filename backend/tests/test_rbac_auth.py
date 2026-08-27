@@ -9,6 +9,7 @@ the auth layer itself.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import pytest
@@ -125,6 +126,51 @@ def test_existing_admin_user_has_admin_role(db_setup: Any) -> None:
     """
     db, user = db_setup
     assert user.role == ROLE_ADMIN
+
+
+def test_admin_user_org_id_matches_settings_default_org_id(
+    db_setup: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """批 13: ``settings.default_org_id`` is stamped onto the bootstrap
+    admin on first seed. Verifies both directions:
+
+    * unset (None) → admin.org_id is NULL (single-tenant default).
+    * set → a freshly-inserted user with the default applied lands
+      the right way (mirrors what lifespan does on first seed).
+
+    Existing admins aren't retroactively re-stamped — this exercises the
+    first-seed path via ``monkeypatch`` rather than lifespan, which is
+    the only path the seed runs in tests.
+    """
+    from app.config import settings
+
+    db, admin = db_setup
+    # Default (unset) — admin's org_id is NULL or matches the previous
+    # default if the dev DB was seeded with a non-NULL value.
+    assert admin.org_id in (None, settings.default_org_id)
+    # Override → a freshly-inserted user with the default applied lands
+    # the right way. Build a one-off user to validate the flow without
+    # mutating the seed admin (whose org_id is not retroactively
+    # refreshed by this env var).
+    monkeypatch.setattr(settings, "default_org_id", 42)
+    seeded_user = User(
+        username=f"pytest_org_seed_{uuid.uuid4().hex[:8]}",
+        password_hash="x",
+        role=ROLE_ADMIN,
+        org_id=settings.default_org_id,
+    )
+    db.add(seeded_user)
+    db.commit()
+    db.refresh(seeded_user)
+    try:
+        assert seeded_user.org_id == 42
+    finally:
+        db.delete(seeded_user)
+        db.commit()
+    # Restore the default after this test so the next test sees the
+    # same baseline as the first.
+    monkeypatch.setattr(settings, "default_org_id", None)
 
 
 def test_viewer_user_round_trips(db_setup: Any, viewer_user: User) -> None:

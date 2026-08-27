@@ -20,6 +20,7 @@ explicit grant.
 from __future__ import annotations
 
 import copy
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -28,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.models.data_source_access import DataSourceAccess  # noqa: F401  # noqa
 from app.models.report import (
     ALL_VISIBILITIES,
+    VISIBILITY_ORG,
     VISIBILITY_PRIVATE,
     VISIBILITY_PUBLIC,
     Report,
@@ -50,11 +52,13 @@ __all__ = [
     "VISIBILITY_PRIVATE",
     "VISIBILITY_PUBLIC",
     "can_share_report",
+    "fork_from_template",
     "get_report_for_user",
     "is_owner",
     "list_accessible_reports",
     "list_shares_for_report",
     "revoke_share",
+    "save_as_template",
     "upsert_share",
 ]
 
@@ -65,6 +69,41 @@ def is_owner(user: User, report: Report) -> bool:
     migration backfilled admin but legacy rows from a clean import
     may still be NULL)."""
     return report.owner_user_id is not None and report.owner_user_id == user.id
+
+
+def _is_template_visible_to_user(template: Report, user: User) -> bool:
+    """Pure visibility ACL for template gallery browsing.
+
+    Returns True iff the user is allowed to see ``template`` based on
+    its ``visibility`` setting — data-source ACL is layered separately
+    by the endpoint so admin can still see every template regardless
+    of which DS it points at (the gallery is for browsing, not
+    executing).
+
+    Rules (admin short-circuits in the caller; this is non-admin):
+
+    * ``public`` — anyone can browse.
+    * ``org`` — both ``template.org_id`` and ``user.org_id`` must be
+      non-null and equal. NULL on either side is a cross-tenant
+      mismatch — opting into the ``org`` tier requires setting
+      ``DEFAULT_ORG_ID`` (the ``org_id`` column is otherwise always
+      NULL on a single-tenant deployment).
+    * ``private`` — only the template owner.
+
+    Admin is checked by the caller via :func:`is_admin`. We don't
+    accept ``user`` as ``User | None`` because the gallery endpoint
+    requires authentication; the helper inherits that contract.
+    """
+    if template.visibility == VISIBILITY_PUBLIC:
+        return True
+    if template.visibility == VISIBILITY_ORG:
+        return (
+            template.org_id is not None
+            and user.org_id is not None
+            and template.org_id == user.org_id
+        )
+    # ``private`` (and any unknown value — defensive default).
+    return template.owner_user_id == user.id
 
 
 def get_report_for_user(
@@ -155,6 +194,9 @@ def list_accessible_reports(
     *,
     is_active: bool | None = None,
     data_source_id: int | None = None,
+    is_template: bool | None = None,
+    template_category: str | None = None,
+    q: str | None = None,
 ) -> list[Report]:
     """All reports the user can see.
 
@@ -168,29 +210,67 @@ def list_accessible_reports(
     The optional ``is_active`` and ``data_source_id`` filters are
     applied after the ACL filter so an unauthorized caller can't use
     them as a probe.
+
+    批 13 — ``is_template``, ``template_category``, and ``q`` (name
+    ILIKE match) extend the same ACL-first pattern. ``is_template``
+    filters templates vs ordinary reports; ``template_category`` is an
+    admin-supplied bucket so the gallery can group cards. The
+    visibility gate remains in ``list_accessible_reports`` itself for
+    non-admins — that's the coarse filter; ``org``-tier templates need
+    the matching ``org_id`` AND a non-null ``user.org_id`` (NULL on
+    either side is treated as a cross-tenant mismatch).
     """
     if is_admin(user):
-        q = db.query(Report)
+        base = db.query(Report)
     else:
         owner_q = db.query(Report.id).filter(Report.owner_user_id == user.id)
         granted_q = db.query(ReportAccess.report_id).filter(ReportAccess.user_id == user.id)
         # ``public_q`` is a literal — no join needed. SQLite handles
         # the IN-subquery efficiently; the report_id set is small.
         public_q = db.query(Report.id).filter(Report.visibility == VISIBILITY_PUBLIC)
+        # ``org``-tier templates are visible only when the caller's
+        # ``org_id`` matches the template's and both are non-null.
+        # NULL on either side is a cross-tenant mismatch (single-
+        # tenant deployment default — operators opt in via
+        # ``DEFAULT_ORG_ID``). Branch on the Python value so the
+        # SQLAlchemy expression stays column-only (mypy-safe).
+        if user.org_id is not None:
+            org_q = db.query(Report.id).filter(
+                Report.visibility == VISIBILITY_ORG,
+                Report.org_id.isnot(None),
+                Report.org_id == user.org_id,
+            )
+        else:
+            # Always-empty subquery — org templates never match a
+            # user without an org id. ``id == -1`` is a cheap no-op
+            # predicate since ``reports.id`` is always positive.
+            org_q = db.query(Report.id).filter(Report.id == -1)
         ids = (
             {row[0] for row in owner_q.all()}
             | {row[0] for row in granted_q.all()}
             | {row[0] for row in public_q.all()}
+            | {row[0] for row in org_q.all()}
         )
         if not ids:
             return []
-        q = db.query(Report).filter(Report.id.in_(ids))
+        base = db.query(Report).filter(Report.id.in_(ids))
 
     if is_active is not None:
-        q = q.filter(Report.is_active == is_active)
+        base = base.filter(Report.is_active == is_active)
     if data_source_id is not None:
-        q = q.filter(Report.data_source_id == data_source_id)
-    return q.order_by(Report.id).all()
+        base = base.filter(Report.data_source_id == data_source_id)
+    if is_template is not None:
+        base = base.filter(Report.is_template == is_template)
+    if template_category is not None:
+        base = base.filter(Report.template_category == template_category)
+    if q:
+        # ``Report.name`` is NOT NULL; ``contains`` translates to
+        # ``LIKE %q%`` on SQLite/Postgres. Case-insensitive on both —
+        # SQLite handles ``LIKE`` case-insensitively for ASCII by
+        # default; Postgres needs ``ILIKE``. SQLAlchemy abstracts both
+        # behind ``.ilike()``.
+        base = base.filter(Report.name.ilike(f"%{q}%"))
+    return base.order_by(Report.id).all()
 
 
 def upsert_share(
@@ -284,6 +364,19 @@ _EXCLUDE_REPORT_FIELDS = frozenset(
         "cron_expression",
         "schedule_description",
         "notification_config",  # may reference external webhook URLs
+        # 批 13 — template marketplace fields. Excluded so
+        # ``save_as_template`` / ``fork_from_template`` can flip them
+        # via ``extra_overrides`` without colliding with the
+        # column-iteration dict (Python's ``**`` expansion rejects
+        # duplicate kwargs).
+        "is_template",
+        "template_category",
+        "template_source_id",
+        # ``save_as_template`` may override ``org_id`` (templates take
+        # the publishing user's org); ``duplicate_report`` shouldn't
+        # leak the source's org into the clone or the override
+        # collides on the ``**`` spread.
+        "org_id",
         "created_at",
         "updated_at",
     }
@@ -316,6 +409,7 @@ def duplicate_report(
     user: User,
     *,
     new_name: str | None = None,
+    extra_overrides: dict[str, Any] | None = None,
 ) -> tuple[Report, Report]:
     """Duplicate ``report_id`` into a new Report owned by ``user``.
 
@@ -324,6 +418,14 @@ def duplicate_report(
     config; the caller can opt-in via the regular update endpoint.
     Items + parameters are deep-copied (JSON columns included) so
     later edits to either side stay independent.
+
+    批 13 — ``extra_overrides`` is the seam for save-as-template and
+    fork-from-template: those callers flip ``is_template`` and
+    ``template_source_id`` (and friends) on the clone. ``extra_overrides``
+    wins over the defaults baked in here (e.g. ``visibility=private``)
+    so a template-save can pass ``visibility="org"`` to get the
+    org-tier template row. Caller is responsible for the values —
+    validation lives in the router.
 
     Returns ``(original, duplicate)`` for the audit log.
     Raises ``LookupError`` if the source is missing / inaccessible
@@ -342,12 +444,14 @@ def duplicate_report(
     if collision:
         raise ValueError(f"Report named {chosen!r} already exists")
 
-    clone = Report(
-        **{
-            col: getattr(original, col)
-            for col in [c.key for c in Report.__table__.columns]
-            if col not in _EXCLUDE_REPORT_FIELDS
-        },
+    # Build the per-call defaults. ``extra_overrides`` lets
+    # save-as-template (is_template / visibility / org_id / category)
+    # and fork-from-template (template_source_id) flip fields the
+    # standard duplicate wouldn't touch. Inline at the ``Report(**...)``
+    # call so mypy can unify the column types from the surrounding
+    # constructor signature — extracting to a named variable makes
+    # mypy see ``dict[str, Any]`` and reject the spread.
+    defaults: dict[str, Any] = dict(
         name=chosen,
         owner_user_id=user.id,
         visibility=VISIBILITY_PRIVATE,
@@ -356,6 +460,16 @@ def duplicate_report(
         cron_expression=None,
         schedule_description=None,
         notification_config=None,
+    )
+    if extra_overrides:
+        defaults.update(extra_overrides)
+    clone = Report(
+        **{
+            col: getattr(original, col)
+            for col in [c.key for c in Report.__table__.columns]
+            if col not in _EXCLUDE_REPORT_FIELDS
+        },
+        **defaults,
     )
     db.add(clone)
     db.flush()  # populate clone.id so item / parameter FKs can resolve
@@ -406,6 +520,109 @@ def duplicate_report(
 
     db.flush()
     return original, clone
+
+
+# ---- Template marketplace (批 13) ----
+
+
+def save_as_template(
+    db: Session,
+    source_id: int,
+    user: User,
+    *,
+    visibility: str,
+    category: str | None,
+) -> tuple[Report, Report]:
+    """Clone ``source_id`` into a new Report marked as a template.
+
+    Caller must be admin OR the source's owner — non-owners can't
+    publish someone else's report as a template (they can clone it
+    via the regular duplicate endpoint). The original row is left
+    untouched; the template is a fresh row with:
+
+    * ``is_template=True``,
+    * ``owner_user_id=user.id``,
+    * ``visibility`` set to the operator-supplied value (validated by
+      the router before this call),
+    * ``org_id=user.org_id`` if ``visibility=='org'`` else ``None``
+      (templates only participate in the org tier when the owning
+      user is in an org),
+    * ``template_category`` set to the admin-supplied free-text bucket
+      (or ``None`` if left blank),
+    * scheduler + notification stripped (templates are dormant
+      definitions; the forker can wire those up after the copy),
+    * ``is_demo=False`` (templates and demo scaffolding are separate
+      concepts — admin uses one or the other, not both).
+
+    Returns ``(source, template)`` for the audit log. Raises
+    ``PermissionError`` if the caller isn't admin/owner. Raises
+    ``LookupError`` if the source is missing (uniform 404).
+    """
+    source = get_report_for_user(db, source_id, user)
+    if source is None:
+        raise LookupError(f"Report {source_id} not found or inaccessible")
+    if not (is_admin(user) or is_owner(user, source)):
+        raise PermissionError(
+            "Only the report owner or an admin can publish it as a template"
+        )
+
+    overrides: dict[str, Any] = dict(
+        is_template=True,
+        visibility=visibility,
+        template_category=category,
+        template_source_id=None,
+        org_id=user.org_id if visibility == VISIBILITY_ORG else None,
+    )
+    return duplicate_report(
+        db,
+        source_id,
+        user,
+        new_name=f"{source.name} [模板]",
+        extra_overrides=overrides,
+    )
+
+
+def fork_from_template(
+    db: Session,
+    template_id: int,
+    user: User,
+    *,
+    new_name: str | None = None,
+) -> tuple[Report, Report]:
+    """Clone ``template_id`` into a new Report owned by ``user``.
+
+    Read ACL on the *template* row is sufficient — ``get_report_for_user``
+    grants admin + template owner + visibility ACL + grants, and any
+    of those callers should be able to fork. The resulting fork is a
+    fresh private report (mirrors ``duplicate_report`` defaults), with
+    ``is_template=False`` (the fork is a regular report, not itself
+    a template) and ``template_source_id=template_id`` for lineage.
+    Items + parameters are deep-copied via the same machinery so
+    later edits stay independent.
+
+    Returns ``(template, fork)`` for the audit log. Raises
+    ``LookupError`` if the template is missing/inaccessible (uniform
+    404). Raises ``ValueError`` on name collision.
+    """
+    # Load the template first so we can read ``template_category`` into
+    # the override dict — the forker inherits the bucket so the
+    # gallery can still group the fork. ``get_report_for_user``
+    # enforces read ACL (uniform 404 on miss / no-access).
+    template = get_report_for_user(db, template_id, user)
+    if template is None:
+        raise LookupError(f"Report {template_id} not found or inaccessible")
+    _, fork = duplicate_report(
+        db,
+        template_id,
+        user,
+        new_name=new_name,
+        extra_overrides=dict(
+            is_template=False,
+            template_source_id=template_id,
+            template_category=template.template_category,
+        ),
+    )
+    return template, fork
 
 
 # ---- Versioning helpers (批 versioning Task 4) ----
