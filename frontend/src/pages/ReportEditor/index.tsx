@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Button, Space, message } from 'antd';
-import { SaveOutlined, EyeOutlined } from '@ant-design/icons';
+import { Tabs, Button, Space, message, Modal, Form, Input, Radio } from 'antd';
+import { SaveOutlined, EyeOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { arrayMove } from '@dnd-kit/sortable';
 import type { DragEndEvent } from '@dnd-kit/core';
 import type {
@@ -12,6 +12,7 @@ import type {
   ReportParameter,
   ReportParameterCreate,
   ReportParameterUpdate,
+  ReportVisibility,
 } from '../../types';
 import { formatError } from '../../utils/error';
 import {
@@ -29,6 +30,8 @@ import {
   useUpdateReportParameter,
 } from '../../queries/useParameters';
 import { useDataSources } from '../../queries/useDataSources';
+import { useSaveAsTemplate } from '../../queries/useReportTemplates';
+import { useMe } from '../../queries/useAuth';
 import { CardSkeleton } from '../../components/Skeleton';
 import { SaveVersionModal } from '../../components/SaveVersionModal';
 import { ConfigTab } from './ConfigTab';
@@ -118,6 +121,39 @@ export default function ReportEditor() {
   const [editingItem, setEditingItem] = useState<ReportItem | null>(null);
   const [activeTab, setActiveTab] = useState('config');
   const [saveVersionOpen, setSaveVersionOpen] = useState(false);
+
+  // ---- 批 13: save-as-template (owner-or-admin) ----------------------
+  // Pulls role + user id from useMe so we can hide the button for
+  // non-owner non-admin users. The backend enforces the same — we
+  // just hide the affordance so people don't see a 403 on click.
+  const me = useMe();
+  const isAdmin = me.data?.role === 'admin';
+  const isOwner = me.data?.user_id != null && buffer?.owner_user_id === me.data.user_id;
+  const canSaveAsTemplate = isAdmin || isOwner;
+
+  const [saveAsTemplateOpen, setSaveAsTemplateOpen] = useState(false);
+  const [templateForm] = Form.useForm<{ visibility: ReportVisibility; category?: string }>();
+  const saveAsTemplate = useSaveAsTemplate();
+
+  const handleSaveAsTemplate = async () => {
+    if (!reportId) return;
+    try {
+      const values = await templateForm.validateFields();
+      saveAsTemplate.mutate(
+        { reportId, payload: { visibility: values.visibility, category: values.category } },
+        {
+          onSuccess: (tpl) => {
+            message.success(`已发布为模板「${tpl.name}」`);
+            setSaveAsTemplateOpen(false);
+            templateForm.resetFields();
+          },
+          onError: (err) => message.error(formatError(err, '发布失败')),
+        },
+      );
+    } catch {
+      // Form validation error — antd already shows inline messages.
+    }
+  };
 
   const handleSaveReport = () => {
     if (!buffer || !reportId) return;
@@ -256,6 +292,23 @@ export default function ReportEditor() {
           >
             保存为版本
           </Button>
+          {/* 批 13 — owner-or-admin only. Backend enforces the same
+              gate, but we hide the button so non-owners don't see a
+              403. The Modal collects visibility + category; the
+              server strips scheduler + notification_config from
+              the cloned template row. */}
+          {canSaveAsTemplate && (
+            <Button
+              icon={<AppstoreOutlined />}
+              onClick={() => {
+                templateForm.setFieldsValue({ visibility: 'public', category: '' });
+                setSaveAsTemplateOpen(true);
+              }}
+              disabled={!reportId}
+            >
+              另存为模板
+            </Button>
+          )}
           <Button
             type="primary"
             icon={<SaveOutlined />}
@@ -332,6 +385,43 @@ export default function ReportEditor() {
           onClose={() => setSaveVersionOpen(false)}
         />
       )}
+
+      {/* 批 13 — save-as-template modal. Visibility radio +
+          free-text category; the backend validates
+          ``visibility`` against the ReportVisibility Literal
+          and caps ``category`` at 64 chars. */}
+      <Modal
+        title="另存为模板"
+        open={saveAsTemplateOpen}
+        onOk={handleSaveAsTemplate}
+        onCancel={() => setSaveAsTemplateOpen(false)}
+        confirmLoading={saveAsTemplate.isPending}
+        okText="发布"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={templateForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="visibility"
+            label="可见性"
+            rules={[{ required: true, message: '请选择可见性' }]}
+            initialValue="public"
+          >
+            <Radio.Group>
+              <Radio.Button value="public">公开（所有人可 fork）</Radio.Button>
+              <Radio.Button value="org">同部门</Radio.Button>
+              <Radio.Button value="private">私有（仅我自己）</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+          <Form.Item
+            name="category"
+            label="分类"
+            tooltip="可选；用于模板市场筛选。最长 64 字符。"
+          >
+            <Input placeholder="例如: 财务分析、销售看板" maxLength={64} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

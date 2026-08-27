@@ -29,6 +29,7 @@ import {
   BellOutlined,
   CopyOutlined,
   MoreOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
@@ -446,6 +447,14 @@ export default function ReportList() {
           </Button>
           <Button icon={<ClockCircleOutlined />} onClick={() => navigate('/scheduler')}>
             定时任务
+          </Button>
+          {/* 批 13 — route into the template marketplace. Sits next
+              to "创建报表" so the two create affordances cluster. */}
+          <Button
+            icon={<AppstoreOutlined />}
+            onClick={() => navigate('/reports/templates')}
+          >
+            从模板新建
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             创建报表

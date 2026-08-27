@@ -9,6 +9,7 @@ import type {
   DataSourceGrant,
   DataSourceGrantCreate,
   DataSourceSchema,
+  ForkFromTemplateRequest,
   QueryResult,
   Report,
   ReportCreate,
@@ -17,6 +18,7 @@ import type {
   ReportSubscription,
   ReportSubscriptionCreate,
   ReportSubscriptionUpdate,
+  ReportTemplatesFilters,
   ReportUpdate,
   ReportItem,
   ReportItemCreate,
@@ -32,6 +34,7 @@ import type {
   ReportVersionResponse,
   ReportVersionRestoreResponse,
   ReportVersionSummary,
+  SaveAsTemplateRequest,
   SchedulerStatus,
   SchedulerJob,
   UserSummary,
@@ -680,6 +683,50 @@ export const reportVersionsApi = {
 export const adminMetricsApi = {
   get: async (): Promise<AdminMetricsResponse> => {
     const { data } = await api.get('/admin/metrics');
+    return data;
+  },
+};
+
+// ============ Report templates (批 13) ============
+//
+// Template marketplace: browse the public pool, fork any visible
+// template into a personal report, and (for owners/admins) publish
+// an existing report into the pool. ACL is enforced server-side
+// via ``_is_template_visible_to_user``; the client just shapes the
+// request.
+export const templatesApi = {
+  /** Browse the gallery. ``filters`` map straight to the backend
+   *  query params (``category`` / ``data_source_id`` / ``visibility``
+   *  / ``q``). Stripped of undefined keys so we don't serialise
+   *  ``?undefined=...`` — same pattern as ``auditLogApi.list``. */
+  list: async (filters?: ReportTemplatesFilters): Promise<Report[]> => {
+    const params: Record<string, unknown> = {};
+    if (filters) {
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null && value !== '') params[key] = value;
+      }
+    }
+    const { data } = await api.get('/reports/templates', { params });
+    return data;
+  },
+
+  /** Publish a report into the template pool. Owner-or-admin only.
+   *  Returns the new template row. Backend audits the action and
+   *  strips scheduler / notification_config from the clone. */
+  saveAsTemplate: async (
+    reportId: number,
+    payload: SaveAsTemplateRequest,
+  ): Promise<Report> => {
+    const { data } = await api.post(`/reports/${reportId}/save-as-template`, payload);
+    return data;
+  },
+
+  /** Fork a template into a personal Report. Read ACL on the
+   *  template is sufficient — the gallery already filtered what
+   *  the caller can see. Returns the new private report owned by
+   *  the caller. */
+  fork: async (reportId: number, payload: ForkFromTemplateRequest = {}): Promise<Report> => {
+    const { data } = await api.post(`/reports/${reportId}/from-template`, payload);
     return data;
   },
 };

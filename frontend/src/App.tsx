@@ -19,6 +19,7 @@ import {
   FundOutlined,
   BellOutlined,
   DashboardOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -34,6 +35,9 @@ import Login from './pages/Login';
 
 const DataSourceList = lazy(() => import('./pages/DataSourceList'));
 const ReportList = lazy(() => import('./pages/ReportList'));
+// 批 13 — template marketplace gallery. Loaded lazily alongside the
+// regular report list so the initial bundle stays unaffected.
+const ReportTemplates = lazy(() => import('./pages/ReportTemplates'));
 const ReportEditor = lazy(() => import('./pages/ReportEditor'));
 const ReportPreview = lazy(() => import('./pages/ReportPreview'));
 const SchedulerPage = lazy(() => import('./pages/Scheduler'));
@@ -69,6 +73,15 @@ function AppMenu() {
       key: '/reports',
       icon: <FileTextOutlined />,
       label: <Link to="/reports">报表</Link>,
+    },
+    // 批 13 — template marketplace. Sits next to /reports so the
+    // gallery feels like a sibling surface (not a sub-page of
+    // /reports) — operators browse templates, then fork into a
+    // personal report, which lands them back on /reports/{id}.
+    {
+      key: '/reports/templates',
+      icon: <AppstoreOutlined />,
+      label: <Link to="/reports/templates">模板市场</Link>,
     },
     {
       key: '/scheduler',
@@ -206,6 +219,11 @@ function AppShell() {
             <Route path="/data-sources" element={<DataSourceList />} />
             <Route path="/explorer" element={<DataExplorer />} />
             <Route path="/reports" element={<ReportList />} />
+            {/* 批 13 — template gallery. Declared BEFORE /reports/:id
+                so the literal path doesn't get parsed as a numeric
+                id (React Router matches in declaration order, and
+                /:id would greedily eat the "templates" segment). */}
+            <Route path="/reports/templates" element={<ReportTemplates />} />
             <Route path="/reports/:id" element={<ReportEditor />} />
             <Route path="/reports/:id/edit" element={<NavigateToReports />} />
             <Route path="/reports/:id/preview" element={<ReportPreview />} />

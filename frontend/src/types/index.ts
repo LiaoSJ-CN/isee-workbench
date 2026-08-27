@@ -6,8 +6,12 @@
 // (e.g. "can I see the New Data Source button").
 export type UserRole = 'admin' | 'editor' | 'viewer';
 
-/** Mirrors backend ``ReportVisibility`` Literal (批 9.4). */
-export type ReportVisibility = 'public' | 'private';
+/** Mirrors backend ``ReportVisibility`` Literal (批 9.4).
+ *  批 13 adds ``org`` — same-org viewers only. Backed by the
+ *  ``User.org_id`` field (批 9.1) and only enabled when the
+ *  operator sets ``DEFAULT_ORG_ID``; otherwise the API treats
+ *  ``org`` rows as NULL-on-either-side mismatches. */
+export type ReportVisibility = 'public' | 'private' | 'org';
 
 /** Permission tier for a per-report share row. */
 export type ReportSharePermission = 'read' | 'write';
@@ -326,9 +330,42 @@ export interface Report {
   // authored themselves. Backend never exposes a write path for this
   // flag, so end-users can't tag their own reports as demos.
   is_demo?: boolean;
+  // 批 13 template marketplace — flags rows in the public template pool.
+  // ``is_template`` rows are surfaced on ``/reports/templates``; the
+  // other two fields are the grouping tag and the upstream report id
+  // for forks (so a fork remembers which template it came from). All
+  // three are read-only on the wire — only ``save-as-template`` and
+  // ``from-template`` mutate them, and only on the server side.
+  is_template?: boolean;
+  template_category?: string | null;
+  template_source_id?: number | null;
   created_at?: string;
   updated_at?: string;
   items: ReportItem[];
+}
+
+/** Body for ``POST /reports/{id}/save-as-template`` (批 13). */
+export interface SaveAsTemplateRequest {
+  visibility: ReportVisibility;
+  category?: string | null;
+}
+
+/** Body for ``POST /reports/{id}/from-template`` (批 13).
+ *  ``name`` is optional; the backend picks ``<template> (副本)`` with
+ *  a numeric suffix on collision. */
+export interface ForkFromTemplateRequest {
+  name?: string | null;
+}
+
+/** Filters for ``GET /reports/templates`` (批 13). Mirrors the backend
+ *  Query params: ``category`` / ``data_source_id`` / ``visibility``
+ * / ``q``. All fields optional — backend treats missing as
+ *  "no filter on this dimension". */
+export interface ReportTemplatesFilters {
+  category?: string;
+  data_source_id?: number;
+  visibility?: ReportVisibility;
+  q?: string;
 }
 
 export interface ReportCreate {

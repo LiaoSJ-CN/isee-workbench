@@ -81,4 +81,20 @@ export const queryKeys = {
     all: ['admin-metrics'] as const,
     current: () => [...queryKeys.adminMetrics.all, 'current'] as const,
   },
+  // Report templates (批 13) — the gallery list shares the
+  // `reports.all` ancestor so a save-as-template mutation
+  // invalidates both the template list and the regular report
+  // list in one call (the new template row lives in both).
+  reportTemplates: {
+    all: ['report-templates'] as const,
+    lists: () => [...queryKeys.reportTemplates.all, 'list'] as const,
+    // `filters ?? {}` keeps `useReportTemplates()` and
+    // `useReportTemplates({})` on the same cache key.
+    list: (filters?: {
+      category?: string;
+      data_source_id?: number;
+      visibility?: string;
+      q?: string;
+    }) => [...queryKeys.reportTemplates.lists(), filters ?? {}] as const,
+  },
 } as const;
