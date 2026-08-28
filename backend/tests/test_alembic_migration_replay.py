@@ -224,7 +224,7 @@ def _schema_snapshot(test_url: str) -> set[tuple[str, str]]:
 
 
 def test_migration_chain_is_linear_and_contains_all_revisions() -> None:
-    """All 13 revisions are reachable from a single root, no forks.
+    """All 14 revisions are reachable from a single root, no forks.
     A future contributor who adds a branch will fail this test and
     have to think about the round-trip semantics — that's by design.
     """
@@ -242,6 +242,7 @@ def test_migration_chain_is_linear_and_contains_all_revisions() -> None:
         "a51e9a14f8c7",
         "ce6c152ead31",
         "525edc1ba876",  # 批 13 — report template fields
+        "3b8e4f7c2a91",  # 批 14 — dashboard tables
     ], f"migration chain shape changed: {_REVISIONS}"
 
 
