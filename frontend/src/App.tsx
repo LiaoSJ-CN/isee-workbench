@@ -20,6 +20,7 @@ import {
   BellOutlined,
   DashboardOutlined,
   AppstoreOutlined,
+  MonitorOutlined,
 } from '@ant-design/icons';
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -48,6 +49,11 @@ const AdminMetrics = lazy(() => import('./pages/AdminMetrics'));
 const MySubscriptionsPage = lazy(() => import('./pages/MySubscriptions'));
 const ReportHistoryPage = lazy(() => import('./pages/ReportHistory'));
 const ReportHistoryDiffPage = lazy(() => import('./pages/ReportHistory/DiffView'));
+// 批 14.3 — dashboard pages. Lazy-loaded like the rest of the report
+// surfaces so the initial bundle still ships just the AppShell.
+const DashboardList = lazy(() => import('./pages/DashboardList'));
+const DashboardView = lazy(() => import('./pages/DashboardView'));
+const DashboardEdit = lazy(() => import('./pages/DashboardEdit'));
 
 const { Header, Content } = Layout;
 
@@ -88,6 +94,14 @@ function AppMenu() {
       icon: <ClockCircleOutlined />,
       label: <Link to="/scheduler">定时任务</Link>,
     },
+    // 批 14.3 — dashboard surfaces. Sits next to /scheduler so
+    // operators see dashboards as a top-level workflow (compose +
+    // schedule + view), not buried under /reports.
+    {
+      key: '/dashboards',
+      icon: <DashboardOutlined />,
+      label: <Link to="/dashboards">看板</Link>,
+    },
     {
       key: '/my-subscriptions',
       icon: <BellOutlined />,
@@ -102,7 +116,7 @@ function AppMenu() {
           },
           {
             key: '/admin/metrics',
-            icon: <DashboardOutlined />,
+            icon: <MonitorOutlined />,
             label: <Link to="/admin/metrics">监控仪表盘</Link>,
           },
         ]
@@ -231,6 +245,13 @@ function AppShell() {
             <Route path="/reports/:id/history/:vid" element={<ReportHistoryDiffPage />} />
             <Route path="/scheduler" element={<SchedulerPage />} />
             <Route path="/my-subscriptions" element={<MySubscriptionsPage />} />
+            {/* 批 14.3 — dashboard routes. /:id/edit declared AFTER
+                /:id so React Router matches the more specific path
+                first; the same trick used by /reports/:id vs
+                /reports/templates above. */}
+            <Route path="/dashboards" element={<DashboardList />} />
+            <Route path="/dashboards/:id" element={<DashboardView />} />
+            <Route path="/dashboards/:id/edit" element={<DashboardEdit />} />
             <Route
               path="/audit-logs"
               element={

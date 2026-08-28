@@ -715,3 +715,176 @@ export interface AdminMetricsResponse {
   health_summary: HealthSummary;
   generated_at: string;
 }
+
+// ---- Dashboard (批 14) ----
+// Mirrors backend Pydantic schemas in ``app.schemas.dashboard``
+// plus the corresponding ORM models in ``app.models.dashboard`` /
+// ``dashboard_access`` / ``dashboard_subscription``.
+//
+// A Dashboard is a grid of items. Items come in three flavours —
+// ``report`` (transitive DS via referenced Report), ``chart`` (direct
+// DS + SQL config), and ``text`` (free-form HTML-escaped markdown).
+// The grid uses react-grid-layout's 12-column model; the backend
+// stores ``x/y/w/h`` per item and ``PATCH /dashboards/{id}/items/layout``
+// is the batch update path used by ``onLayoutChange``.
+//
+// ACL: same shape as Report — owner + visibility + per-user grants.
+// Write-grant propagates to share management (same transitive model).
+
+export type DashboardVisibility = 'public' | 'private' | 'org';
+export type DashboardSharePermission = 'read' | 'write';
+export type DashboardItemType = 'report' | 'chart' | 'text';
+
+export interface DashboardItem {
+  id: number;
+  dashboard_id: number;
+  item_type: DashboardItemType;
+  title?: string | null;
+  order_index: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  // type="report"
+  report_id?: number | null;
+  // type="chart"
+  data_source_id?: number | null;
+  table_name?: string | null;
+  fields: string[];
+  where_conditions: WhereCondition[];
+  group_by: string[];
+  order_by: OrderByItem[];
+  limit?: number | null;
+  display_config?: DisplayConfig | null;
+  custom_sql?: string | null;
+  // type="text"
+  text_content?: string | null;
+  // common
+  parameters: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DashboardItemCreate {
+  item_type: DashboardItemType;
+  title?: string | null;
+  order_index?: number;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  report_id?: number | null;
+  data_source_id?: number | null;
+  table_name?: string | null;
+  fields?: string[];
+  where_conditions?: WhereCondition[];
+  group_by?: string[];
+  order_by?: OrderByItem[];
+  limit?: number | null;
+  display_config?: DisplayConfig | null;
+  custom_sql?: string | null;
+  text_content?: string | null;
+  parameters?: Record<string, unknown>;
+}
+
+export interface DashboardItemUpdate {
+  title?: string | null;
+  order_index?: number;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  report_id?: number | null;
+  data_source_id?: number | null;
+  table_name?: string | null;
+  fields?: string[];
+  where_conditions?: WhereCondition[];
+  group_by?: string[];
+  order_by?: OrderByItem[];
+  limit?: number | null;
+  display_config?: DisplayConfig | null;
+  custom_sql?: string | null;
+  text_content?: string | null;
+  parameters?: Record<string, unknown>;
+}
+
+/** One row of the batch ``PATCH /dashboards/{id}/items/layout`` body.
+ *  Mirrors backend ``DashboardItemLayoutEntry``. */
+export interface DashboardItemLayoutEntry {
+  item_id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  order_index?: number;
+}
+
+export interface Dashboard {
+  id: number;
+  name: string;
+  description?: string | null;
+  visibility: DashboardVisibility;
+  owner_user_id?: number | null;
+  owner_username?: string | null;
+  org_id?: number | null;
+  can_edit?: boolean;
+  item_count?: number | null;
+  items: DashboardItem[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DashboardCreate {
+  name: string;
+  description?: string;
+  visibility?: DashboardVisibility;
+  items?: DashboardItemCreate[];
+}
+
+export interface DashboardUpdate {
+  name?: string;
+  description?: string;
+  visibility?: DashboardVisibility;
+}
+
+export interface DashboardShare {
+  id: number;
+  dashboard_id: number;
+  user_id: number;
+  permission: DashboardSharePermission;
+  granted_by?: number | null;
+  created_at?: string;
+}
+
+export interface DashboardShareCreate {
+  user_id: number;
+  permission: DashboardSharePermission;
+}
+
+export interface DashboardSubscription {
+  id: number;
+  owner_user_id: number;
+  dashboard_id: number;
+  cron_expression: string;
+  parameters: Record<string, unknown> | null;
+  notification_config: NotificationConfig | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string | null;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+}
+
+export interface DashboardSubscriptionCreate {
+  dashboard_id: number;
+  cron_expression: string;
+  parameters?: Record<string, unknown> | null;
+  notification_config?: NotificationConfig | null;
+}
+
+export interface DashboardSubscriptionUpdate {
+  cron_expression?: string;
+  parameters?: Record<string, unknown> | null;
+  notification_config?: NotificationConfig | null;
+  is_active?: boolean;
+}

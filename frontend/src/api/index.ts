@@ -4,6 +4,18 @@ import type {
   AuditLogFilters,
   AuditLogListResponse,
   CurrentUser,
+  Dashboard,
+  DashboardCreate,
+  DashboardItem,
+  DashboardItemCreate,
+  DashboardItemLayoutEntry,
+  DashboardItemUpdate,
+  DashboardShare,
+  DashboardShareCreate,
+  DashboardSubscription,
+  DashboardSubscriptionCreate,
+  DashboardSubscriptionUpdate,
+  DashboardUpdate,
   DataSource,
   DataSourceCreate,
   DataSourceGrant,
@@ -727,6 +739,156 @@ export const templatesApi = {
    *  the caller. */
   fork: async (reportId: number, payload: ForkFromTemplateRequest = {}): Promise<Report> => {
     const { data } = await api.post(`/reports/${reportId}/from-template`, payload);
+    return data;
+  },
+};
+
+// ============ Dashboards (批 14) ============
+
+export const dashboardApi = {
+  /** List dashboards the caller can see. ``q`` is a name ILIKE. */
+  list: async (params?: { q?: string; limit?: number; offset?: number }): Promise<Dashboard[]> => {
+    const { data } = await api.get('/dashboards', { params });
+    return data;
+  },
+
+  get: async (id: number): Promise<Dashboard> => {
+    const { data } = await api.get(`/dashboards/${id}`);
+    return data;
+  },
+
+  /** Convenience: list a dashboard's items only. The backend's
+   *  ``GET /dashboards/{id}`` returns the dashboard with its items
+   *  embedded. We extract them here so the editor page can subscribe
+   *  to a single ``items`` query and re-render without invalidating
+   *  the dashboard header. */
+  listItems: async (id: number): Promise<DashboardItem[]> => {
+    const { data } = await api.get<Dashboard>(`/dashboards/${id}`);
+    return data.items ?? [];
+  },
+
+  create: async (payload: DashboardCreate): Promise<Dashboard> => {
+    const { data } = await api.post('/dashboards', payload);
+    return data;
+  },
+
+  update: async (id: number, payload: DashboardUpdate): Promise<Dashboard> => {
+    const { data } = await api.put(`/dashboards/${id}`, payload);
+    return data;
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/dashboards/${id}`);
+  },
+
+  /** Duplicate a dashboard — read ACL is sufficient. The clone is
+   *  owned by the caller and starts private; items are deep-copied. */
+  duplicate: async (id: number, name?: string): Promise<Dashboard> => {
+    const { data } = await api.post(`/dashboards/${id}/duplicate`, name ? { name } : {});
+    return data;
+  },
+
+  // ---- Items (批 14) ----
+
+  createItem: async (dashboardId: number, payload: DashboardItemCreate): Promise<DashboardItem> => {
+    const { data } = await api.post(`/dashboards/${dashboardId}/items`, payload);
+    return data;
+  },
+
+  updateItem: async (
+    dashboardId: number,
+    itemId: number,
+    payload: DashboardItemUpdate,
+  ): Promise<DashboardItem> => {
+    const { data } = await api.put(`/dashboards/${dashboardId}/items/${itemId}`, payload);
+    return data;
+  },
+
+  deleteItem: async (dashboardId: number, itemId: number): Promise<void> => {
+    await api.delete(`/dashboards/${dashboardId}/items/${itemId}`);
+  },
+
+  /** Batch update of ``x/y/w/h`` (and optional ``order_index``) —
+   *  react-grid-layout's ``onLayoutChange`` debounces into this one
+   *  PATCH instead of N parallel PUTs. */
+  updateLayout: async (
+    dashboardId: number,
+    items: DashboardItemLayoutEntry[],
+  ): Promise<{ updated: number }> => {
+    const { data } = await api.patch(`/dashboards/${dashboardId}/items/layout`, { items });
+    return data;
+  },
+
+  // ---- Shares (批 14) ----
+
+  listShares: async (dashboardId: number): Promise<DashboardShare[]> => {
+    const { data } = await api.get(`/dashboards/${dashboardId}/shares`);
+    return data;
+  },
+
+  createShare: async (
+    dashboardId: number,
+    payload: DashboardShareCreate,
+  ): Promise<DashboardShare> => {
+    const { data } = await api.post(`/dashboards/${dashboardId}/shares`, payload);
+    return data;
+  },
+
+  revokeShare: async (dashboardId: number, userId: number): Promise<void> => {
+    await api.delete(`/dashboards/${dashboardId}/shares/${userId}`);
+  },
+};
+
+// ============ Dashboard subscriptions (批 14.2) ============
+
+export const dashboardSubscriptionApi = {
+  list: async (
+    dashboardId?: number,
+    limit = 50,
+    offset = 0,
+  ): Promise<DashboardSubscription[]> => {
+    const params: Record<string, unknown> = { limit, offset };
+    if (dashboardId !== undefined) params.dashboard_id = dashboardId;
+    const { data } = await api.get('/dashboard-subscriptions', { params });
+    return data;
+  },
+
+  get: async (subscriptionId: number): Promise<DashboardSubscription | null> => {
+    try {
+      const { data } = await api.get(`/dashboard-subscriptions/${subscriptionId}`);
+      return data;
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  create: async (payload: DashboardSubscriptionCreate): Promise<DashboardSubscription> => {
+    const { data } = await api.post('/dashboard-subscriptions', payload);
+    return data;
+  },
+
+  update: async (
+    subscriptionId: number,
+    payload: DashboardSubscriptionUpdate,
+  ): Promise<DashboardSubscription> => {
+    const { data } = await api.patch(`/dashboard-subscriptions/${subscriptionId}`, payload);
+    return data;
+  },
+
+  delete: async (subscriptionId: number): Promise<void> => {
+    await api.delete(`/dashboard-subscriptions/${subscriptionId}`);
+  },
+
+  pause: async (subscriptionId: number): Promise<DashboardSubscription> => {
+    const { data } = await api.post(`/dashboard-subscriptions/${subscriptionId}/pause`);
+    return data;
+  },
+
+  resume: async (subscriptionId: number): Promise<DashboardSubscription> => {
+    const { data } = await api.post(`/dashboard-subscriptions/${subscriptionId}/resume`);
     return data;
   },
 };
