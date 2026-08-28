@@ -33,8 +33,13 @@ export interface DashboardGridEditorProps {
    *  when you want to force a remount across structural changes. */
   itemKey?: (item: DashboardItem) => string;
   /** Called whenever the user drops a drag/resize. We debounce before
-   *  forwarding so a 1-second drag becomes one PATCH, not 60. */
-  onLayoutChange: (entries: { id: number; x: number; y: number; w: number; h: number }[]) => void;
+   *  forwarding so a 1-second drag becomes one PATCH, not 60.
+   *  Note the field name ``item_id`` — the backend's
+   *  ``DashboardItemLayoutEntry`` uses ``item_id`` (matching the DB
+   *  foreign-key column), not ``id``. */
+  onLayoutChange: (
+    entries: { item_id: number; x: number; y: number; w: number; h: number }[],
+  ) => void;
   /** Optional click-to-edit hook. */
   onItemClick?: (item: DashboardItem) => void;
   /** Optional per-item delete hook. Renders a small "×" affordance in
@@ -87,7 +92,9 @@ export function DashboardGridEditor({
   // on EVERY onDrag/onResize tick — without debouncing we'd send a PATCH per
   // pixel. We keep a single timer ref so the most recent call wins.
   const timerRef = useRef<number | null>(null);
-  const pendingRef = useRef<{ id: number; x: number; y: number; w: number; h: number }[]>([]);
+  const pendingRef = useRef<
+    { item_id: number; x: number; y: number; w: number; h: number }[]
+  >([]);
   const flushRef = useRef(onLayoutChange);
   // Keep the latest callback ref updated after every render — assigning in
   // an effect (rather than during render) avoids the
@@ -105,13 +112,16 @@ export function DashboardGridEditor({
   const handleLayoutChange = (next: Layout[]) => {
     if (readOnly) return;
     const flat = next.flat();
-    // Replace pending entries keyed by id; preserve last write per id.
-    const map = new Map<number, { id: number; x: number; y: number; w: number; h: number }>();
-    for (const entry of pendingRef.current) map.set(entry.id, entry);
+    // Replace pending entries keyed by item_id; preserve last write per id.
+    const map = new Map<
+      number,
+      { item_id: number; x: number; y: number; w: number; h: number }
+    >();
+    for (const entry of pendingRef.current) map.set(entry.item_id, entry);
     for (const entry of flat) {
       const id = Number(entry.i);
       if (!Number.isFinite(id)) continue;
-      map.set(id, { id, x: entry.x, y: entry.y, w: entry.w, h: entry.h });
+      map.set(id, { item_id: id, x: entry.x, y: entry.y, w: entry.w, h: entry.h });
     }
     pendingRef.current = Array.from(map.values());
 
