@@ -22,6 +22,11 @@ from app.middleware.request_id import RequestIDMiddleware, install_request_id_lo
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.sentry import init_sentry
 from app.models import audit_log as _audit_log_module  # noqa: F401  # 批 9.5
+from app.models import dashboard as _dashboard_module  # noqa: F401  # 批 14
+from app.models import dashboard_access as _dashboard_access_module  # noqa: F401  # 批 14
+from app.models import (
+    dashboard_subscription as _dashboard_subscription_module,  # noqa: F401  # 批 14
+)
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
@@ -34,6 +39,8 @@ from app.routers import (
     admin_metrics,  # 批 12
     audit,  # 批 9.5
     auth,
+    dashboard,  # 批 14
+    dashboard_subscription,  # 批 14
     data_source,
     explorer,
     jobs,
@@ -42,6 +49,9 @@ from app.routers import (
     scheduler,
     subscription,
     users,  # A3 (post-批-report-versioning)
+)
+from app.services.dashboard_subscription import (
+    sync_dashboard_subscriptions_with_database,
 )
 from app.services.job_queue import shutdown_executor
 from app.services.password import hash_password
@@ -250,6 +260,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # keeps single-process dev (``SCHEDULER_DISABLED=false``)
             # self-sufficient without depending on the sidecar.
             sync_subscriptions_with_database(db)
+            # Dashboard subscriptions reuse the same APScheduler
+            # instance on the ``dsub_<id>`` namespace (批 14).
+            sync_dashboard_subscriptions_with_database(db)
             scheduler.start()
         finally:
             db.close()
@@ -302,6 +315,8 @@ app.include_router(data_source.router)
 app.include_router(report.router)
 # Report versioning (snapshot / list / diff / restore / delete).
 app.include_router(report_version.router)
+# Dashboard CRUD + items + layout + shares + preview (批 14.2).
+app.include_router(dashboard.router)
 app.include_router(scheduler.router)
 app.include_router(explorer.router)
 # Async report-generation jobs (批 3a). Two routers because the surface
@@ -310,6 +325,9 @@ app.include_router(jobs.report_jobs_router)
 app.include_router(jobs.jobs_router)
 # Per-user report subscriptions (批 8.3).
 app.include_router(subscription.router)
+# Per-user dashboard subscriptions (批 14.2) — CRUD endpoint surface;
+# dispatch logic lands in 批 14.4.
+app.include_router(dashboard_subscription.router)
 # Admin-only audit log (批 9.5).
 app.include_router(audit.router)
 # Admin-only DataSource connection-pool metrics (批 12).

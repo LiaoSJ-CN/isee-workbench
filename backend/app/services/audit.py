@@ -41,6 +41,8 @@ from sqlalchemy.orm import Session
 
 from app.middleware.request_id import get_request_id
 from app.models.audit_log import AuditLog
+from app.models.dashboard import Dashboard, DashboardItem
+from app.models.dashboard_access import DashboardAccess
 from app.models.data_source import DataSource
 from app.models.data_source_access import DataSourceAccess
 from app.models.report import Report, ReportItem
@@ -48,6 +50,11 @@ from app.models.report_access import ReportAccess
 from app.models.report_job import ReportJob
 from app.models.report_parameter import ReportParameter
 from app.models.report_subscription import ReportSubscription
+from app.schemas.dashboard import (
+    DashboardItemResponse,
+    DashboardResponse,
+    DashboardShareResponse,
+)
 from app.schemas.data_source import DataSourceResponse, GrantResponse
 from app.schemas.job import ReportJobResponse
 from app.schemas.report import ReportDetailResponse, ReportItemResponse, ReportShareResponse
@@ -100,6 +107,25 @@ ACTION_REPORT_SHARE = "report.share"
 ACTION_REPORT_REVOKE = "report.revoke"
 ACTION_REPORT_GENERATE = "report.generate"
 
+# 批 14: dashboard CRUD + items + shares — ``target_id`` is the
+# dashboard row id (mirrors the report.* set; per-item rows use
+# ``dashboard.item.*``).
+ACTION_DASHBOARD_CREATE = "dashboard.create"
+ACTION_DASHBOARD_UPDATE = "dashboard.update"
+ACTION_DASHBOARD_DELETE = "dashboard.delete"
+# 批 14.2: duplicate a Dashboard — same read-ACL contract as
+# ``report.duplicate``; ``before`` = source, ``after`` = new dashboard.
+ACTION_DASHBOARD_DUPLICATE = "dashboard.duplicate"
+ACTION_DASHBOARD_ITEM_CREATE = "dashboard.item.create"
+ACTION_DASHBOARD_ITEM_UPDATE = "dashboard.item.update"
+ACTION_DASHBOARD_ITEM_DELETE = "dashboard.item.delete"
+# 批 14.2: react-grid-layout emits a single onLayoutChange; the
+# router folds it into one batch PATCH so we record it as one
+# reorder event (per-item ``before/after`` arrays in the audit row).
+ACTION_DASHBOARD_ITEM_REORDER = "dashboard.item.reorder"
+ACTION_DASHBOARD_SHARE = "dashboard.share"
+ACTION_DASHBOARD_REVOKE = "dashboard.revoke"
+
 ACTION_JOB_ENQUEUE = "job.enqueue"
 
 ACTION_SUBSCRIPTION_CREATE = "subscription.create"
@@ -138,6 +164,17 @@ ALL_ACTIONS: tuple[str, ...] = (
     ACTION_REPORT_SHARE,
     ACTION_REPORT_REVOKE,
     ACTION_REPORT_GENERATE,
+    # 批 14: dashboard actions (mirrors the report.* set).
+    ACTION_DASHBOARD_CREATE,
+    ACTION_DASHBOARD_UPDATE,
+    ACTION_DASHBOARD_DELETE,
+    ACTION_DASHBOARD_DUPLICATE,
+    ACTION_DASHBOARD_ITEM_CREATE,
+    ACTION_DASHBOARD_ITEM_UPDATE,
+    ACTION_DASHBOARD_ITEM_DELETE,
+    ACTION_DASHBOARD_ITEM_REORDER,
+    ACTION_DASHBOARD_SHARE,
+    ACTION_DASHBOARD_REVOKE,
     ACTION_JOB_ENQUEUE,
     ACTION_SUBSCRIPTION_CREATE,
     ACTION_SUBSCRIPTION_UPDATE,
@@ -163,6 +200,12 @@ TARGET_TYPE_REPORT_PARAM = "report_parameter"
 TARGET_TYPE_REPORT_SHARE = "report_share"
 TARGET_TYPE_REPORT_JOB = "report_job"
 TARGET_TYPE_REPORT_SUBSCRIPTION = "report_subscription"
+# 批 14: dashboard ACL — same shape as report share/subscription
+# (per-resource rows live in their own tables).
+TARGET_TYPE_DASHBOARD = "dashboard"
+TARGET_TYPE_DASHBOARD_ITEM = "dashboard_item"
+TARGET_TYPE_DASHBOARD_SHARE = "dashboard_share"
+TARGET_TYPE_DASHBOARD_SUBSCRIPTION = "dashboard_subscription"
 TARGET_TYPE_SCHEDULER = "scheduler"
 TARGET_TYPE_EXPLORER_QUERY = "explorer_query"
 
@@ -176,6 +219,10 @@ ALL_TARGET_TYPES: tuple[str, ...] = (
     TARGET_TYPE_REPORT_SHARE,
     TARGET_TYPE_REPORT_JOB,
     TARGET_TYPE_REPORT_SUBSCRIPTION,
+    TARGET_TYPE_DASHBOARD,
+    TARGET_TYPE_DASHBOARD_ITEM,
+    TARGET_TYPE_DASHBOARD_SHARE,
+    TARGET_TYPE_DASHBOARD_SUBSCRIPTION,
     TARGET_TYPE_SCHEDULER,
     TARGET_TYPE_EXPLORER_QUERY,
 )
@@ -200,6 +247,12 @@ _SCHEMA_FOR_TYPE: dict[type, type[BaseModel]] = {
     ReportAccess: ReportShareResponse,
     ReportJob: ReportJobResponse,
     ReportSubscription: ReportSubscriptionResponse,
+    # 批 14: dashboard snapshots — same ``*Response`` shape as the
+    # report set; the snapshot is used in ``before``/``after`` of the
+    # create/update/delete/duplicate/share audit rows.
+    Dashboard: DashboardResponse,
+    DashboardItem: DashboardItemResponse,
+    DashboardAccess: DashboardShareResponse,
 }
 
 
@@ -390,6 +443,16 @@ __all__ = [
     "ACTION_REPORT_SHARE",
     "ACTION_REPORT_REVOKE",
     "ACTION_REPORT_GENERATE",
+    "ACTION_DASHBOARD_CREATE",
+    "ACTION_DASHBOARD_UPDATE",
+    "ACTION_DASHBOARD_DELETE",
+    "ACTION_DASHBOARD_DUPLICATE",
+    "ACTION_DASHBOARD_ITEM_CREATE",
+    "ACTION_DASHBOARD_ITEM_UPDATE",
+    "ACTION_DASHBOARD_ITEM_DELETE",
+    "ACTION_DASHBOARD_ITEM_REORDER",
+    "ACTION_DASHBOARD_SHARE",
+    "ACTION_DASHBOARD_REVOKE",
     "ACTION_JOB_ENQUEUE",
     "ACTION_SUBSCRIPTION_CREATE",
     "ACTION_SUBSCRIPTION_UPDATE",
@@ -411,6 +474,10 @@ __all__ = [
     "TARGET_TYPE_REPORT_SHARE",
     "TARGET_TYPE_REPORT_JOB",
     "TARGET_TYPE_REPORT_SUBSCRIPTION",
+    "TARGET_TYPE_DASHBOARD",
+    "TARGET_TYPE_DASHBOARD_ITEM",
+    "TARGET_TYPE_DASHBOARD_SHARE",
+    "TARGET_TYPE_DASHBOARD_SUBSCRIPTION",
     "TARGET_TYPE_SCHEDULER",
     "TARGET_TYPE_EXPLORER_QUERY",
     "ALL_TARGET_TYPES",

@@ -236,6 +236,37 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | POST | `/reports/{id}/save-as-template` | 另存为模板（owner/admin，剥离 scheduler + notification） |
 | POST | `/reports/{id}/from-template` | 从模板 fork 出新报表（read ACL 即可） |
 
+### 看板（Dashboard，批 14）
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/dashboards` | 看板列表（ACL 过滤，owner + public + org + 授权） |
+| POST | `/dashboards` | 创建看板（默认 owner=caller + visibility=private，可选 `items`） |
+| GET | `/dashboards/{id}` | 获取看板详情（含所有 items） |
+| PUT | `/dashboards/{id}` | 更新看板（write ACL：owner / write-grantee / admin） |
+| DELETE | `/dashboards/{id}` | 删除看板（owner / admin；cascade 清 items + shares + subscriptions） |
+| POST | `/dashboards/{id}/duplicate` | 克隆看板（read ACL 即可；items 深拷贝；visibility 重置为 private） |
+| POST | `/dashboards/{id}/items` | 添加看板项（item_type: report / chart / text） |
+| PUT | `/dashboards/{id}/items/{item_id}` | 更新看板项 |
+| DELETE | `/dashboards/{id}/items/{item_id}` | 删除看板项 |
+| PATCH | `/dashboards/{id}/items/layout` | 批量更新 x/y/w/h（react-grid-layout onLayoutChange 一次性原子事务） |
+| POST | `/dashboards/{id}/preview` | 服务端聚合预览 HTML（iframe 直载，含 Chart.js 内联；DS gate 在此强制） |
+| GET | `/dashboards/{id}/shares` | 列出授权（owner / admin） |
+| POST | `/dashboards/{id}/shares` | 授权（read / write，upsert） |
+| DELETE | `/dashboards/{id}/shares/{user_id}` | 撤销授权 |
+
+### 看板订阅（批 14.2）
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| POST | `/dashboard-subscriptions` | 创建看板订阅（owner-scoped） |
+| GET | `/dashboard-subscriptions` | 列出**当前用户**的看板订阅 |
+| GET | `/dashboard-subscriptions/{id}` | 单条看板订阅 |
+| PATCH | `/dashboard-subscriptions/{id}` | 更新订阅（cron / 参数 / 通知 / active） |
+| DELETE | `/dashboard-subscriptions/{id}` | 删除订阅 |
+| POST | `/dashboard-subscriptions/{id}/pause` | 暂停（active=false） |
+| POST | `/dashboard-subscriptions/{id}/resume` | 恢复 |
+
 ### 异步任务
 
 | 方法 | 路径 | 功能 |
