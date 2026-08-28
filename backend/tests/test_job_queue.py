@@ -202,6 +202,17 @@ def test_enqueue_submits_to_executor(temp_report_with_sqlite: int, db_setup: Any
 def test_run_job_marks_failed_when_report_missing(db_setup: Any) -> None:
     """A Report that disappears between enqueue and run is marked failed."""
     db, _ = db_setup
+    # The test deliberately inserts a ``ReportJob`` pointing at a
+    # non-existent report id to verify ``_run_job`` handles missing
+    # reports. SQLite's ``SingletonThreadPool`` lets
+    # ``test_clone_duplicate._cleanup_report``'s cascade-delete teardown
+    # leave ``PRAGMA foreign_keys = ON`` on the shared connection —
+    # disable it just for this INSERT so we reach ``_run_job`` and
+    # exercise the missing-report code path. Scope to this test only;
+    # don't widen ``db_setup`` (would mask real FK regressions).
+    from sqlalchemy import text
+
+    db.execute(text("PRAGMA foreign_keys = OFF"))
     job = ReportJob(
         report_id=99_999_999,
         output_format="excel",
