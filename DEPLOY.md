@@ -349,6 +349,12 @@ docker compose --profile postgres up -d
 | `SCHEDULER_DISABLED` | `true` | web 进程跳过调度器（sidecar 模式） |
 | `SCHEDULER_RESYNC_INTERVAL` | `30` | sidecar 从 DB 重读调度的间隔（秒） |
 
+### Demo 数据自动恢复
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `SEED_DEMO_ON_STARTUP` | `false` | dev 用：lifespan 启动时若 `data_sources` 表为空，自动重建 ERP 演示 warehouse + `sqlite_demo` DataSource 行 + 3 张 demo 报表。生产**必须保持 `false`**；空表判断兜底，prod 即便误开也不会覆盖已有数据。 |
+
 ### 日志 / 监控
 
 | 变量名 | 默认值 | 说明 |

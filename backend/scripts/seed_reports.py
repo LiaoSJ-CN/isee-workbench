@@ -362,6 +362,11 @@ def seed(keep_existing: bool = False, data_source_id: int | None = None) -> None
     if not keep_existing:
         deleted = cur.execute("DELETE FROM reports").rowcount
         print(f"deleted {deleted} existing reports (cascaded items)")
+    else:
+        # keep_existing: only clear the demo rows we'll re-insert, so
+        # UNIQUE(name) doesn't trip on re-runs and non-demo reports are
+        # preserved. Used by scripts/bootstrap_demo.py.
+        cur.execute("DELETE FROM reports WHERE is_demo = 1")
 
     # Look up the admin user id so the seed reports have an owner — the
     # ``reports.owner_user_id`` column was added by the 批 9.4 migration and

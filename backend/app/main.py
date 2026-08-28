@@ -28,6 +28,7 @@ from app.models import report as _report_module  # noqa: F401
 from app.models import report_job as _report_job_module  # noqa: F401
 from app.models import revoked_token as _revoked_token_module  # noqa: F401
 from app.models import user as _user_module  # noqa: F401
+from app.models.data_source import DataSource
 from app.models.user import User
 from app.routers import (
     admin_metrics,  # 批 12
@@ -128,6 +129,65 @@ def _seed_admin_user() -> None:
         db.close()
 
 
+def _seed_demo_data() -> None:
+    """Optionally rebuild demo data when ``data_sources`` is empty.
+
+    Closes a dev-only gap where ``scripts/seed_erp_demo.py`` builds the
+    business warehouse but never writes the ``data_sources`` metadata
+    row, so a fresh ``app.db`` would leave ``seed_reports.py`` exiting
+    with ``PREFERRED_NAME='sqlite_demo'`` lookup failure.
+
+    Gated by **both**:
+
+    1. ``settings.seed_demo_on_startup`` (env var
+       ``SEED_DEMO_ON_STARTUP``) — default False; opt-in per deployment.
+    2. ``data_sources`` table empty at lifespan startup — defensive
+       even if the flag is accidentally enabled in production with
+       pre-existing data.
+
+    Failures are logged but never abort startup — bootstrap is a
+    developer convenience, not a service dependency. The lazy import
+    keeps ``scripts.bootstrap_demo`` out of the import-time graph so a
+    stripped-down deployment that omits ``scripts/`` still boots.
+    """
+    if not settings.seed_demo_on_startup:
+        return
+    db = SessionLocal()
+    try:
+        ds_count = db.query(DataSource).count()
+    finally:
+        db.close()
+    if ds_count > 0:
+        logger.info(
+            "seed_demo_data: skipped — data_sources has %d row(s) (non-empty guard)",
+            ds_count,
+        )
+        return
+    logger.warning(
+        "seed_demo_data: data_sources empty AND SEED_DEMO_ON_STARTUP=true — "
+        "rebuilding demo ERP warehouse + reports (this REPLACES "
+        "backend/data/erp_demo.db)"
+    )
+    try:
+        # Lazy import — scripts/ is not on the import path by default;
+        # bootstrap_demo itself adds backend/ to sys.path. Kept here so
+        # the dependency stays out of the top-level graph.
+        from scripts import bootstrap_demo  # noqa: WPS433
+    except Exception:
+        logger.exception(
+            "seed_demo_data: could not import scripts.bootstrap_demo "
+            "(scripts/ missing?) — skipping"
+        )
+        return
+    try:
+        status = bootstrap_demo.run()
+        logger.info("seed_demo_data: bootstrap completed — %s", status)
+    except Exception:
+        logger.exception(
+            "seed_demo_data: bootstrap failed (continuing startup)"
+        )
+
+
 def _run_migrations() -> None:
     """Apply Alembic migrations to ``settings.database_url``.
 
@@ -168,6 +228,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # query tables that must exist.
     _run_migrations()
     _seed_admin_user()
+    _seed_demo_data()
     if settings.scheduler_disabled:
         logger.info(
             "Scheduler is DISABLED in this process — "

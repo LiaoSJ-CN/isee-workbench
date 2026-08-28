@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     scheduler_disabled: bool = True
     scheduler_resync_interval: int = 30
 
+    # --- Demo data auto-recovery ---
+    # When True and the ``data_sources`` table is empty at lifespan startup,
+    # run ``scripts.bootstrap_demo.run()`` to rebuild the ERP warehouse,
+    # create the demo DataSource metadata row, and re-insert demo reports.
+    # Default False — production deployments opt in explicitly via
+    # ``SEED_DEMO_ON_STARTUP=true`` in backend/.env.
+    #
+    # SAFETY: the empty-table guard means production with pre-existing
+    # data_sources is never touched, even if this is accidentally enabled.
+    seed_demo_on_startup: bool = False
+
     # --- Auth ---
     admin_username: str = "admin"
     admin_password: str = "admin"
