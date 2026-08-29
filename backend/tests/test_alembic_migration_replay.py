@@ -243,6 +243,7 @@ def test_migration_chain_is_linear_and_contains_all_revisions() -> None:
         "ce6c152ead31",
         "525edc1ba876",  # 批 13 — report template fields
         "3b8e4f7c2a91",  # 批 14 — dashboard tables
+        "e4f1b2c3a5d6",  # 批 14.4 — dashboard subscription fingerprint
     ], f"migration chain shape changed: {_REVISIONS}"
 
 

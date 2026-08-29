@@ -1,34 +1,58 @@
-"""Per-user Dashboard subscription CRUD + scheduler stub (批 14.2).
+"""Per-user Dashboard subscription CRUD + scheduler dispatch (批 14.4).
 
 Mirrors :mod:`app.services.subscription` so the sidecar scheduler can
 reuse the same APScheduler instance — job IDs are namespaced
 (``dsub_<id>`` vs ``sub_<id>``) so the two streams don't collide.
 
-**Sub-batch 2 scope** — this module ships the CRUD endpoints + the
-reconciliation hook + the APScheduler stub. The actual *dispatch*
-logic (incremental dedup + render + send) lands in **sub-batch 14.4**
-where ``dispatch_dashboard_subscription`` is implemented. For now,
-``_execute_dashboard_subscription`` is a stub that updates
-``last_run_at`` so the cron tick lifecycle is testable end-to-end.
+**Sub-batch 4 scope** — wires the cron tick to the actual dispatch
+pipeline:
+
+1. Compute a per-item **fingerprint** (MD5 hex). Items contribute
+   different signals:
+   * ``report`` → ``r<id>:<report.updated_at>`` (cheap, no query)
+   * ``chart`` → ``c<id>:<rows-hash>`` (runs the chart SQL once per tick)
+   * ``text`` → not part of the fingerprint (static text doesn't drive
+     "did anything change")
+2. Compare against the subscription's stored ``last_fingerprint``;
+   identical → stamp ``last_run_at`` and skip delivery.
+3. On change, render the dashboard via
+   :func:`app.services.dashboard.render_dashboard_html`, write the
+   HTML under ``settings.generated_reports_dir``, then dispatch via
+   the existing :func:`app.services.scheduler._send_notification`
+   union (webhook / 钉钉 / 飞书 / 企微 / email).
+
+The senders were written for ``Report`` but only read ``.id`` /
+``.name``; we wrap the dashboard in a small structural shim so the
+existing sender pipeline is reused unchanged.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import re
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.dashboard import Dashboard
 from app.models.dashboard_subscription import DashboardSubscription
 from app.schemas.notification import NotificationConfig
 from app.services.scheduler import (
     InvalidCronExpression,
+    _send_notification,
     get_scheduler,
     validate_cron_expression,
 )
 
 logger = logging.getLogger(__name__)
+
+# Dashboard names flow into filenames — keep only path-safe chars so
+# we don't have to re-sanitise on the way to disk.
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def _job_id(subscription_id: int) -> str:
@@ -272,32 +296,248 @@ def sync_dashboard_subscriptions_with_database(db: Session) -> None:
 
 
 def _execute_dashboard_subscription(subscription_id: int) -> None:
-    """APScheduler entry point — stub for sub-batch 2.
+    """APScheduler entry point — drives one cron tick.
 
-    The real implementation lands in **sub-batch 14.4** with the
-    incremental dedup logic + render + send. For now we only update
-    ``last_run_at`` so the cron lifecycle is testable end-to-end and
-    ``sync_dashboard_subscriptions_with_database`` can verify the
-    job fires without doing actual work.
+    Incremental-dedup loop:
+
+    1. Load the subscription; bail on missing or paused.
+    2. Compute the dashboard fingerprint via
+       :func:`_compute_dashboard_fingerprint`. If unchanged since the
+       last tick (``last_fingerprint`` matches), stamp ``last_run_at``
+       and skip the network round-trip.
+    3. Render the dashboard HTML, write it under
+       ``settings.generated_reports_dir``, and dispatch through the
+       shared :func:`app.services.scheduler._send_notification` union.
+    4. Persist the new fingerprint + ``last_run_at``.
+
+    The whole tick is wrapped in a top-level ``except`` so an APScheduler
+    thread crash doesn't take down the sidecar — same contract as
+    :func:`app.services.subscription._execute_subscription`.
     """
-    from datetime import datetime, timezone
-
     from app.database import SessionLocal
+    from app.models.user import User
 
     db = SessionLocal()
     try:
         sub = db.get(DashboardSubscription, subscription_id)
         if sub is None or not sub.is_active:
             return
+
+        dashboard = db.get(Dashboard, cast(int, sub.dashboard_id))
+        if dashboard is None:
+            logger.error(
+                "Dashboard %s for subscription %s no longer exists",
+                sub.dashboard_id,
+                subscription_id,
+            )
+            return
+
+        # Lazy import — service→service dependency is fine, but keep
+        # the dispatcher module light when only CRUD is exercised.
+        from app.services.dashboard import render_dashboard_html
+
+        fingerprint = _compute_dashboard_fingerprint(db, dashboard)
+        previous = sub.last_fingerprint
+        if previous is not None and previous == fingerprint:
+            sub.last_run_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.info(
+                "Dashboard subscription %s tick: fingerprint unchanged, "
+                "skipping send",
+                subscription_id,
+            )
+            return
+
+        # First run or fingerprint changed → render + write + send.
+        owner = db.get(User, cast(int, sub.owner_user_id))
+        if owner is None:
+            logger.error(
+                "Owner user %s for subscription %s missing — skipping send",
+                sub.owner_user_id,
+                subscription_id,
+            )
+            sub.last_run_at = datetime.now(timezone.utc)
+            db.commit()
+            return
+
+        rendered = render_dashboard_html(db, dashboard, owner)
+        file_path = _write_dashboard_html(dashboard, rendered["html"])
+        logger.info(
+            "Dashboard %s rendered: %d items ok, %d failed",
+            dashboard.id,
+            rendered["items_rendered"],
+            rendered["items_failed"],
+        )
+
+        if sub.notification_config:
+            from pydantic import TypeAdapter
+
+            adapter: TypeAdapter[NotificationConfig] = TypeAdapter(
+                NotificationConfig
+            )
+            typed: NotificationConfig = adapter.validate_python(
+                sub.notification_config
+            )
+            _send_notification(
+                typed,
+                _dashboard_sender_shim(dashboard),
+                [file_path],
+            )
+        else:
+            logger.info(
+                "Dashboard subscription %s produced %s but no "
+                "notification_config — file written, not delivered",
+                subscription_id,
+                file_path,
+            )
+
         sub.last_run_at = datetime.now(timezone.utc)
+        sub.last_fingerprint = fingerprint
         db.commit()
         logger.info(
-            "Dashboard subscription %s fired (stub — sub-batch 14.4 "
-            "wires the dispatch logic)",
+            "Dashboard subscription %s tick complete (sent=%s)",
             subscription_id,
+            bool(sub.notification_config),
+        )
+    except Exception as exc:  # noqa: BLE001 — top-level guard
+        logger.exception(
+            "Dashboard subscription %s tick crashed: %s",
+            subscription_id,
+            exc,
         )
     finally:
         db.close()
+
+
+def _compute_dashboard_fingerprint(
+    db: Session, dashboard: Dashboard
+) -> str:
+    """Hash the parts of *dashboard* that drive a "did anything
+    change?" decision.
+
+    Per-item tokens:
+
+    * ``report`` — ``f"r<id>:<report.updated_at.isoformat()>"``. We
+      rely on the ORM bumping ``updated_at`` whenever the report
+      definition mutates; an unchanged token → no send.
+    * ``chart`` — ``f"c<id>:<md5(rows)>"``. Requires one SQL execution
+      per chart item; that's the cost of "did the data move?" — no
+      cheaper signal exists when the underlying DB can churn under us.
+    * ``text`` — intentionally omitted. Static text doesn't make a
+      dashboard "newsworthy"; the operator wants notifications about
+      *data*, not about edits to a greeting banner.
+
+    Items are sorted by id so reordering grid cells doesn't perturb
+    the hash.
+
+    Returns a 32-char hex MD5 digest.
+    """
+    tokens: list[str] = []
+    sorted_items = sorted(
+        dashboard.items,
+        key=lambda it: int(it.id) if it.id is not None else 0,
+    )
+    for item in sorted_items:
+        item_type = item.item_type or ""
+        item_id = int(item.id) if item.id is not None else 0
+        if item_type == "report":
+            from app.models.report import Report
+
+            rid = item.report_id
+            if rid is None:
+                # Report item with no linked report — token reflects
+                # that emptiness so un-linking still triggers a send.
+                tokens.append(f"r{item_id}:<none>")
+                continue
+            report = db.get(Report, int(rid))
+            updated = (
+                report.updated_at.isoformat()
+                if report is not None and report.updated_at is not None
+                else "<none>"
+            )
+            tokens.append(f"r{item_id}:{updated}")
+        elif item_type == "chart":
+            from app.services.dashboard import execute_dashboard_chart
+
+            try:
+                data = execute_dashboard_chart(
+                    db, item, _system_user(db)
+                )
+                rows_blob = json.dumps(
+                    data["rows"], sort_keys=True, default=str
+                )
+                row_hash = hashlib.md5(rows_blob.encode("utf-8")).hexdigest()
+            except Exception as exc:  # noqa: BLE001
+                # SQL error / DS gate failure / etc — treat the chart
+                # as "changed" so the dispatcher sends and the operator
+                # can see the inline error.
+                logger.warning(
+                    "Fingerprint chart exec failed for item %s: %s",
+                    item_id,
+                    exc,
+                )
+                row_hash = f"err:{exc!r}"
+            tokens.append(f"c{item_id}:{row_hash}")
+        # text: skipped on purpose
+    payload = "\n".join(tokens)
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
+def _system_user(db: Session) -> Any:
+    """Return an admin-flavored user for the chart-execute path.
+
+    The chart executor needs *some* :class:`User` to satisfy the
+    data-source ACL gate. We use the first admin so the gate
+    short-circuits without per-user ACL bookkeeping — the dispatcher
+    is acting on behalf of the subscription owner who already passed
+    the visibility checks when the row was created.
+    """
+    from app.models.user import User
+
+    user = db.query(User).filter(User.role == "admin").first()
+    if user is not None:
+        return user
+    # Fallback — any user. The fingerprint path tolerates failures
+    # (treated as "changed"); we just need something to pass the type.
+    return db.query(User).first()
+
+
+def _dashboard_sender_shim(dashboard: Dashboard) -> Any:
+    """Tiny structural shim so the existing notification senders
+    accept a dashboard.
+
+    The senders (:func:`_send_webhook`, :func:`_send_feishu`,
+    :func:`_send_wechatwork`, :func:`_send_email`) only read
+    ``.id`` and ``.name`` off the second positional arg. ``SimpleNamespace``
+    exposes both attributes without inheriting any of :class:`Report`'s
+    schema — the dispatcher doesn't want to fake a report row just to
+    borrow a sender interface.
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=int(dashboard.id) if dashboard.id is not None else 0,
+        name=str(dashboard.name or ""),
+    )
+
+
+def _write_dashboard_html(dashboard: Dashboard, html: str) -> str:
+    """Persist the rendered HTML under ``settings.generated_reports_dir``.
+
+    Filename shape mirrors the report generator (``<safe>_<ts>_<rand>.html``)
+    so cleanup scripts that glob the directory keep working without a
+    new branch.
+    """
+    import secrets
+
+    out_dir = settings.generated_reports_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _SAFE_NAME_RE.sub("_", str(dashboard.name))[:80] or "dashboard"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    rand = secrets.token_hex(4)
+    out_path = out_dir / f"{safe_name}_{timestamp}_{rand}.html"
+    out_path.write_text(html, encoding="utf-8")
+    return str(out_path)
 
 
 __all__ = [

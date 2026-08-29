@@ -20,8 +20,6 @@ just maps service results to HTTP responses.
 
 from __future__ import annotations
 
-import html
-import logging
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -52,25 +50,20 @@ from app.services.dashboard import (
     can_share_dashboard,
     duplicate_dashboard,
     ensure_dashboard_visible,
-    execute_dashboard_chart,
     get_dashboard_for_user,
     is_owner_or_admin,
     list_accessible_dashboards,
     list_shares_for_dashboard,
+    render_dashboard_html,
     revoke_share,
     upsert_share,
 )
-from app.services.report_generator import ReportGeneratorError, generate_report
 
 router = APIRouter(
     prefix="/dashboards",
     tags=["dashboards"],
     dependencies=[Depends(get_current_user)],
 )
-
-logger = logging.getLogger(__name__)
-
-
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
@@ -545,188 +538,12 @@ def batch_update_layout(
 
 
 # ---------------------------------------------------------------------------
-# Dashboard preview — server-side aggregate
+# Dashboard preview — server-side aggregate (render lives in services/dashboard.py)
 # ---------------------------------------------------------------------------
 
 
-def _render_text_item(item: DashboardItem) -> str:
-    """Plain-text item → escaped HTML. ``text_content`` may contain
-    markdown-lite input from the editor; we intentionally do NOT
-    parse markdown here because the editor stores HTML-ready
-    markup; the only guarantee we make is XSS safety via
-    ``html.escape``."""
-    raw = item.text_content or ""
-    return f"<div class=\"dashboard-text\">{html.escape(raw).replace(chr(10), '<br/>')}</div>"
-
-
-def _render_report_item(
-    db: Session, item: DashboardItem
-) -> str:
-    """Render a ``item_type='report'`` item via the existing
-    :func:`generate_report` pipeline. Returns the HTML chunk or an
-    inline error placeholder so the dashboard page still renders when
-    one item fails."""
-    from app.models.report import Report
-
-    if item.report_id is None:
-        return "<div class=\"dashboard-error\">未关联报表</div>"
-    report = db.get(Report, item.report_id)
-    if report is None:
-        return "<div class=\"dashboard-error\">报表不存在</div>"
-    try:
-        result = generate_report(
-            report=report,
-            output_format="html",
-            parameters=item.parameters or {},
-            db=db,
-            preview_only=True,
-            base_url="",
-        )
-        return f"<div class=\"dashboard-report\">{result['preview_data']}</div>"
-    except ReportGeneratorError as exc:
-        return (
-            f"<div class=\"dashboard-error\">报表渲染失败: "
-            f"{html.escape(str(exc))}</div>"
-        )
-
-
-def _render_chart_item(
-    db: Session, item: DashboardItem, user: User
-) -> str:
-    """Render a ``item_type='chart'`` item by executing the SQL and
-    inlining a Chart.js canvas. Mirrors the chart-output path in
-    :func:`generate_report`."""
-    try:
-        data = execute_dashboard_chart(db, item, user)
-    except HTTPException as exc:
-        return (
-            f"<div class=\"dashboard-error\">图表渲染失败: "
-            f"{html.escape(exc.detail)}</div>"
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        return (
-            f"<div class=\"dashboard-error\">图表渲染失败: "
-            f"{html.escape(str(exc))}</div>"
-        )
-
-    columns = data["columns"]
-    rows = data["rows"]
-    cfg = item.display_config or {}
-    chart_type = cfg.get("chart_type", "bar")
-    # Chart.js expects labels + dataset rows. We use the first column
-    # as labels (typical for category→metric charts); multi-series
-    # bar/line support is out of scope for v1 (same contract as
-    # ``ReportItem.display_config``).
-    label_col = columns[0] if columns else "label"
-    value_col = columns[1] if len(columns) > 1 else "value"
-    labels = [str(r[0]) for r in rows]
-    values = [r[1] for r in rows]
-    canvas_id = f"chart_{item.id or 0}"
-    chart_json = {
-        "type": chart_type,
-        "data": {
-            "labels": labels,
-            "datasets": [
-                {
-                    "label": value_col,
-                    "data": values,
-                }
-            ],
-        },
-    }
-    return (
-        f"<div class=\"dashboard-chart\">"
-        f"<h4>{html.escape(item.title or label_col)}</h4>"
-        f"<canvas id=\"{canvas_id}\"></canvas>"
-        "<script>"
-        f"if (window.Chart) {{ new Chart(document.getElementById("
-        f"'{canvas_id}'), {chart_json}); }}"
-        "</script>"
-        f"</div>"
-    )
-
-
-def _render_dashboard_html(
-    db: Session, dashboard: Dashboard, user: User
-) -> dict[str, Any]:
-    """Aggregate every item into one HTML page. Returns
-    ``{html, items_rendered, items_failed}`` so the frontend can show
-    a partial-success banner when one item blows up.
-
-    The aggregate is what the iframe loads — by doing it server-side
-    we avoid the front-end round-tripping N ``/reports/{id}/preview``
-    subrequests (each of which would have to re-validate the JWT in
-    a separate context). One preview call, one HTML response.
-    """
-    items_rendered = 0
-    items_failed = 0
-    chunks: list[str] = []
-    # Sort by (y, x) so the row-major grid order matches what the
-    # editor shows; ``order_index`` is the user-defined tiebreaker
-    # for items sharing the same (y, x).
-    ordered_items = sorted(
-        dashboard.items,
-        key=lambda it: (cast(int, it.y), cast(int, it.x), cast(int, it.order_index)),
-    )
-    for item in ordered_items:
-        try:
-            if item.item_type == "text":
-                chunk = _render_text_item(item)
-            elif item.item_type == "report":
-                chunk = _render_report_item(db, item)
-            elif item.item_type == "chart":
-                chunk = _render_chart_item(db, item, user)
-            else:
-                chunk = (
-                    f"<div class=\"dashboard-error\">"
-                    f"未知 item_type: {html.escape(item.item_type or '')}</div>"
-                )
-        except Exception:
-            logger.exception(
-                "dashboard %s item %s render failed",
-                dashboard.id,
-                item.id,
-            )
-            chunk = "<div class=\"dashboard-error\">渲染异常</div>"
-        if "dashboard-error" in chunk:
-            items_failed += 1
-        else:
-            items_rendered += 1
-        chunks.append(
-            f"<section class=\"dashboard-item\" data-item-id=\"{item.id}\">"
-            f"{chunk}</section>"
-        )
-
-    body = "\n".join(chunks) or "<p>空看板</p>"
-    full_html = (
-        "<!doctype html><html><head><meta charset=\"utf-8\">"
-        "<title>"
-        f"{html.escape(dashboard.name or '')}"
-        "</title>"
-        "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js\"></script>"
-        "<style>"
-        "body{font-family:sans-serif;margin:24px;background:#fafbfc;color:#222}"
-        ".dashboard-item{margin-bottom:32px}"
-        ".dashboard-error{"
-        "padding:12px;border:1px solid #f5c2c7;background:#f8d7da;"
-        "color:#842029;border-radius:6px"
-        "}"
-        ".dashboard-chart canvas{max-height:300px}"
-        "</style></head><body>"
-        f"<h1>{html.escape(dashboard.name or '')}</h1>"
-        f"<p>{html.escape(dashboard.description or '')}</p>"
-        f"{body}"
-        "</body></html>"
-    )
-    return {
-        "html": full_html,
-        "items_rendered": items_rendered,
-        "items_failed": items_failed,
-    }
-
-
 @router.post("/{dashboard_id}/preview", response_class=HTMLResponse)
-def render_dashboard_html(
+def render_dashboard_html_endpoint(
     dashboard_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -738,9 +555,13 @@ def render_dashboard_html(
     public / org / grant-holder. Per-item rendering failures are
     surfaced as inline error placeholders so a partial dashboard
     still renders.
+
+    The render itself lives in :func:`app.services.dashboard.render_dashboard_html`
+    so the dispatcher (批 14.4) can reuse the same pipeline without
+    importing the router module.
     """
     dashboard = ensure_dashboard_visible(db, user, dashboard_id)
-    rendered = _render_dashboard_html(db, dashboard, user)
+    rendered = render_dashboard_html(db, dashboard, user)
     return HTMLResponse(content=rendered["html"])
 
 

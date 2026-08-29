@@ -79,6 +79,11 @@ class DashboardSubscription(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_run_at = Column(DateTime(timezone=True), nullable=True)
     next_run_at = Column(DateTime(timezone=True), nullable=True)
+    # Incremental-dedup fingerprint (批 14.4): hex MD5 of per-item
+    # tokens at the previous tick. NULL means "first run, always
+    # send". The dispatcher compares against the freshly-computed
+    # fingerprint; equal → skip notification, just bump ``last_run_at``.
+    last_fingerprint = Column(String(64), nullable=True)
 
     __table_args__ = (
         # Owner-scoped history listing: "show me my subscriptions"
