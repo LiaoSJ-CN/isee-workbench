@@ -1,23 +1,35 @@
-/** Read-only renderer for a single Dashboard item (批 14).
+/** Read-only renderer for a single Dashboard item (批 14 / 14.7).
  *
  * Three flavours:
- * - ``report`` — embeds the preview iframe via
- *   ``/reports/{id}/preview`` so the iframe is bounded by the
- *   dashboard's grid cell. Errors surface as an inline Alert.
- * - ``chart`` — placeholder (chart rendering lives in the editor
- *   preview; the iframe path covers the same data path).
- * - ``text`` — escaped markdown-lite content rendered as a single
- *   paragraph with ``<br/>`` line breaks.
+ * - ``report`` — fetches the item's standalone HTML preview via
+ *   ``GET /dashboards/{id}/items/{item_id}/preview`` and embeds it
+ *   in a sandboxed iframe.
+ * - ``chart`` — same path as ``report``: a single item can be chart
+ *   or report; both render server-side to a standalone HTML page
+ *   (Chart.js canvas for charts, full report HTML for reports) and
+ *   we embed the response in an iframe.
+ * - ``text`` — escaped markdown-lite content rendered inline as a
+ *   single block with ``<br/>`` line breaks. No fetch needed.
  *
- * Kept intentionally tiny — the heavy lifting is in
- * :component:`DashboardItemEditorModal` (edit) and the server-side
- * :func:`render_dashboard_html` (full-grid preview).
+ * Why axios-fetch + blob URL instead of a direct ``<iframe src=URL>``
+ * (批 14.7 fix): the backend's ``get_current_user`` accepts only
+ * ``Authorization: Bearer <jwt>`` (no cookie / query-param fallback —
+ * the ``?token=`` fallback was removed in ``515bbd9``). Browser
+ * iframe navigations don't carry the header axios attaches, so the
+ * direct-``<iframe>`` approach 401s silently and the cell shows
+ * blank. We fetch via axios (which adds the header), wrap the HTML
+ * in a ``Blob`` and pass the resulting ``blob:`` URL to the iframe
+ * — blob URLs don't need auth, so the iframe loads without it.
+ *
+ * Kept intentionally tiny — the heavy lifting for the full-grid
+ * preview lives server-side at
+ * :func:`render_dashboard_html` (``POST /dashboards/{id}/preview``).
  */
 
-import { Alert, Empty, Spin, Typography } from 'antd';
+import { Alert, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
-import { API_BASE } from '../api';
+import { dashboardApi } from '../api';
 import type { DashboardItem } from '../types';
 
 const { Title } = Typography;
@@ -56,18 +68,7 @@ export function DashboardItemCard({ item }: DashboardItemCardProps) {
 }
 
 function renderBody(item: DashboardItem) {
-  if (item.item_type === 'report' && item.report_id != null) {
-    return <ReportItemBody reportId={item.report_id} />;
-  }
-  if (item.item_type === 'chart') {
-    return (
-      <Empty
-        description="图表预览请使用编辑器内的「预览」"
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        style={{ marginTop: 24 }}
-      />
-    );
-  }
+  // ``text`` is plain HTML — no fetch, no iframe, just render inline.
   if (item.item_type === 'text') {
     return (
       <div
@@ -83,30 +84,56 @@ function renderBody(item: DashboardItem) {
       </div>
     );
   }
+  // ``report`` and ``chart`` both render through the same
+  // /dashboards/{id}/items/{item_id}/preview endpoint — the inner
+  // ``render_dashboard_item_html`` dispatches on ``item_type``.
+  if (item.item_type === 'report' || item.item_type === 'chart') {
+    return (
+      <IframeBody dashboardId={item.dashboard_id} itemId={item.id} />
+    );
+  }
   return <Alert type="warning" message={`未知 item_type: ${item.item_type}`} />;
 }
 
-interface ReportItemBodyProps {
-  reportId: number;
+interface IframeBodyProps {
+  dashboardId: number;
+  itemId: number;
 }
 
-function ReportItemBody({ reportId }: ReportItemBodyProps) {
+function IframeBody({ dashboardId, itemId }: IframeBodyProps) {
+  // Blob URL lifecycle (批 14.7): fetch the preview HTML via axios,
+  // wrap in a Blob, hand the blob URL to the iframe. On unmount /
+  // item change, revoke the previous URL so we don't leak memory —
+  // dashboard view can have dozens of items mounted simultaneously.
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  // Mark loading=false once the iframe's onLoad fires; an ``onError``
-  // is unreliable across browsers (silent in Chrome for cross-origin
-  // loads) so we treat any 5s timeout with no onLoad as a failure.
   useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), 5000);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const url = `${API_BASE}/reports/${reportId}/preview`;
+    let cancelled = false;
+    const created: string[] = [];
+    dashboardApi
+      .previewItem(dashboardId, itemId)
+      .then((html) => {
+        if (cancelled) return;
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        created.push(url);
+        setBlobUrl(url);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : '加载失败');
+      });
+    return () => {
+      cancelled = true;
+      for (const url of created) URL.revokeObjectURL(url);
+    };
+  }, [dashboardId, itemId]);
 
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: 120 }}>
-      {loading && (
+      {!blobUrl && !error && (
         <div
           style={{
             position: 'absolute',
@@ -123,16 +150,17 @@ function ReportItemBody({ reportId }: ReportItemBodyProps) {
       {error ? (
         <Alert type="error" message={error} />
       ) : (
+        // ``sandbox="allow-scripts"`` so the inlined Chart.js
+        // ``new Chart(...)`` runs inside the iframe — without it the
+        // canvas stays blank. ``allow-same-origin`` is intentionally
+        // omitted so a malicious snippet can't reach the parent
+        // document's storage / cookies. Matches the report preview
+        // contract (``ReportPreview.tsx``).
         <iframe
-          src={url}
-          title={`report-${reportId}`}
+          src={blobUrl ?? 'about:blank'}
+          title={`dashboard-item-${itemId}`}
           sandbox="allow-scripts"
           style={{ width: '100%', height: '100%', border: 0 }}
-          onLoad={() => setLoading(false)}
-          onError={() => {
-            setError('报表加载失败');
-            setLoading(false);
-          }}
         />
       )}
     </div>

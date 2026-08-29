@@ -456,8 +456,8 @@ TRUSTED_PROXIES=10.0.0.0/8,127.0.0.1/32   # nginx 同主机时
   - `chart` —— 在看板里直接写 SQL 跑图表（`data_source_id` + `table_name` / `fields` / `where_conditions` / `group_by` / `order_by` / `limit` / 可选 `custom_sql`）
   - `text` —— 静态标题 / 说明文字（不参与增量 dedup）
 - ACL 跟报表对齐：三种 `visibility`（`private` / `org` / `public`）+ 显式 `DashboardAccess` 列表
-- 端点：`/dashboards` / `/dashboards/{id}` / `/dashboards/{id}/items` / `/dashboards/{id}/layout` / `/dashboards/{id}/shares` / `/dashboards/{id}/preview` / `/dashboards/{id}/duplicate`
-- 前端入口：左侧导航 "看板" → 列表 / 编辑 / 详情三页；详情页可直接预览 + 订阅
+- 端点：`/dashboards` / `/dashboards/{id}` / `/dashboards/{id}/items` / `/dashboards/{id}/layout` / `/dashboards/{id}/shares` / `/dashboards/{id}/preview` / `/dashboards/{id}/items/{item_id}/preview` / `/dashboards/{id}/duplicate`
+- 前端入口：左侧导航 "看板" → 列表 / 编辑 / 详情三页；详情页每个 cell 内嵌 iframe（axios 取 HTML → blob URL；批 14.7 修复 iframe auth 401 问题）
 
 ### 看板订阅（批 14.4 — 增量 dispatch）
 
@@ -469,7 +469,7 @@ TRUSTED_PROXIES=10.0.0.0/8,127.0.0.1/32   # nginx 同主机时
 
 ### 已知限制
 
-- **iframe 预览局限**：看板 HTML 自带 `<script src="https://cdn.jsdelivr.net/.../chart.umd.min.js">`——CDN 不可达时图表空白但页面其它部分正常。如要完全离线部署可把 chart.js 静态文件放进 `backend/static/` 然后改 `render_dashboard_html` 里的 URL（search-replace：`chart.js@4.4.1/dist/chart.umd.min.js`）
+- **iframe 预览局限**：看板 HTML 自带 `<script src="https://cdn.jsdelivr.net/.../chart.umd.min.js">`——CDN 不可达时图表空白但页面其它部分正常。如要完全离线部署可把 chart.js 静态文件放进 `backend/static/` 然后改 `services/dashboard.py` 里的 URL（search-replace：`chart.js@4.4.1/dist/chart.umd.min.js`，全文两处）
 - **chart fingerprint SQL 执行**：增量去重对每个 chart item 跑一次 SQL。dashboard 含 N 个 chart 时，每 tick 多 N 次 query——SQL 大 / 实时性差时考虑加大 cron 间隔
 - **chart hash SQL 失败**：执行异常时 fingerprint token 记为 `err:<repr>` 强制下次发送——操作员能在通知 HTML 里看到 inline error chart
 - **text item 改文字**不会触发通知（按设计——静态文本不算"看板变了"）

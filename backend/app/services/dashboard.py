@@ -61,6 +61,7 @@ __all__ = [
     "list_accessible_dashboards",
     "list_shares_for_dashboard",
     "render_dashboard_html",
+    "render_dashboard_item_html",
     "revoke_share",
     "upsert_share",
 ]
@@ -766,3 +767,54 @@ def render_dashboard_html(
         "items_rendered": items_rendered,
         "items_failed": items_failed,
     }
+
+
+def render_dashboard_item_html(
+    db: Session, item: DashboardItem, user: User
+) -> str:
+    """Render a single dashboard item to a standalone HTML page.
+
+    Used by ``GET /dashboards/{dashboard_id}/items/{item_id}/preview``
+    (批 14.7) so :component:`DashboardItemCard` can embed one iframe
+    per cell without the iframe carrying the Bearer token itself — the
+    frontend fetches the HTML via axios (which adds the header) and
+    loads the response as a blob URL.
+
+    Reuses :func:`_render_text_item` / :func:`_render_report_item` /
+    :func:`_render_chart_item` so the chunk matches what the full-grid
+    :func:`render_dashboard_html` produces for the same item.
+
+    The wrapper is intentionally minimal (no title / description) so
+    each iframe cell has no chrome of its own — the surrounding grid
+    card provides that.
+    """
+    try:
+        if item.item_type == "text":
+            chunk = _render_text_item(item)
+        elif item.item_type == "report":
+            chunk = _render_report_item(db, item)
+        elif item.item_type == "chart":
+            chunk = _render_chart_item(db, item, user)
+        else:
+            chunk = (
+                f"<div class=\"dashboard-error\">"
+                f"未知 item_type: {html.escape(item.item_type or '')}</div>"
+            )
+    except Exception:
+        logger.exception("dashboard item %s render failed", item.id)
+        chunk = "<div class=\"dashboard-error\">渲染异常</div>"
+    return (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js\"></script>"
+        "<style>"
+        "body{margin:0;font-family:sans-serif;background:#fff;color:#222}"
+        ".dashboard-error{"
+        "padding:12px;border:1px solid #f5c2c7;background:#f8d7da;"
+        "color:#842029;border-radius:6px;margin:12px"
+        "}"
+        ".dashboard-chart canvas{max-height:100%}"
+        ".dashboard-text{padding:12px;line-height:1.6}"
+        "</style></head><body>"
+        f"{chunk}"
+        "</body></html>"
+    )

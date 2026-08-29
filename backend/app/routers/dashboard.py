@@ -55,6 +55,7 @@ from app.services.dashboard import (
     list_accessible_dashboards,
     list_shares_for_dashboard,
     render_dashboard_html,
+    render_dashboard_item_html,
     revoke_share,
     upsert_share,
 )
@@ -563,6 +564,42 @@ def render_dashboard_html_endpoint(
     dashboard = ensure_dashboard_visible(db, user, dashboard_id)
     rendered = render_dashboard_html(db, dashboard, user)
     return HTMLResponse(content=rendered["html"])
+
+
+@router.get(
+    "/{dashboard_id}/items/{item_id}/preview",
+    response_class=HTMLResponse,
+)
+def preview_dashboard_item(
+    dashboard_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Render a single dashboard item to standalone HTML for iframe embedding.
+
+    Mirrors the full-grid :func:`render_dashboard_html_endpoint` but
+    for one item — used by ``DashboardItemCard`` so each grid cell
+    shows its own iframe without N cross-origin subrequests in the
+    dashboard-level preview.
+
+    ACL: dashboard-level via :func:`ensure_dashboard_visible` (admin /
+    owner / public / org / grant-holder). The item must belong to
+    that dashboard; otherwise we return a uniform 404 — same as the
+    dashboard-level endpoint, so an unauthorized caller can't probe
+    whether a given ``item_id`` exists under a different dashboard.
+
+    Reuses :func:`app.services.dashboard.render_dashboard_item_html`
+    so the chunk is byte-identical to what the full-grid renderer
+    produces for the same item. The chunk is wrapped in a minimal
+    HTML doc with the Chart.js CDN script (charts need it) and a
+    zero-margin body so the iframe blends into the surrounding card.
+    """
+    dashboard = ensure_dashboard_visible(db, user, dashboard_id)
+    item = db.get(DashboardItem, item_id)
+    if item is None or item.dashboard_id != dashboard.id:
+        raise _dashboard_not_found()
+    return HTMLResponse(content=render_dashboard_item_html(db, item, user))
 
 
 # ---------------------------------------------------------------------------

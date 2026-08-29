@@ -251,6 +251,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | DELETE | `/dashboards/{id}/items/{item_id}` | 删除看板项 |
 | PATCH | `/dashboards/{id}/items/layout` | 批量更新 x/y/w/h（react-grid-layout onLayoutChange 一次性原子事务） |
 | POST | `/dashboards/{id}/preview` | 服务端聚合预览 HTML（iframe 直载，含 Chart.js 内联；DS gate 在此强制） |
+| GET | `/dashboards/{id}/items/{item_id}/preview` | 单项预览 HTML（DashboardItemCard 每个 cell 各起一个 iframe；前端 axios 取 HTML → blob URL） |
 | GET | `/dashboards/{id}/shares` | 列出授权（owner / admin） |
 | POST | `/dashboards/{id}/shares` | 授权（read / write，upsert） |
 | DELETE | `/dashboards/{id}/shares/{user_id}` | 撤销授权 |

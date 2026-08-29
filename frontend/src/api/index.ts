@@ -808,6 +808,22 @@ export const dashboardApi = {
     await api.delete(`/dashboards/${dashboardId}/items/${itemId}`);
   },
 
+  /** Fetch a single item's standalone HTML preview (批 14.7).
+   *
+   *  Used by :component:`DashboardItemCard` so each grid cell embeds
+   *  its own iframe. The alternative — putting ``<iframe src=URL>``
+   *  directly in the DOM — 401s silently because iframe navigations
+   *  don't carry the ``Authorization`` header; we fetch with axios
+   *  (which adds it) and wrap the response as a blob URL before
+   *  handing it to the iframe. */
+  previewItem: async (dashboardId: number, itemId: number): Promise<string> => {
+    const { data } = await api.get(
+      `/dashboards/${dashboardId}/items/${itemId}/preview`,
+      { responseType: 'text' },
+    );
+    return data as unknown as string;
+  },
+
   /** Batch update of ``x/y/w/h`` (and optional ``order_index``) —
    *  react-grid-layout's ``onLayoutChange`` debounces into this one
    *  PATCH instead of N parallel PUTs. */
