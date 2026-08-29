@@ -69,3 +69,8 @@ class DashboardSubscriptionResponse(BaseModel):
     updated_at: datetime | None = None
     last_run_at: datetime | None = None
     next_run_at: datetime | None = None
+    # Incremental-dedup fingerprint (批 14.4). NULL on first run;
+    # the dispatcher compares against the freshly-computed fingerprint
+    # to decide whether to render + send. Exposed so the UI can show
+    # "上次变更" for power users, but most operators don't need to read it.
+    last_fingerprint: str | None = None
