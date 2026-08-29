@@ -63,6 +63,7 @@ from app.models.data_source import DataSource  # noqa: E402
 from app.models.data_source_access import DataSourceAccess  # noqa: E402,F401
 from app.models.user import User  # noqa: E402
 
+from scripts.seed_dashboards import seed as seed_dashboards_seed  # noqa: E402
 from scripts.seed_erp_demo import DB_PATH, DDL, seed as seed_erp_seed  # noqa: E402
 from scripts.seed_reports import (  # noqa: E402
     META_DB,
@@ -200,11 +201,21 @@ def run() -> dict[str, Any]:
     logger.info("bootstrap_demo: starting")
     warehouse_path = ensure_warehouse()
     ds, ds_existed = ensure_data_source_row(warehouse_path)
-    reports = ensure_demo_reports(ds.id)
+    # ``ensure_data_source_row`` guarantees a persisted row (either
+    # freshly inserted or fetched), so ``id`` is non-null on return;
+    # the assertion narrows the type for mypy without changing runtime
+    # behaviour.
+    assert ds.id is not None, "ensure_data_source_row returned a row without id"
+    reports = ensure_demo_reports(int(ds.id))
+    # Demo dashboard (批 14.6) — depends on the demo reports above for
+    # the report-ref lookup, hence placed last. ``keep_existing=True``
+    # preserves operator-authored dashboards with non-matching names.
+    dashboards = seed_dashboards_seed(keep_existing=True)
     status: dict[str, Any] = {
         "warehouse": {"path": str(warehouse_path), "rebuilt": True},
         "data_source": {"name": ds.name, "id": ds.id, "existed": ds_existed},
         "reports": reports,
+        "dashboards": dashboards,
     }
     logger.info("bootstrap_demo: done — %s", json.dumps(status, ensure_ascii=False))
     return status

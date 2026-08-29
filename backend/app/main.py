@@ -175,8 +175,8 @@ def _seed_demo_data() -> None:
         return
     logger.warning(
         "seed_demo_data: data_sources empty AND SEED_DEMO_ON_STARTUP=true — "
-        "rebuilding demo ERP warehouse + reports (this REPLACES "
-        "backend/data/erp_demo.db)"
+        "rebuilding demo ERP warehouse + reports + dashboards "
+        "(this REPLACES backend/data/erp_demo.db)"
     )
     try:
         # Lazy import — scripts/ is not on the import path by default;
