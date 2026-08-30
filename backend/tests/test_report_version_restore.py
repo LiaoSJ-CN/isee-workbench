@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
@@ -144,3 +145,59 @@ def test_restore_wrong_version_404(db, editor, report):
     with pytest.raises(HTTPException) as exc:
         restore_version(db, user=editor, report_id=report.id, version_id=99999)
     assert exc.value.status_code == 404
+
+
+def test_restore_after_rowid_recycling_does_not_unique_violate(
+    db, editor, report
+) -> None:
+    """Regression: bulk DELETE in restore_version must synchronize the
+    session identity map before re-INSERTing, otherwise stale objects
+    collide with new INSERTs on recycled SQLite rowids.
+
+    Forces the scenario end-to-end:
+      1. Load ``report.parameters[0]`` so the session's identity map
+         holds an ORM object for the existing row (id=X).
+      2. Raw ``DELETE`` that row (bypasses the ORM entirely; the stale
+         object stays in the identity map).
+      3. Raw ``INSERT`` a new row with the *same* id X + same
+         ``(report_id, name='region')`` — SQLite ``INTEGER PRIMARY
+         KEY`` without ``AUTOINCREMENT`` reuses the freed rowid.
+      4. Call ``restore_version``: it does ``Query.delete()`` then
+         ``db.add(ReportParameter(...))``. Without
+         ``synchronize_session='fetch'`` on the DELETE, the stale
+         identity-map entry (id=X) collides with the INSERT and the
+         UNIQUE constraint on ``(report_id, name)`` fires.
+    """
+    # Step 1: snapshot v1 + load the parameter into the session.
+    v1 = create_snapshot(db, user=editor, report_id=report.id)
+    stale_param_id = report.parameters[0].id
+    # Touch an attribute to make sure it's a fully-loaded persistent
+    # object, not a lazy proxy.
+    assert report.parameters[0].name == "region"
+    db.commit()
+
+    # Step 2: raw DELETE — bypasses ORM, leaves stale object in identity map.
+    db.execute(
+        text("DELETE FROM report_parameters WHERE id = :pid"),
+        {"pid": stale_param_id},
+    )
+    db.commit()
+
+    # Step 3: raw INSERT reusing the freed rowid + same (report_id, name).
+    db.execute(
+        text(
+            "INSERT INTO report_parameters "
+            "(id, report_id, name, label, type, required, order_index) "
+            "VALUES (:id, :rid, 'region', 'Stale', 'string', 0, 0)"
+        ),
+        {"id": stale_param_id, "rid": report.id},
+    )
+    db.commit()
+
+    # Step 4: restore_version must NOT raise UNIQUE violation.
+    # The identity-map fix is in app/services/report_version.py
+    # (``synchronize_session='fetch'`` + ``db.expire(report, ['parameters'])``).
+    restore_version(db, user=editor, report_id=report.id, version_id=v1.id)
+
+    db.refresh(report)
+    assert report.parameters[0].label == "Region"

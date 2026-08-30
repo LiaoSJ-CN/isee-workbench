@@ -4,15 +4,16 @@ Exercises the SELECT-only safety check, the data-source lookup, and
 the happy/sad path of a real query against the seeded sqlite source.
 """
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
 from app.models.data_source import DataSource
-from app.services.report_generator import _get_or_create_engine
 from app.services.sql_validator import UnsafeSQLError, validate_select_only
 
 
@@ -164,42 +165,88 @@ def test_explorer_populates_engine_cache(
 
 
 def test_explorer_row_cap_applies_to_unbounded_select(
-    client: TestClient, auth_headers: dict, seeded_sqlite_source: DataSource, monkeypatch
+    client: TestClient, auth_headers: dict, tmp_sqlite_source: DataSource, monkeypatch
 ) -> None:
     """Regression: a user-supplied SELECT with no LIMIT clause must still
     be capped at ``settings.explorer_max_rows``. The endpoint wraps the
     user SQL in ``SELECT * FROM (…) AS _explorer_sub LIMIT N`` so the
     cap fires regardless of what the user wrote. A query that orders by
     a stable column must also preserve ORDER BY through the wrap.
+
+    Uses a per-test tmpfile sqlite (built in the ``tmp_sqlite_source``
+    fixture below) instead of the dev ``backend/data/erp_demo.db``. The
+    previous version of this test created and dropped a temporary
+    ``_test_explorer_cap`` table on the SHARED dev warehouse; even with
+    the try/finally DROP, SQLite WAL/page metadata changed after every
+    run and the dev warehouse SHA drifted. Tmpfile isolation removes
+    that leak entirely.
     """
     monkeypatch.setattr(settings, "explorer_max_rows", 5)
 
-    engine = _get_or_create_engine(seeded_sqlite_source)
-    with engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS _test_explorer_cap"))
-        conn.execute(text("CREATE TABLE _test_explorer_cap (id INTEGER PRIMARY KEY, label TEXT)"))
-        # 20 rows; cap=5 means the response should hold rows 1..5 in id order.
+    r = client.post(
+        "/explorer/query",
+        headers=auth_headers,
+        json={
+            "data_source_id": tmp_sqlite_source.id,
+            "sql": "SELECT id, label FROM _test_explorer_cap ORDER BY id",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["success"] is True
+    assert body["row_count"] == 5
+    # ORDER BY must survive the subquery wrap — first 5 ids, in order.
+    assert [row["id"] for row in body["rows"]] == [1, 2, 3, 4, 5]
+
+
+@pytest.fixture
+def tmp_sqlite_source(tmp_path) -> DataSource:
+    """Per-test sqlite DataSource pointing at a fresh tmpfile.
+
+    Pre-creates the ``_test_explorer_cap`` table with 20 rows so the
+    row-cap test can ``SELECT`` from it directly. The tmpfile is
+    auto-cleaned by pytest's ``tmp_path`` teardown — no DROP needed.
+    Independent of the seeded dev warehouse so this test never mutates
+    ``backend/data/erp_demo.db``.
+    """
+    db_path = tmp_path / "test_explorer_cap.db"
+    setup_engine = create_engine(f"sqlite:///{db_path}")
+    with setup_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE _test_explorer_cap "
+                "(id INTEGER PRIMARY KEY, label TEXT)"
+            )
+        )
         for i in range(1, 21):
             conn.execute(
                 text("INSERT INTO _test_explorer_cap VALUES (:i, :l)"),
                 {"i": i, "l": f"row-{i}"},
             )
+    setup_engine.dispose()
 
+    session = SessionLocal()
     try:
-        r = client.post(
-            "/explorer/query",
-            headers=auth_headers,
-            json={
-                "data_source_id": seeded_sqlite_source.id,
-                "sql": "SELECT id, label FROM _test_explorer_cap ORDER BY id",
-            },
+        src = DataSource(
+            name=f"tmp_cap_{uuid.uuid4().hex[:8]}",
+            db_type="sqlite",
+            # host / port / username / password are NULL for sqlite
+            # (the schema's ``validate_required_fields`` skips them
+            # when ``db_type == "sqlite"``). ``port=0`` would fail the
+            # response schema's ``ge=1`` validator and break unrelated
+            # list endpoints that serialise this row.
+            host=None,
+            port=None,
+            username=None,
+            password=None,
+            database=str(db_path),
         )
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["success"] is True
-        assert body["row_count"] == 5
-        # ORDER BY must survive the subquery wrap — first 5 ids, in order.
-        assert [row["id"] for row in body["rows"]] == [1, 2, 3, 4, 5]
+        session.add(src)
+        session.commit()
+        session.refresh(src)
+        # Detach from session so the caller can use ``src.id`` after
+        # the fixture tears down its session.
+        session.expunge(src)
+        return src
     finally:
-        with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS _test_explorer_cap"))
+        session.close()

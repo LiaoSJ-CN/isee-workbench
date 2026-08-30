@@ -223,9 +223,27 @@ def restore_version(
     report.owner_user_id = version.owner_user_id
     report.org_id = version.org_id
 
-    # Replace items: delete current, re-create from snapshot
-    db.query(ReportItem).filter(ReportItem.report_id == report_id).delete()
+    # Replace items: delete current, re-create from snapshot.
+    #
+    # ``synchronize_session='fetch'`` is required (not just defensive):
+    # bulk ``Query.delete()`` with the default ``'auto'`` strategy can
+    # leave the deleted rows' ORM objects in the session identity map.
+    # SQLite ``INTEGER PRIMARY KEY`` (without ``AUTOINCREMENT``) recycles
+    # rowids after DELETE — so a subsequent ``db.add(ReportItem(...))``
+    # can be assigned the same rowid as a stale object still in the
+    # identity map, triggering UNIQUE violation on ``(report_id, name)``
+    # when both flush. ``'fetch'`` SELECTs the affected PKs and removes
+    # them from the identity map before any INSERT can reuse them.
+    #
+    # ``db.expire(report, ['items'])`` additionally clears the
+    # relationship cache so the next access of ``report.items`` re-
+    # queries instead of returning stale references. Belt-and-suspenders
+    # for the same rowid-recycling scenario.
+    db.query(ReportItem).filter(ReportItem.report_id == report_id).delete(
+        synchronize_session="fetch"
+    )
     db.flush()
+    db.expire(report, attribute_names=["items"])
     for v_item in version.items:
         db.add(
             ReportItem(
@@ -244,9 +262,12 @@ def restore_version(
             )
         )
 
-    # Replace parameters: same pattern
-    db.query(ReportParameter).filter(ReportParameter.report_id == report_id).delete()
+    # Replace parameters: same pattern as items (see comment above).
+    db.query(ReportParameter).filter(ReportParameter.report_id == report_id).delete(
+        synchronize_session="fetch"
+    )
     db.flush()
+    db.expire(report, attribute_names=["parameters"])
     for v_param in version.parameters:
         db.add(
             ReportParameter(
