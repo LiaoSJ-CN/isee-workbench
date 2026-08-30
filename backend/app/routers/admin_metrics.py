@@ -21,6 +21,7 @@ lets the UI render status cards without iterating the full pool list.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -60,7 +61,15 @@ def admin_metrics(
     pools: list[DataSourcePoolStats] = []
     for s in stats:
         counts[s.health] += 1
-        pools.append(DataSourcePoolStats.model_validate(s))
+        # ``s`` is a frozen :class:`PoolStats` whose ``history`` field
+        # holds a list of :class:`BucketStats` dataclass instances.
+        # Pydantic v2's ``model_validate`` with ``from_attributes=True``
+        # does NOT recurse into list elements — the top-level fields
+        # are populated but ``history.0`` would fail with
+        # "Input should be a valid dictionary or instance of HistoryBucket".
+        # ``asdict`` recursively turns every nested dataclass into a
+        # plain dict, which Pydantic accepts.
+        pools.append(DataSourcePoolStats.model_validate(asdict(s)))
     return AdminMetricsResponse(
         pools=pools,
         health_summary=HealthSummary(

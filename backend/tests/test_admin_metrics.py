@@ -232,3 +232,52 @@ def test_admin_metrics_generated_at_is_recent(
     # Allow 2 s slack on each side for clock drift between server
     # clock and the test process.
     assert before - 2 <= ts <= after + 2
+
+
+def test_admin_metrics_handles_non_empty_history(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    metrics_store_clean,
+    tmp_sqlite_path,
+) -> None:
+    """Regression: pool with a populated 5-minute bucket in ``history``
+    must serialize without 500.
+
+    Pydantic v2's ``model_validate`` with ``from_attributes=True`` does
+    NOT recurse into list elements — a :class:`BucketStats` dataclass
+    in ``history`` would fail with
+    ``Input should be a valid dictionary or instance of HistoryBucket``.
+    The router has to flatten via ``dataclasses.asdict`` before
+    validating. This test exercises that path end-to-end.
+    """
+    import time as _time
+
+    from app.services import connection_metrics as cm
+
+    engine = sa_create_engine(
+        f"sqlite:///{tmp_sqlite_path}",
+        poolclass=QueuePool,
+        pool_size=5,
+    )
+    register_engine(
+        engine, data_source_id=8200, name="history-ds", db_type="sqlite"
+    )
+    try:
+        # Seed one bucket directly into the store so ``history`` is non-empty
+        # without going through a real SQLAlchemy connection event.
+        state = cm._store._states[8200]
+        cm._store._bump_bucket(state, "checkouts", _time.time())
+
+        response = client.get("/admin/metrics", headers=auth_headers)
+        assert response.status_code == 200
+        body = response.json()
+        sample = next(p for p in body["pools"] if p["data_source_id"] == 8200)
+        assert len(sample["history"]) >= 1
+        bucket = sample["history"][0]
+        # Each documented HistoryBucket field must round-trip cleanly.
+        for field in ("bucket_ts", "checkouts", "checkins", "invalidations"):
+            assert field in bucket, f"missing field {field} in history bucket"
+        assert bucket["checkouts"] >= 1
+    finally:
+        unregister_engine(engine)
+        engine.dispose()
