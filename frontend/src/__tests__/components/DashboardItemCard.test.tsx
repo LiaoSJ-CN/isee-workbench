@@ -69,9 +69,7 @@ describe('DashboardItemCard', () => {
     // jsdom doesn't implement URL.createObjectURL; provide a stub so
     // the IframeBody branch can mount without throwing.
     if (!('createObjectURL' in URL.prototype)) {
-      // @ts-expect-error — jsdom polyfill
       URL.createObjectURL = vi.fn(() => 'blob:fake-url');
-      // @ts-expect-error — jsdom polyfill
       URL.revokeObjectURL = vi.fn();
     }
   });

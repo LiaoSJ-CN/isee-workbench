@@ -20,6 +20,7 @@ import { DashboardGridEditor } from '../components/DashboardGridEditor';
 import { DashboardSubscriptionModal } from '../components/DashboardSubscriptionModal';
 import { MySubscriptionsPanel } from '../components/MySubscriptionsPanel';
 import { dashboardApi } from '../api';
+import type { DashboardItemLayoutEntry } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -44,10 +45,13 @@ export default function DashboardView() {
 
   // The read-only view intentionally doesn't PATCH on layout change —
   // any layout event here is a no-op. We pass a stub so the prop is
-  // satisfied without enabling writes.
+  // satisfied without enabling writes. The mutationFn accepts whatever
+  // shape ``DashboardGridEditor`` forwards (LayoutEntry[]) but discards
+  // it; ``void entries`` silences the unused-parameter lint without
+  // forcing a second ``arguments`` overload.
   const layoutStub = useMutation({
-    mutationFn: async (): Promise<void> => {
-      // no-op in read-only mode
+    mutationFn: async (entries: DashboardItemLayoutEntry[]): Promise<void> => {
+      void entries;
     },
   });
 
@@ -96,11 +100,7 @@ export default function DashboardView() {
           )}
         </div>
         <Space>
-          <Button
-            icon={<BellOutlined />}
-            onClick={() => setSubOpen(true)}
-            disabled={!canEdit}
-          >
+          <Button icon={<BellOutlined />} onClick={() => setSubOpen(true)} disabled={!canEdit}>
             订阅
           </Button>
           {canEdit && (

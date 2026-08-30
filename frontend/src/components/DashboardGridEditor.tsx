@@ -69,7 +69,10 @@ export function DashboardGridEditor({
 }: DashboardGridEditorProps) {
   // Generate the react-grid-layout ``Layout`` array. The library keys by
   // whatever we put in ``i``, so we use the item id (stringified).
-  const layout: Layout[] = useMemo(
+  // Note: react-grid-layout v2's ``Layout`` type is itself ``readonly
+  // LayoutItem[]`` — the prop and onLayoutChange callback both want
+  // ``Layout`` directly, not ``Layout[]``.
+  const layout: Layout = useMemo(
     () =>
       items.map((it) => ({
         i: String(it.id),
@@ -109,7 +112,7 @@ export function DashboardGridEditor({
     };
   }, []);
 
-  const handleLayoutChange = (next: Layout[]) => {
+  const handleLayoutChange = (next: Layout) => {
     if (readOnly) return;
     const flat = next.flat();
     // Replace pending entries keyed by item_id; preserve last write per id.
@@ -144,14 +147,24 @@ export function DashboardGridEditor({
         <GridLayout
           className="dashboard-grid"
           layout={layout}
-          cols={COLS}
-          rowHeight={ROW_HEIGHT}
-          margin={GUTTER}
-          containerPadding={[0, 0]}
           width={width}
-          isDraggable={!readOnly}
-          isResizable={!readOnly}
-          draggableHandle=".dashboard-item-drag-handle"
+          // react-grid-layout v2 groups cols/rowHeight/margin/containerPadding
+          // into a single ``gridConfig`` partial. Use the readOnly flag to
+          // gate both drag + resize at the config layer.
+          gridConfig={{
+            cols: COLS,
+            rowHeight: ROW_HEIGHT,
+            margin: GUTTER,
+            containerPadding: [0, 0] as const,
+            maxRows: Infinity,
+          }}
+          dragConfig={{
+            enabled: !readOnly,
+            handle: '.dashboard-item-drag-handle',
+          }}
+          resizeConfig={{
+            enabled: !readOnly,
+          }}
           onLayoutChange={handleLayoutChange}
           // z-index risk: react-grid-layout sets zIndex: 100 on drag. AntD Modal
           // default zIndex is 1000 so modal still wins, but if you stack a Modal

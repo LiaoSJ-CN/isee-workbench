@@ -362,7 +362,57 @@ docker compose --profile postgres up -d
 | `LOG_LEVEL` | `INFO` | 日志级别（DEBUG / INFO / WARNING / ERROR） |
 | `SENTRY_DSN` | （空） | 后端 Sentry DSN；空 = 禁用；设置后自动 init，每个事件打 `request_id` tag |
 | `SENTRY_ENVIRONMENT` | （空） | Sentry 环境标签（`production` / `staging`）；空 = SDK 默认 `development` |
-| `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | 性能追踪采样率（0.0-1.0）；0 = 禁用 |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | 性能追踪采样率（0.0-1.0)；0 = 禁用 |
+
+### Sentry 错误监控
+
+iSee 前/后端均支持 Sentry（默认关闭）。打开后未处理异常与性能追踪会上报到 Sentry 项目；空 DSN 时 SDK 不加载，runtime / bundle 零开销。
+
+#### 1. 申请 DSN
+
+在 [sentry.io](https://sentry.io)（或自托管 Sentry）创建项目，得到形如 `https://<key>@o<org>.ingest.sentry.io/<project>` 的 DSN。前/后端**使用同一个 DSN**（自动按 `environment` 区分来源）。
+
+#### 2. 后端配置
+
+在 `backend/.env` 设置三个环境变量：
+
+```env
+SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1   # 0.0 = 关闭性能追踪；高流量部署用 0.05 即可
+```
+
+后端 `app.middleware.sentry.init_sentry()` 在 lifespan 启动时检测 DSN：
+- DSN 空 → 直接 `return False`，SDK 不导入，零运行时成本
+- DSN 设 → 注册 FastAPI / Starlette / logging 三组 integration，并通过 `before_send` 把当前 `request_id`（来自 request-id middleware）打到事件 `tags.request_id` 上
+
+事件过滤：所有 `HTTPException`（包括 4xx 响应）通过 `before_send` 自动丢弃，避免 404 / 422 噪音冲掉 issue 流。
+
+启动后日志形如 `Sentry initialized (environment=production, traces_sample_rate=0.1)` 表示已生效。
+
+#### 3. 前端配置
+
+前端通过 Vite 构建时变量注入（写入 `frontend/.env` 或构建命令前 `VITE_SENTRY_*=...`）：
+
+```env
+VITE_SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
+VITE_SENTRY_ENVIRONMENT=production
+VITE_SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+前端 `src/utils/sentry.ts::initSentry()` 在 `main.tsx` 启动时检测：
+- `VITE_SENTRY_DSN` 空 → 直接 `return false`，`@sentry/react` 模块仍然在 bundle 里但 `Sentry.init` 不调用，无网络流量
+- DSN 设 → 调用 `Sentry.init`，启用 React Router / BrowserTracing integration
+
+`tracesSampleRate` 未设置时**默认 0.1**（不同于后端的 0.0）—— 前端性能追踪对单用户影响小，开默认能更快收集到 perf 数据。
+
+#### 4. 验证
+
+启动后端 / 重建前端后，手动触发一个未处理异常（任意 endpoint 故意 throw 即可），Sentry UI 的 **Issues** 页应在 10 秒内出现该事件，**Tags** 面板显示 `request_id`（后端）或 `release`（前端）。前端可在浏览器 DevTools Network 面板观察 `ingest.sentry.io` 出站请求。
+
+#### 关闭
+
+直接把 DSN 设为空字符串或删除环境变量即可。无需改代码——SDK 检测到 DSN 空后完全跳过初始化。
 
 ### 邮件（订阅邮件投递）
 
@@ -385,7 +435,7 @@ docker compose --profile postgres up -d
 
 ### 前端镜像变量
 
-后端变量在 `backend/.env` 设；前端 Sentry 通过构建时变量设（`frontend/.env` 或 `VITE_SENTRY_DSN` / `VITE_SENTRY_ENVIRONMENT` / `VITE_SENTRY_TRACES_SAMPLE_RATE`）。空 DSN = 禁用，bundle 零开销。
+后端变量在 `backend/.env` 设；前端运行时变量在 `frontend/.env` 设（构建时通过 Vite 注入）。空值 = 禁用，bundle 零开销。前端 Sentry 配置见下一节。
 
 ### 示例 `.env`（生产最小集）
 

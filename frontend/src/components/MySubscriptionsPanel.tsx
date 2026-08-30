@@ -41,6 +41,12 @@ import type { DashboardSubscription, ReportSubscription } from '../types';
 
 const { Text } = Typography;
 
+/** Union of the two subscription shapes — both expose ``id``,
+ *  ``cron_expression``, ``notification_config``, ``is_active``, etc.
+ *  Used so the table columns, useQuery, and useMutation can share one
+ *  type instead of branching per scope. */
+type Subscription = ReportSubscription | DashboardSubscription;
+
 interface BaseProps {
   /** Backend cache key the panel reads + invalidates. Must match
    *  the key used by the create modal so the row appears immediately. */
@@ -115,12 +121,12 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
   // to the other's client.
   const isReport = props.scope === 'report';
 
-  const subsQuery = useQuery({
+  const subsQuery = useQuery<Subscription[]>({
     queryKey: props.queryKey,
-    queryFn: () =>
+    queryFn: async () =>
       isReport
-        ? subscriptionApi.list(undefined, 100, 0)
-        : dashboardSubscriptionApi.list(undefined, 100, 0),
+        ? (await subscriptionApi.list(undefined, 100, 0))
+        : (await dashboardSubscriptionApi.list(undefined, 100, 0)),
   });
 
   const allSubs = useMemo(() => subsQuery.data ?? [], [subsQuery.data]);
@@ -138,9 +144,11 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
   }, [allSubs, isReport, props]);
 
   // ---- mutations ----
-  const pauseMut = useMutation({
+  const pauseMut = useMutation<Subscription, Error, number>({
     mutationFn: (id: number) =>
-      isReport ? subscriptionApi.pause(id) : dashboardSubscriptionApi.pause(id),
+      isReport
+        ? subscriptionApi.pause(id)
+        : dashboardSubscriptionApi.pause(id),
     onSuccess: () => {
       message.success('订阅已暂停');
       queryClient.invalidateQueries({ queryKey: props.queryKey });
@@ -149,9 +157,11 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
     onError: () => message.error('暂停失败'),
   });
 
-  const resumeMut = useMutation({
+  const resumeMut = useMutation<Subscription, Error, number>({
     mutationFn: (id: number) =>
-      isReport ? subscriptionApi.resume(id) : dashboardSubscriptionApi.resume(id),
+      isReport
+        ? subscriptionApi.resume(id)
+        : dashboardSubscriptionApi.resume(id),
     onSuccess: () => {
       message.success('订阅已恢复');
       queryClient.invalidateQueries({ queryKey: props.queryKey });
@@ -160,9 +170,11 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
     onError: () => message.error('恢复失败'),
   });
 
-  const deleteMut = useMutation({
+  const deleteMut = useMutation<void, Error, number>({
     mutationFn: (id: number) =>
-      isReport ? subscriptionApi.delete(id) : dashboardSubscriptionApi.delete(id),
+      isReport
+        ? subscriptionApi.delete(id)
+        : dashboardSubscriptionApi.delete(id),
     onSuccess: () => {
       message.success('订阅已删除');
       queryClient.invalidateQueries({ queryKey: props.queryKey });
@@ -196,7 +208,7 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
           rowKey="id"
           size="small"
           pagination={false}
-          dataSource={rows as Array<{ id: number }>}
+          dataSource={rows as Subscription[]}
           columns={[
             {
               title: 'cron',
@@ -210,8 +222,10 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
             {
               title: '通知',
               key: 'notification',
-              render: (_: unknown, row: { notification_config?: NotificationConfigLike | null }) => {
-                const cfg = row.notification_config ?? null;
+              render: (_: unknown, row: Subscription) => {
+                const cfg = (row.notification_config ?? null) as
+                  | NotificationConfigLike
+                  | null;
                 return (
                   <Space size={4}>
                     <Tag color={notificationTagColor(cfg)}>{cfg?.type ?? 'none'}</Tag>
@@ -225,18 +239,19 @@ export function MySubscriptionsPanel(props: MySubscriptionsPanelProps) {
             {
               title: '状态',
               key: 'status',
-              render: (_: unknown, row: { is_active: boolean }) =>
+              render: (_: unknown, row: Subscription) =>
                 row.is_active ? <Tag color="green">运行中</Tag> : <Tag color="default">已暂停</Tag>,
             },
             {
               title: '上次运行',
               dataIndex: 'last_run_at',
-              render: (ts: string | null) => (ts ? new Date(ts).toLocaleString('zh-CN') : '—'),
+              render: (ts: string | null | undefined) =>
+                ts ? new Date(ts).toLocaleString('zh-CN') : '—',
             },
             {
               title: '操作',
               key: 'actions',
-              render: (_: unknown, row: { id: number; is_active: boolean }) => (
+              render: (_: unknown, row: Subscription) => (
                 <Space size={4}>
                   {row.is_active ? (
                     <Button

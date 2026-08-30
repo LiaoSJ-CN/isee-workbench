@@ -18,24 +18,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Form,
-  Input,
-  Result,
-  Select,
-  Space,
-  Spin,
-  Typography,
-  message,
-} from 'antd';
-import {
-  EyeOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  ShareAltOutlined,
-} from '@ant-design/icons';
+import { Alert, Button, Form, Input, Result, Select, Space, Spin, Typography, message } from 'antd';
+import { EyeOutlined, PlusOutlined, SaveOutlined, ShareAltOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
@@ -45,7 +29,7 @@ import {
   type DashboardItemFormValues,
 } from '../components/DashboardItemEditorModal';
 import { DashboardShareModal } from '../components/DashboardShareModal';
-import { dashboardApi, reportApi, usersApi } from '../api';
+import { dashboardApi, dataSourceApi, reportApi, usersApi } from '../api';
 import type {
   Dashboard,
   DashboardItem,
@@ -127,7 +111,9 @@ export default function DashboardEdit() {
     mutationFn: (values: DashboardMetaForm) =>
       dashboardApi.update(dashboardId, {
         name: values.name,
-        description: values.description ?? null,
+        // DashboardUpdate.description is `string | undefined` — Form passes
+        // ``null`` for cleared fields, so coerce to ``undefined`` here.
+        description: values.description ?? undefined,
         visibility: values.visibility,
       }),
     onSuccess: () => {
@@ -211,7 +197,9 @@ export default function DashboardEdit() {
   // ---- guards ----
 
   if (!Number.isFinite(dashboardId)) {
-    return <Result status="404" title="看板不存在" extra={<Link to="/dashboards">返回列表</Link>} />;
+    return (
+      <Result status="404" title="看板不存在" extra={<Link to="/dashboards">返回列表</Link>} />
+    );
   }
 
   if (dashboardQuery.isLoading) {
@@ -247,16 +235,16 @@ export default function DashboardEdit() {
         report_id: editingItem.report_id,
         data_source_id: editingItem.data_source_id,
         table_name: editingItem.table_name,
-      custom_sql: editingItem.custom_sql,
-      fields: editingItem.fields ?? [],
-      where_conditions: editingItem.where_conditions ?? [],
-      group_by: editingItem.group_by ?? [],
-      order_by: editingItem.order_by ?? [],
-      limit: editingItem.limit,
-      display_config: editingItem.display_config,
-      parameters: editingItem.parameters ?? {},
-      text_content: editingItem.text_content,
-    }
+        custom_sql: editingItem.custom_sql,
+        fields: editingItem.fields ?? [],
+        where_conditions: editingItem.where_conditions ?? [],
+        group_by: editingItem.group_by ?? [],
+        order_by: editingItem.order_by ?? [],
+        limit: editingItem.limit,
+        display_config: editingItem.display_config,
+        parameters: editingItem.parameters ?? {},
+        text_content: editingItem.text_content,
+      }
     : {};
 
   // ---- render ----
@@ -268,16 +256,10 @@ export default function DashboardEdit() {
           编辑看板: {dashboard.name}
         </Title>
         <Space>
-          <Button
-            icon={<EyeOutlined />}
-            onClick={() => navigate(`/dashboards/${dashboardId}`)}
-          >
+          <Button icon={<EyeOutlined />} onClick={() => navigate(`/dashboards/${dashboardId}`)}>
             预览
           </Button>
-          <Button
-            icon={<ShareAltOutlined />}
-            onClick={() => setShareOpen(true)}
-          >
+          <Button icon={<ShareAltOutlined />} onClick={() => setShareOpen(true)}>
             分享
           </Button>
         </Space>
@@ -324,11 +306,7 @@ export default function DashboardEdit() {
       )}
 
       <Space style={{ marginBottom: 12 }}>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setCreatingItem(true)}
-        >
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreatingItem(true)}>
           添加看板项
         </Button>
         <Text type="secondary">

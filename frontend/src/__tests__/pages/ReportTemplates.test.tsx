@@ -97,8 +97,28 @@ const SAMPLE_TEMPLATES: Report[] = [
     is_scheduled: false,
     output_formats: ['excel', 'html'],
     items: [
-      { id: 1, report_id: 101, name: '销售额', item_type: 'chart', order_index: 0, fields: [] },
-      { id: 2, report_id: 101, name: '明细表', item_type: 'table', order_index: 1, fields: [] },
+      {
+        id: 1,
+        report_id: 101,
+        name: '销售额',
+        item_type: 'chart',
+        order_index: 0,
+        fields: [],
+        where_conditions: [],
+        group_by: [],
+        order_by: [],
+      },
+      {
+        id: 2,
+        report_id: 101,
+        name: '明细表',
+        item_type: 'table',
+        order_index: 1,
+        fields: [],
+        where_conditions: [],
+        group_by: [],
+        order_by: [],
+      },
     ],
   },
   {
@@ -114,7 +134,17 @@ const SAMPLE_TEMPLATES: Report[] = [
     is_scheduled: false,
     output_formats: ['excel'],
     items: [
-      { id: 3, report_id: 102, name: '账龄', item_type: 'chart', order_index: 0, fields: [] },
+      {
+        id: 3,
+        report_id: 102,
+        name: '账龄',
+        item_type: 'chart',
+        order_index: 0,
+        fields: [],
+        where_conditions: [],
+        group_by: [],
+        order_by: [],
+      },
     ],
   },
 ];
@@ -217,7 +247,7 @@ describe('ReportTemplates page', () => {
 
     // Capture the mutate fn so we can assert onSuccess fires with
     // the new report id — that's how the page navigates.
-    const mutate = vi.fn((vars, opts) => {
+    const mutate = vi.fn((_vars, opts) => {
       // Simulate the success callback the React Query mutation
       // would invoke with the freshly-forked row.
       opts?.onSuccess?.({ id: 999, name: '我的销售看板' } as Report);
