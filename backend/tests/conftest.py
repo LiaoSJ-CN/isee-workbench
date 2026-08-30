@@ -235,24 +235,48 @@ def _cleanup_leaked_data_source_rows():
             db.execute(text("DELETE FROM data_sources WHERE name LIKE 'debug_%'"))
             # T4 / T5 report-versioning fixtures use a uuid-suffixed
             # ``ds-owner_<uuid>`` / ``ds_<uuid>`` pattern. Prune both shapes.
+            # Also ``ds2_<uuid>`` — a sibling fixture in
+            # ``test_pin_version_from_other_report_404`` that creates a *second*
+            # report + DS for a cross-report version lookup test. Without this
+            # extra clause the cleanup lets those rows leak to the dev DB on
+            # crash / SIGKILL (root cause of the 2026-08-30 ``ds2_51c926ef``
+            # pollution incident).
             db.execute(
                 text(
                     "DELETE FROM data_sources "
                     "WHERE name LIKE 'ds-owner\\_%' ESCAPE '\\' "
-                    "   OR name LIKE 'ds\\_%' ESCAPE '\\'"
+                    "   OR name LIKE 'ds\\_%' ESCAPE '\\' "
+                    "   OR name LIKE 'ds2\\_%' ESCAPE '\\'"
                 )
             )
-            # ``test_render_html_error_message_is_html_escaped`` and friends used
-            # to leave scratch ``report_items`` rows with the giveaway shape
-            # ``name='x' AND table_name IN ('t','x')``. Prune anything that looks
-            # like that — they're attached to real reports (by id) so we can't
-            # safely drop by report_id, but the marker combo is unique enough.
+            # Multiple historical generators left scratch ``report_items`` rows
+            # against the demo ``reports.id=1`` (``财务经营月报``):
+            #
+            # * Old shape (``test_render_html_error_message_is_html_escaped``
+            #   era): ``name='x' AND table_name IN ('t','x') AND
+            #   fields='["a"]'``. The original prune covered only this shape.
+            # * New shape (CSRF suite — ``test_post_with_whitelisted_origin_is_allowed``
+            #   / ``test_post_with_no_origin_is_allowed`` /
+            #   ``test_post_with_same_origin_is_allowed``): POSTs
+            #   ``{"name": "x", "item_type": "text"}`` to
+            #   ``/reports/1/items`` as a real-auth-passing fixture. The tests
+            #   assert ``!= 403`` so they PASS — and the row sticks. The
+            #   ``fields='[]' AND table_name IS NULL`` giveaway shape was
+            #   missing from the original prune and 59 such rows accumulated
+            #   on the demo report (root cause of the 2026-08-30 incident).
+            #
+            # Both shapes still match ``name = 'x'`` which is unique enough
+            # to be safe to drop (no operator-authored report item is named
+            # ``"x"``). They're attached to real reports (by id) so we can't
+            # safely drop by report_id, but the marker combo is unique.
             db.execute(
                 text(
                     "DELETE FROM report_items "
-                    "WHERE name = 'x' "
-                    "  AND table_name IN ('t', 'x') "
-                    "  AND fields = '[\"a\"]'"
+                    "WHERE name = 'x' AND ("
+                    "    (table_name IN ('t', 'x') AND fields = '[\"a\"]') "
+                    "    OR "
+                    "    (item_type = 'text' AND fields = '[]' AND table_name IS NULL)"
+                    ")"
                 )
             )
             # T4 / T5 report-versioning fixtures create Report + ReportItem +
@@ -269,7 +293,8 @@ def _cleanup_leaked_data_source_rows():
                     "WHERE report_id IN ("
                     "    SELECT id FROM reports "
                     "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                    "       OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    "       OR name LIKE 'r\\_%' ESCAPE '\\' "
+                    "       OR name LIKE 'r2\\_%' ESCAPE '\\'"
                     ")"
                 )
             )
@@ -279,7 +304,8 @@ def _cleanup_leaked_data_source_rows():
                     "WHERE report_id IN ("
                     "    SELECT id FROM reports "
                     "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                    "       OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    "       OR name LIKE 'r\\_%' ESCAPE '\\' "
+                    "       OR name LIKE 'r2\\_%' ESCAPE '\\'"
                     ")"
                 )
             )
@@ -299,7 +325,8 @@ def _cleanup_leaked_data_source_rows():
                     "    SELECT v.id FROM report_versions v "
                     "    JOIN reports r ON r.id = v.report_id "
                     "    WHERE r.name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                    "       OR r.name LIKE 'r\\_%' ESCAPE '\\'"
+                    "       OR r.name LIKE 'r\\_%' ESCAPE '\\' "
+                    "       OR r.name LIKE 'r2\\_%' ESCAPE '\\'"
                     ")"
                 )
             )
@@ -310,7 +337,8 @@ def _cleanup_leaked_data_source_rows():
                     "    SELECT v.id FROM report_versions v "
                     "    JOIN reports r ON r.id = v.report_id "
                     "    WHERE r.name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                    "       OR r.name LIKE 'r\\_%' ESCAPE '\\'"
+                    "       OR r.name LIKE 'r\\_%' ESCAPE '\\' "
+                    "       OR r.name LIKE 'r2\\_%' ESCAPE '\\'"
                     ")"
                 )
             )
@@ -320,7 +348,8 @@ def _cleanup_leaked_data_source_rows():
                     "WHERE report_id IN ("
                     "    SELECT id FROM reports "
                     "    WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                    "       OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    "       OR name LIKE 'r\\_%' ESCAPE '\\' "
+                    "       OR name LIKE 'r2\\_%' ESCAPE '\\'"
                     ")"
                 )
             )
@@ -328,7 +357,8 @@ def _cleanup_leaked_data_source_rows():
                 text(
                     "DELETE FROM reports "
                     "WHERE name LIKE 'r-owner\\_%' ESCAPE '\\' "
-                    "   OR name LIKE 'r\\_%' ESCAPE '\\'"
+                    "   OR name LIKE 'r\\_%' ESCAPE '\\' "
+                    "   OR name LIKE 'r2\\_%' ESCAPE '\\'"
                 )
             )
             db.commit()

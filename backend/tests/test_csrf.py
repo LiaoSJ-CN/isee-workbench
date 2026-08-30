@@ -130,3 +130,100 @@ def test_disabled_setting_lets_everything_through(
     # response is whatever the route returns (404 for missing report
     # 1 is fine; what matters is no 403).
     assert resp.status_code != 403, "csrf_enabled=False must let untrusted origins through"
+
+
+def test_conftest_cleans_csrf_shape_leakage(client, auth_headers):
+    """Regression guard for the 2026-08-30 incident.
+
+    ``_endpoint_that_exists_post`` posts ``{"name": "x", "item_type": "text"}``
+    to ``/reports/1/items`` (the demo ``财务经营月报``) as a real-auth-passing
+    CSRF fixture. The tests above assert ``status != 403`` — they PASS, but
+    the row sticks. ``report_items.name='x' AND item_type='text' AND
+    fields='[]'`` is the giveaway shape; the autouse
+    ``_cleanup_leaked_data_source_rows`` fixture in ``conftest.py`` MUST
+    sweep it, otherwise this test alone leaves 4 rows per ``pytest`` run on
+    the demo report (accumulating 59 rows on the operator's dev DB by the
+    time the user noticed).
+
+    This test re-creates the leak by issuing the same POST the CSRF suite
+    does, then invokes conftest's exact DELETE, and asserts no such row
+    survives while the legitimate demo items (本月关键指标 etc.) are
+    untouched.
+    """
+    from sqlalchemy import text
+
+    from app.database import SessionLocal
+    from app.models.report import ReportItem
+
+    # Drive the leak the way the CSRF suite does: whitelisted Origin +
+    # valid auth + the real ``/reports/1/items`` endpoint.
+    path, body = _endpoint_that_exists_post()
+    resp = client.post(
+        path,
+        json=body,
+        headers={**auth_headers, "Origin": settings.cors_origins[0]},
+    )
+    # The CSRF suite asserts ``status != 403``; the row sticks because the
+    # endpoint actually persists.
+    assert resp.status_code == 201, (
+        f"expected the CSRF-leak POST to insert a row, got {resp.status_code}: "
+        f"{resp.text}"
+    )
+
+    db = SessionLocal()
+    try:
+        # Verify the leak row exists.
+        leaked = (
+            db.query(ReportItem)
+            .filter(
+                ReportItem.name == "x",
+                ReportItem.item_type == "text",
+                ReportItem.fields == "[]",
+            )
+            .all()
+        )
+        assert len(leaked) >= 1, "the CSRF POST must produce the leak shape"
+
+        # Run the SAME prune clause conftest uses. Future conftest drift
+        # would make this either leak or over-prune; both break this test
+        # loudly.
+        db.execute(
+            text(
+                "DELETE FROM report_items "
+                "WHERE name = 'x' AND ("
+                "    (table_name IN ('t', 'x') AND fields = '[\"a\"]') "
+                "    OR "
+                "    (item_type = 'text' AND fields = '[]' AND table_name IS NULL)"
+                ")"
+            )
+        )
+        db.commit()
+
+        # The leak is gone ...
+        assert (
+            db.query(ReportItem)
+            .filter(
+                ReportItem.name == "x",
+                ReportItem.item_type == "text",
+                ReportItem.fields == "[]",
+            )
+            .count()
+            == 0
+        )
+        # ... and the real demo items are intact.
+        real_demo_names = {
+            "本月关键指标",
+            "月度利润趋势",
+            "月度现金流",
+            "月度利润表",
+        }
+        real_demo_rows = (
+            db.query(ReportItem)
+            .filter(ReportItem.name.in_(real_demo_names))
+            .count()
+        )
+        assert real_demo_rows == 4, (
+            f"all 4 demo items must survive the prune, found {real_demo_rows}"
+        )
+    finally:
+        db.close()
