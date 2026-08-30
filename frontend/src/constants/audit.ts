@@ -48,6 +48,11 @@ export const AUDIT_ACTIONS = [
   'scheduler.job.delete',
   'scheduler.sync',
   'explorer.query',
+  'user.create',
+  'user.update',
+  'user.disable',
+  'user.enable',
+  'user.password_reset',
 ] as const;
 
 export const AUDIT_TARGET_TYPES = [
@@ -62,6 +67,7 @@ export const AUDIT_TARGET_TYPES = [
   'report_subscription',
   'scheduler',
   'explorer_query',
+  'user',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -151,6 +151,18 @@ ACTION_SCHEDULER_SYNC = "scheduler.sync"
 
 ACTION_EXPLORER_QUERY = "explorer.query"
 
+# batch ``user-management`` Stage 1 — admin CRUD + password reset over
+# the ``users`` table. ``before``/``after`` are NEVER the full user row
+# (which would leak ``password_hash``); the audit module's
+# ``_SENSITIVE_FIELDS`` redaction is a defence-in-depth backstop, but
+# the structural guarantee is that the router only passes a minimal
+# ``{"username": ..., "role": ..., "disabled": ...}`` dict.
+ACTION_USER_CREATE = "user.create"
+ACTION_USER_UPDATE = "user.update"
+ACTION_USER_DISABLE = "user.disable"
+ACTION_USER_ENABLE = "user.enable"
+ACTION_USER_PASSWORD_RESET = "user.password_reset"
+
 ALL_ACTIONS: tuple[str, ...] = (
     ACTION_LOGIN,
     ACTION_LOGOUT,
@@ -198,6 +210,11 @@ ALL_ACTIONS: tuple[str, ...] = (
     ACTION_SCHEDULER_JOB_DELETE,
     ACTION_SCHEDULER_SYNC,
     ACTION_EXPLORER_QUERY,
+    ACTION_USER_CREATE,
+    ACTION_USER_UPDATE,
+    ACTION_USER_DISABLE,
+    ACTION_USER_ENABLE,
+    ACTION_USER_PASSWORD_RESET,
 )
 
 
@@ -221,6 +238,9 @@ TARGET_TYPE_DASHBOARD_SHARE = "dashboard_share"
 TARGET_TYPE_DASHBOARD_SUBSCRIPTION = "dashboard_subscription"
 TARGET_TYPE_SCHEDULER = "scheduler"
 TARGET_TYPE_EXPLORER_QUERY = "explorer_query"
+# batch ``user-management`` Stage 1 — ``target_id`` is the user row id.
+# ``before``/``after`` carry a minimal dict (no ``password_hash``).
+TARGET_TYPE_USER = "user"
 
 ALL_TARGET_TYPES: tuple[str, ...] = (
     TARGET_TYPE_SESSION,
@@ -238,6 +258,7 @@ ALL_TARGET_TYPES: tuple[str, ...] = (
     TARGET_TYPE_DASHBOARD_SUBSCRIPTION,
     TARGET_TYPE_SCHEDULER,
     TARGET_TYPE_EXPLORER_QUERY,
+    TARGET_TYPE_USER,
 )
 
 
@@ -476,6 +497,11 @@ __all__ = [
     "ACTION_SCHEDULER_JOB_DELETE",
     "ACTION_SCHEDULER_SYNC",
     "ACTION_EXPLORER_QUERY",
+    "ACTION_USER_CREATE",
+    "ACTION_USER_UPDATE",
+    "ACTION_USER_DISABLE",
+    "ACTION_USER_ENABLE",
+    "ACTION_USER_PASSWORD_RESET",
     "ALL_ACTIONS",
     # Target type constants
     "TARGET_TYPE_SESSION",
@@ -493,6 +519,7 @@ __all__ = [
     "TARGET_TYPE_DASHBOARD_SUBSCRIPTION",
     "TARGET_TYPE_SCHEDULER",
     "TARGET_TYPE_EXPLORER_QUERY",
+    "TARGET_TYPE_USER",
     "ALL_TARGET_TYPES",
     # Writer
     "log",

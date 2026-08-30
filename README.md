@@ -317,6 +317,28 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | GET | `/admin/metrics` | 每个 DataSource 的连接池实时指标（活跃连接 / 借出归还 / 超时 / 平均持有时间 / 健康度评分），供前端监控页与告警基线使用 |
 | POST | `/admin/data-sources/{source_id}/rotate-password` | Admin 轮换指定 DataSource 的连接密码（admin-only，泄漏响应/定期轮换场景）。支持 admin 传新密码或服务器生成随机密码并 one-time 返回明文；同时清空 cached SQLAlchemy engine 并写入 `data_source.password_rotated` 审计行 |
 
+### 用户管理（admin only，批 user-management Stage 1）
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/admin/users` | 列出用户，支持 `role` / `disabled` / `q`（username 或 role 子串）过滤与 `limit` / `offset` 分页。响应中**不返回** `password_hash` |
+| POST | `/admin/users` | 新建用户（username 1-255，password 8-255，role ∈ admin/editor/viewer）。重复 username 返回 409；弱口令/未知 role 返回 422 |
+| GET | `/admin/users/{id}` | 获取单个用户。不存在返回统一 404（admin 操作不暴露存在性） |
+| PATCH | `/admin/users/{id}` | 改 `role` 和/或 `disabled`。username 不可改（保留审计 FK 可读性）。**自保护**：唯一 admin 不能降级或禁用自己，否则 403 |
+| DELETE | `/admin/users/{id}` | 软删除（`disabled=true`），硬删除会让审计 FK 失效。同一 row 二次 DELETE 幂等且不写审计行 |
+| POST | `/admin/users/{id}/reset-password` | 两模式重置密码：admin 传新密码（不回显）或服务端生成（one-time 返回 24 字符随机串）。审计 `after` 只写 `rotation_method`，绝不携带明文 |
+
+### 集中授权与 ACL 聚合（admin only，批 user-management Stage 2）
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/admin/users/{id}/grants` | 聚合该用户持有的全部授权（DataSource + Report + Dashboard），返回统一 `UserAclView` 信封，每项带 `resource_type` / `resource_name` / `permission` / `granted_by_username` |
+| GET | `/admin/grants?resource_type=&resource_id=` | 列出指定资源（data_source/report/dashboard）上的全部授权；admin UI 在「+集中授权」弹窗里直接调用 |
+| POST | `/admin/grants` | 集中授权，body `{resource_type, resource_id, target_user_id, permission}`，幂等 upsert（重复 POST 升级权限而非撞 unique 约束）。审计 action 复用 `data_source.grant` / `report.share` / `dashboard.share`，与 per-resource share 端点同源 |
+| DELETE | `/admin/grants/{resource_type}/{grant_id}` | 集中撤销，按底层 access 行 id 撤销。`{resource_type}` 限定 `data_source` / `report` / `dashboard`。审计 action 复用 `*_revoke` 系列 |
+| GET | `/data-sources?q=...` | 列表新增 `q` 参数（name ILIKE 子串，ACL 过滤之后）。`X-Total-Count` 反映 ACL+`q` 后总数 |
+| GET | `/reports?q=...` | 列表新增 `q` 参数（name ILIKE 子串，ACL 过滤之后） |
+
 ## 测试
 
 ```bash

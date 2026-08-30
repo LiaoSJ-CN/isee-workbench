@@ -69,6 +69,7 @@ def _client_ip(request: Request) -> str:
 @router.get("", response_model=list[DataSourceResponse])
 def list_data_sources(
     response: Response,
+    q: str | None = Query(default=None, max_length=255),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -77,10 +78,18 @@ def list_data_sources(
     """List data sources the caller can see, with pagination.
 
     ACL: admin sees all; owner sees their own; others see the union
-    of "owner=me" and "I have any grant". Total accessible count is
-    reported in ``X-Total-Count`` so the frontend can drive a pager.
+    of "owner=me" and "I have any grant". ``q`` is a case-insensitive
+    substring match on ``name`` applied AFTER the ACL filter so an
+    unauthorized caller can't probe via filter combinations
+    (mirrors :func:`app.routers.dashboard.list_dashboards`).
+    Total accessible count is reported in ``X-Total-Count`` so the
+    frontend can drive a pager; it reflects the post-ACL AND
+    post-``q`` total.
     """
     sources = list_accessible_data_sources(db, user)
+    if q:
+        needle = q.casefold()
+        sources = [s for s in sources if s.name and needle in s.name.casefold()]
     response.headers["X-Total-Count"] = str(len(sources))
     # Stable order so offset+limit produces consistent pages.
     return sources[offset : offset + limit]

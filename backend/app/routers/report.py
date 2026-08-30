@@ -291,6 +291,7 @@ def list_reports(
     response: Response,
     is_active: bool | None = Query(default=None),
     data_source_id: int | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=255),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -300,12 +301,17 @@ def list_reports(
 
     批 9.4: ACL via :func:`app.services.report.list_accessible_reports`
     — admin sees all; owner / public / grant-holders see the union.
-    Filter values (``is_active``, ``data_source_id``) are applied
-    AFTER the ACL filter so an unauthorized caller can't probe via
-    filters. ``X-Total-Count`` reports the post-ACL total so the
-    frontend can drive a pager.
+    Filter values (``is_active``, ``data_source_id``, ``q``) are
+    applied AFTER the ACL filter so an unauthorized caller can't
+    probe via filter combinations (mirrors
+    :func:`app.routers.dashboard.list_dashboards` for ``q``).
+    ``X-Total-Count`` reports the post-ACL AND post-``q`` total so
+    the frontend can drive a pager.
     """
     rows = list_accessible_reports(db, user, is_active=is_active, data_source_id=data_source_id)
+    if q:
+        needle = q.casefold()
+        rows = [r for r in rows if r.name and needle in r.name.casefold()]
     response.headers["X-Total-Count"] = str(len(rows))
     # Stable order so offset+limit produces consistent pages.
     return rows[offset : offset + limit]

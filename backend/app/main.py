@@ -37,7 +37,9 @@ from app.models.data_source import DataSource
 from app.models.user import User
 from app.routers import (
     admin_data_sources,  # 批 E
+    admin_grants,  # batch user-management Stage 2
     admin_metrics,  # 批 12
+    admin_users,  # batch user-management Stage 1
     audit,  # 批 9.5
     auth,
     dashboard,  # 批 14
@@ -335,6 +337,10 @@ app.include_router(audit.router)
 app.include_router(admin_metrics.router)
 # Admin-only DataSource mutations (批 E) — currently: rotate-password.
 app.include_router(admin_data_sources.router)
+# Admin-only User CRUD + password reset (batch user-management Stage 1).
+app.include_router(admin_users.router)
+# Admin-only centralised grant / revoke (batch user-management Stage 2).
+app.include_router(admin_grants.router)
 # User listing for client-side created_by resolution (A3, post-批-report-versioning).
 app.include_router(users.router)
 
