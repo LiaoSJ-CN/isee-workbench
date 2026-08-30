@@ -112,6 +112,11 @@ ACTION_REPORT_PARAM_DELETE = "report.parameter.delete"
 ACTION_REPORT_SHARE = "report.share"
 ACTION_REPORT_REVOKE = "report.revoke"
 ACTION_REPORT_GENERATE = "report.generate"
+# B (post-批-report-versioning): pin / unpin a Report version.
+# Pinned versions cannot be deleted (the delete router returns 409).
+# ``after`` carries the new ``is_pinned`` boolean so the audit row
+# shows which direction the toggle went.
+ACTION_REPORT_VERSION_PIN = "report.version.pin"
 
 # 批 14: dashboard CRUD + items + shares — ``target_id`` is the
 # dashboard row id (mirrors the report.* set; per-item rows use
@@ -171,6 +176,7 @@ ALL_ACTIONS: tuple[str, ...] = (
     ACTION_REPORT_SHARE,
     ACTION_REPORT_REVOKE,
     ACTION_REPORT_GENERATE,
+    ACTION_REPORT_VERSION_PIN,
     # 批 14: dashboard actions (mirrors the report.* set).
     ACTION_DASHBOARD_CREATE,
     ACTION_DASHBOARD_UPDATE,

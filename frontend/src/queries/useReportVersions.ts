@@ -71,3 +71,17 @@ export function useDeleteReportVersion(reportId: number) {
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.list(reportId) }),
   });
 }
+
+export function usePinReportVersion(reportId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ versionId, pinned }: { versionId: number; pinned: boolean }) =>
+      reportVersionsApi.pin(reportId, versionId, pinned),
+    onSuccess: () => {
+      // Invalidate both list and any open diff views so the new
+      // ``is_pinned`` value propagates everywhere.
+      qc.invalidateQueries({ queryKey: KEYS.list(reportId) });
+      qc.invalidateQueries({ queryKey: ['report-versions', reportId] });
+    },
+  });
+}

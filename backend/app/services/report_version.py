@@ -274,3 +274,20 @@ def delete_version(db: Session, *, version_id: int) -> None:
         raise PinnedVersionError("Version is pinned; unpin before delete")
     db.delete(version)
     db.commit()
+
+
+def set_pinned(db: Session, *, version_id: int, pinned: bool) -> ReportVersion:
+    """Flip ``is_pinned`` on a version snapshot.
+
+    Idempotent: re-pinning or re-unpinning an already-set version is a
+    no-op (the router short-circuits the audit row in that case).
+    Caller is responsible for verifying ownership/admin + that
+    ``version.report_id`` matches the URL.
+    """
+    version = db.get(ReportVersion, version_id)
+    if version is None:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Version not found")
+    version.is_pinned = pinned
+    db.commit()
+    db.refresh(version)
+    return version

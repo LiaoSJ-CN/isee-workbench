@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Button, Space, message, Modal, Form, Input, Radio } from 'antd';
-import { SaveOutlined, EyeOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { SaveOutlined, EyeOutlined, AppstoreOutlined, HistoryOutlined } from '@ant-design/icons';
 import { arrayMove } from '@dnd-kit/sortable';
 import type { DragEndEvent } from '@dnd-kit/core';
 import type {
@@ -31,6 +31,7 @@ import {
 } from '../../queries/useParameters';
 import { useDataSources } from '../../queries/useDataSources';
 import { useSaveAsTemplate } from '../../queries/useReportTemplates';
+import { useReportVersions } from '../../queries/useReportVersions';
 import { useMe } from '../../queries/useAuth';
 import { CardSkeleton } from '../../components/Skeleton';
 import { SaveVersionModal } from '../../components/SaveVersionModal';
@@ -44,6 +45,11 @@ export default function ReportEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const reportId = id ? Number(id) : null;
+  // B (post-批-report-versioning): drive the "查看历史" badge so
+  // editors know at a glance how many versions they've snapshotted.
+  // Cheap — React Query caches against ``report-versions/<id>`` which
+  // the history page itself populates.
+  const { data: versions = [] } = useReportVersions(reportId);
 
   // Server truth from React Query cache. The cache is the source for
   // items list and is what the page re-reads after any mutation.
@@ -284,6 +290,13 @@ export default function ReportEditor() {
         <Space>
           <Button icon={<EyeOutlined />} onClick={() => navigate(`/reports/${buffer.id}/preview`)}>
             预览
+          </Button>
+          <Button
+            icon={<HistoryOutlined />}
+            onClick={() => navigate(`/reports/${buffer.id}/history`)}
+            disabled={!reportId}
+          >
+            查看历史{versions.length > 0 ? ` (${versions.length})` : ''}
           </Button>
           <Button
             icon={<SaveOutlined />}

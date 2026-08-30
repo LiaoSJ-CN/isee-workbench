@@ -677,6 +677,19 @@ export const reportVersionsApi = {
   delete: async (reportId: number, versionId: number): Promise<void> => {
     await api.delete(`/reports/${reportId}/versions/${versionId}`);
   },
+  pin: async (
+    reportId: number,
+    versionId: number,
+    pinned: boolean,
+  ): Promise<ReportVersionSummary> => {
+    // B (post-批-report-versioning): explicit ``pinned`` bool body so
+    // the audit row records the direction. Sending the *current* value
+    // is a no-op server-side (no DB write, no audit row).
+    const { data } = await api.post(`/reports/${reportId}/versions/${versionId}/pin`, {
+      pinned,
+    });
+    return data;
+  },
   diff: async (
     reportId: number,
     versionId: number,

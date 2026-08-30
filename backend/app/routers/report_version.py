@@ -14,6 +14,7 @@ from app.models.report_version import ReportVersion
 from app.models.user import User
 from app.schemas.report import ReportResponse
 from app.schemas.report_version import (
+    PinVersionRequest,
     ReportVersionCreate,
     ReportVersionDiff,
     ReportVersionResponse,
@@ -21,6 +22,7 @@ from app.schemas.report_version import (
     ReportVersionSummary,
     RestoreVersionRequest,
 )
+from app.services.audit import ACTION_REPORT_VERSION_PIN
 from app.services.audit import log as write_audit_log
 from app.services.report import ensure_report_visible, is_owner_or_admin
 from app.services.report_version import (
@@ -31,6 +33,7 @@ from app.services.report_version import (
     get_version,
     list_versions,
     restore_version,
+    set_pinned,
 )
 from app.services.report_version_diff import compute_diff
 
@@ -212,3 +215,38 @@ def delete_report_version(
         delete_version(db, version_id=version_id)
     except PinnedVersionError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post(
+    "/{report_id}/versions/{version_id}/pin",
+    response_model=ReportVersionSummary,
+    summary="Pin or unpin a Report version (owner or admin only)",
+)
+def pin_report_version(
+    report_id: int,
+    version_id: int,
+    payload: PinVersionRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ReportVersionSummary:
+    """Toggle ``is_pinned`` so the version can't be deleted.
+
+    Sending the *current* value is a no-op: no DB write, no audit row.
+    """
+    report = ensure_report_visible(db, user, report_id)
+    if not is_owner_or_admin(user, report):
+        raise HTTPException(status_code=403, detail="Only owner or admin can pin")
+    version = get_version(db, version_id=version_id)
+    if version is None or version.report_id != report_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    if version.is_pinned != payload.pinned:
+        version = set_pinned(db, version_id=version_id, pinned=payload.pinned)
+        write_audit_log(
+            db,
+            actor_user_id=user.id,
+            action=ACTION_REPORT_VERSION_PIN,
+            target_type="report",
+            target_id=report_id,
+            after={"version_id": version_id, "is_pinned": payload.pinned},
+        )
+    return _summary(version)

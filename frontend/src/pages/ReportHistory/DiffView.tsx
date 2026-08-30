@@ -1,5 +1,5 @@
-import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Drawer, Empty, Select, Space, Spin, Table, Typography } from 'antd';
+import { ArrowLeftOutlined, RollbackOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Drawer, Empty, Select, Space, Spin, Table, Typography, Tooltip } from 'antd';
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useReport } from '../../queries/useReports';
@@ -9,6 +9,9 @@ import {
   useReportVersions,
 } from '../../queries/useReportVersions';
 import type { FieldChange } from '../../types';
+import { renderDiffValue } from '../../utils/diffValue';
+import { isOwnerOrAdmin, useCurrentUser } from '../../queries/useCurrentUser';
+import { RestoreConfirmModal } from './RestoreConfirmModal';
 
 export default function ReportHistoryDiffPage() {
   const { id, vid } = useParams<{ id: string; vid: string }>();
@@ -26,6 +29,11 @@ export default function ReportHistoryDiffPage() {
   const { data: diff, isPending } = useReportVersionDiff(reportId, versionId, againstValue);
 
   const [showFullSnapshot, setShowFullSnapshot] = useState(false);
+  // B (post-批-report-versioning): owner-or-admin can restore
+  // directly from the diff view, without bouncing back to the list.
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const currentUser = useCurrentUser();
+  const canRestore = isOwnerOrAdmin(currentUser.data, report);
 
   if (!report || !version) {
     return <Spin style={{ display: 'block', margin: 80 }} />;
@@ -43,16 +51,8 @@ export default function ReportHistoryDiffPage() {
       rowKey={(c) => c.field}
       columns={[
         { title: '字段', dataIndex: 'field', width: 200 },
-        {
-          title: '旧值',
-          dataIndex: 'old_value',
-          render: (v) => <code>{JSON.stringify(v)}</code>,
-        },
-        {
-          title: '新值',
-          dataIndex: 'new_value',
-          render: (v) => <code>{JSON.stringify(v)}</code>,
-        },
+        { title: '旧值', dataIndex: 'old_value', render: renderDiffValue },
+        { title: '新值', dataIndex: 'new_value', render: renderDiffValue },
       ]}
     />
   );
@@ -70,6 +70,16 @@ export default function ReportHistoryDiffPage() {
           版本 v{version.version_number}
           {againstValue === 'current' ? ' vs 当前' : ` vs v${againstValue}`}
         </Typography.Title>
+        <Tooltip title={canRestore ? '' : '仅 owner / admin 可以恢复'}>
+          <Button
+            icon={<RollbackOutlined />}
+            danger
+            disabled={!canRestore}
+            onClick={() => setRestoreOpen(true)}
+          >
+            恢复到此版本
+          </Button>
+        </Tooltip>
       </Space>
 
       <Card style={{ marginBottom: 16 }} title="对比目标">
@@ -170,6 +180,19 @@ export default function ReportHistoryDiffPage() {
       >
         <pre style={{ fontSize: 12 }}>{JSON.stringify(version, null, 2)}</pre>
       </Drawer>
+
+      <RestoreConfirmModal
+        open={restoreOpen}
+        reportId={reportId!}
+        version={version}
+        // A5: capture the report's updated_at at view-load so the
+        // server can 409 if someone else edited the live Report in
+        // the meantime. RestoreConfirmModal handles the success /
+        // 409 / generic-error messaging + invalidation.
+        currentUpdatedAt={report.updated_at ?? null}
+        onClose={() => setRestoreOpen(false)}
+        onRestored={() => navigate(`/reports/${reportId}`)}
+      />
     </div>
   );
 }

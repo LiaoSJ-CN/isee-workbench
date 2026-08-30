@@ -169,3 +169,19 @@ class ReportVersionRestoreResponse(BaseModel):
     """Response of POST /versions/{vid}/restore — wraps the new live Report."""
 
     report: dict  # ReportResponse (dict to avoid circular import at type-check time)
+
+
+# ---------------------------------------------------------------------------
+# Pin / unpin
+# ---------------------------------------------------------------------------
+
+
+class PinVersionRequest(BaseModel):
+    """POST /versions/{vid}/pin payload.
+
+    Explicit ``pinned`` boolean (rather than a toggle endpoint) so the
+    audit row can record which direction the toggle went. Calling with
+    the current value is a no-op (no DB write, no audit row).
+    """
+
+    pinned: bool

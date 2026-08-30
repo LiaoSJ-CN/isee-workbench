@@ -232,6 +232,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | GET | `/reports/{id}/versions/{vid}/diff` | 字段级 diff（`?against=current\|{vid}` 指定对比基准） |
 | POST | `/reports/{id}/versions/{vid}/restore` | 恢复版本到 live（owner/admin） |
 | DELETE | `/reports/{id}/versions/{vid}` | 删除版本（owner/admin，pinned 则 409） |
+| POST | `/reports/{id}/versions/{vid}/pin` | 固定/取消固定版本（owner/admin，body `{ pinned: bool }`） |
 | GET | `/reports/templates` | 模板市场列表（批 13：visibility ACL + category / 数据源 / `q` 过滤） |
 | POST | `/reports/{id}/save-as-template` | 另存为模板（owner/admin，剥离 scheduler + notification） |
 | POST | `/reports/{id}/from-template` | 从模板 fork 出新报表（read ACL 即可） |

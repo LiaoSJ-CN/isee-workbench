@@ -1,9 +1,12 @@
-import { Button, Space, Table, Tag, Tooltip } from 'antd';
+import { Button, Space, Table, Tag, Tooltip, message } from 'antd';
+import { PushpinFilled, PushpinOutlined } from '@ant-design/icons';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Report, ReportVersionSummary } from '../../types';
 import { isOwnerOrAdmin, useCurrentUser } from '../../queries/useCurrentUser';
 import { useUsers } from '../../queries/useUsers';
+import { usePinReportVersion } from '../../queries/useReportVersions';
+import { formatError } from '../../utils/error';
 
 interface Props {
   reportId: number;
@@ -16,9 +19,23 @@ interface Props {
 export function VersionTable({ reportId, report, versions, onRestore, onDelete }: Props) {
   const user = useCurrentUser();
   const navigate = useNavigate();
-  // Mirrors the server's owner-or-admin gate on POST/DELETE /versions
+  // Mirrors the server's owner-or-admin gate on POST/DELETE/pin /versions
   // so non-owner editors don't see a button that would 403 on click.
   const canMutate = isOwnerOrAdmin(user, report);
+
+  // B (post-批-report-versioning): wire the pin button to the backend
+  // so the static "已固定" tag becomes actionable. Pinned versions
+  // can't be deleted, so the icon + tooltip change with state.
+  const pinMutation = usePinReportVersion(reportId);
+
+  const handlePin = async (row: ReportVersionSummary) => {
+    try {
+      await pinMutation.mutateAsync({ versionId: row.id, pinned: !row.is_pinned });
+      message.success(row.is_pinned ? `已取消固定 v${row.version_number}` : `已固定 v${row.version_number}`);
+    } catch (err) {
+      message.error(formatError(err, '固定失败'));
+    }
+  };
 
   // A3 (post-批-report-versioning): resolve ``created_by`` (raw user
   // id) to a display ``username`` via ``GET /users``. The list is
@@ -75,6 +92,17 @@ export function VersionTable({ reportId, report, versions, onRestore, onDelete }
               >
                 查看
               </Button>
+              <Tooltip title={row.is_pinned ? '取消固定（允许删除）' : '固定（防止被删除）'}>
+                <Button
+                  size="small"
+                  icon={row.is_pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                  type={row.is_pinned ? 'primary' : 'default'}
+                  disabled={!canMutate || pinMutation.isPending}
+                  onClick={() => handlePin(row)}
+                >
+                  {row.is_pinned ? '取消固定' : '固定'}
+                </Button>
+              </Tooltip>
               <Button size="small" disabled={!canMutate} onClick={() => onRestore(row)}>
                 恢复
               </Button>

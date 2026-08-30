@@ -37,6 +37,7 @@ export const AUDIT_ACTIONS = [
   'report.share',
   'report.revoke',
   'report.generate',
+  'report.version.pin',
   'job.enqueue',
   'subscription.create',
   'subscription.update',

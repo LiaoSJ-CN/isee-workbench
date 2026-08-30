@@ -13,6 +13,7 @@ from app.models.report import VISIBILITY_PRIVATE, Report, ReportItem
 from app.models.report_access import ReportAccess
 from app.models.report_version import ReportVersion
 from app.models.user import ROLE_ADMIN, ROLE_EDITOR, User
+from app.services.audit import ACTION_REPORT_VERSION_PIN
 from app.services.jwt_auth import create_access_token
 from app.services.report_version import _lock_normalize
 
@@ -414,3 +415,177 @@ def test_restore_with_stale_expected_updated_at_returns_409(
     # Restore did NOT mutate the live report.
     db.refresh(rv_seed_report)
     assert rv_seed_report.updated_at is not None
+
+
+# ---------------------------------------------------------------------------
+# B (post-批-report-versioning) — pin / unpin a version
+# ---------------------------------------------------------------------------
+
+
+def _create_version(client, admin_user, report_id: int) -> int:
+    r = client.post(
+        f"/reports/{report_id}/versions",
+        json={},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def test_pin_owner_flips_is_pinned(client, db, admin_user, rv_seed_report):
+    version_id = _create_version(client, admin_user, rv_seed_report.id)
+
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["is_pinned"] is True
+
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": False},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200
+    assert r.json()["is_pinned"] is False
+
+
+def test_pin_non_owner_403(client, db, admin_user, other_user, rv_seed_report):
+    """A read grant lets the caller *see* the report but cannot mutate."""
+    rv_seed_report.visibility = VISIBILITY_PRIVATE
+    db.add(
+        DataSourceAccess(
+            data_source_id=rv_seed_report.data_source_id,
+            user_id=other_user.id,
+            permission="read",
+        )
+    )
+    db.add(
+        ReportAccess(
+            report_id=rv_seed_report.id,
+            user_id=other_user.id,
+            permission="read",
+        )
+    )
+    db.commit()
+    version_id = _create_version(client, admin_user, rv_seed_report.id)
+
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(other_user),
+    )
+    assert r.status_code == 403
+
+
+def test_pin_invisible_report_returns_404(client, db, admin_user, other_user, rv_seed_report):
+    """Private report + no grant → uniform 404 (don't leak existence)."""
+    rv_seed_report.visibility = VISIBILITY_PRIVATE
+    db.commit()
+    version_id = _create_version(client, admin_user, rv_seed_report.id)
+
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(other_user),
+    )
+    assert r.status_code == 404
+
+
+def test_pin_version_from_other_report_404(client, db, admin_user, rv_seed_report):
+    """A version_id that belongs to a different report → 404.
+
+    Prevents an owner from pinning a version on a report they don't
+    own by guessing another report's version id.
+    """
+    # Build a *second* report + version.
+    other_ds = DataSource(name=_unique("ds2"), db_type="sqlite", database=":memory:")
+    db.add(other_ds)
+    db.commit()
+    db.refresh(other_ds)
+    other_report = Report(
+        name=_unique("r2"),
+        data_source_id=other_ds.id,
+        owner_user_id=admin_user.id,
+    )
+    db.add(other_report)
+    db.commit()
+    db.refresh(other_report)
+    foreign_version_id = _create_version(client, admin_user, other_report.id)
+
+    # Hit rv_seed_report's endpoint with the foreign version id.
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{foreign_version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 404
+
+
+def test_pin_idempotent_no_audit_when_unchanged(client, db, admin_user, rv_seed_report):
+    """Re-sending the current value: 200 but no DB write, no audit row."""
+    version_id = _create_version(client, admin_user, rv_seed_report.id)
+    # First pin — produces an audit row.
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200
+
+    logs = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == ACTION_REPORT_VERSION_PIN,
+            AuditLog.actor_user_id == admin_user.id,
+            AuditLog.target_id == rv_seed_report.id,
+        )
+        .all()
+    )
+    assert len(logs) == 1
+
+    # Same value again — idempotent, no new row.
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200
+    logs = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == ACTION_REPORT_VERSION_PIN,
+            AuditLog.actor_user_id == admin_user.id,
+            AuditLog.target_id == rv_seed_report.id,
+        )
+        .all()
+    )
+    assert len(logs) == 1
+
+
+def test_pin_writes_audit_log_with_direction(client, db, admin_user, rv_seed_report):
+    version_id = _create_version(client, admin_user, rv_seed_report.id)
+    r = client.post(
+        f"/reports/{rv_seed_report.id}/versions/{version_id}/pin",
+        json={"pinned": True},
+        headers=_auth(admin_user),
+    )
+    assert r.status_code == 200
+
+    # Scope by actor_user_id + target_id; latest row should record the
+    # flip direction (``is_pinned: True``) so the audit history shows
+    # which way each toggle went.
+    log = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == ACTION_REPORT_VERSION_PIN,
+            AuditLog.actor_user_id == admin_user.id,
+            AuditLog.target_id == rv_seed_report.id,
+        )
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert log is not None
+    assert log.after == {"version_id": version_id, "is_pinned": True}
