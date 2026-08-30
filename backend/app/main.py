@@ -36,6 +36,7 @@ from app.models import user as _user_module  # noqa: F401
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.routers import (
+    admin_data_sources,  # 批 E
     admin_metrics,  # 批 12
     audit,  # 批 9.5
     auth,
@@ -332,6 +333,8 @@ app.include_router(dashboard_subscription.router)
 app.include_router(audit.router)
 # Admin-only DataSource connection-pool metrics (批 12).
 app.include_router(admin_metrics.router)
+# Admin-only DataSource mutations (批 E) — currently: rotate-password.
+app.include_router(admin_data_sources.router)
 # User listing for client-side created_by resolution (A3, post-批-report-versioning).
 app.include_router(users.router)
 

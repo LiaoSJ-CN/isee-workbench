@@ -80,6 +80,12 @@ ACTION_DATA_SOURCE_REVOKE = "data_source.revoke"
 # ``after`` is the new row (different id / owner). Reuses
 # ``TARGET_TYPE_DATA_SOURCE``; the action disambiguates.
 ACTION_DATA_SOURCE_CLONE = "data_source.clone"
+# 批 E: admin rotates the connection password (force-evicts engine cache).
+# ``before``/``after`` are NOT the full row — only metadata describing
+# the rotation (``rotation_method``) so the audit row can't accidentally
+# carry the new password even via _snapshot bypass. Password redaction
+# via _SENSITIVE_FIELDS is defence-in-depth.
+ACTION_DATA_SOURCE_PASSWORD_ROTATED = "data_source.password_rotated"
 
 ACTION_REPORT_CREATE = "report.create"
 ACTION_REPORT_UPDATE = "report.update"
@@ -149,6 +155,7 @@ ALL_ACTIONS: tuple[str, ...] = (
     ACTION_DATA_SOURCE_DELETE,
     ACTION_DATA_SOURCE_GRANT,
     ACTION_DATA_SOURCE_REVOKE,
+    ACTION_DATA_SOURCE_PASSWORD_ROTATED,
     ACTION_REPORT_CREATE,
     ACTION_REPORT_UPDATE,
     ACTION_REPORT_DELETE,

@@ -716,6 +716,21 @@ export interface AdminMetricsResponse {
   generated_at: string;
 }
 
+// ---- Admin DataSource mutations (批 E) ----
+//
+// Mirrors ``backend/app/schemas/admin_data_source.py``. Used by the
+// "轮换密码" admin-only flow on the DataSource list page.
+export type RotationMethod = 'admin_supplied' | 'server_generated';
+
+export interface RotatePasswordResponse {
+  data_source_id: number;
+  rotation_method: RotationMethod;
+  rotated_at: string;
+  /** Plaintext — ONLY populated when ``rotation_method === 'server_generated'``.
+   *  The admin must copy it immediately; the server does not retain it. */
+  generated_password: string | null;
+}
+
 // ---- Dashboard (批 14) ----
 // Mirrors backend Pydantic schemas in ``app.schemas.dashboard``
 // plus the corresponding ORM models in ``app.models.dashboard`` /

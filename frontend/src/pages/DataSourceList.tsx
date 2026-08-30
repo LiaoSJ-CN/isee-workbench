@@ -20,8 +20,10 @@ import {
   ExclamationCircleOutlined,
   ShareAltOutlined,
   CopyOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DataSource, DataSourceCreate } from '../types';
 import { formatError } from '../utils/error';
 import { useMe } from '../queries/useAuth';
@@ -38,6 +40,8 @@ import {
   useUsers,
 } from '../queries/useDataSources';
 import { DataSourceShareModal } from '../components/DataSourceShareModal';
+import { RotatePasswordModal } from '../components/RotatePasswordModal';
+import { adminDataSourceApi } from '../api';
 
 const { TextArea } = Input;
 
@@ -48,6 +52,20 @@ export default function DataSourceList() {
   const deleteDs = useDeleteDataSource();
   const testDs = useTestDataSource();
   const cloneDs = useCloneDataSource();
+  const queryClient = useQueryClient();
+
+  // Admin-only password rotation (批 E). Wrapped in useMutation so
+  // the modal gets pending + error state without re-implementing
+  // React Query semantics. Invalidates the data-sources list cache
+  // on success so any stale display of the row updates (though the
+  // password itself is never returned in the list response).
+  const rotatePasswordMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: { new_password?: string } }) =>
+      adminDataSourceApi.rotatePassword(id, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['data-sources'] });
+    },
+  });
 
   // ACL (批 9.3)
   const me = useMe();
@@ -62,6 +80,7 @@ export default function DataSourceList() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
+  const [rotateTarget, setRotateTarget] = useState<DataSource | null>(null);
   const [form] = Form.useForm<DataSourceCreate>();
   const [dbType, setDbType] = useState<string>('postgresql');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -229,6 +248,17 @@ export default function DataSourceList() {
             >
               复制
             </Button>
+            {isAdmin && (
+              <Button
+                type="link"
+                size="small"
+                icon={<KeyOutlined />}
+                loading={rotatePasswordMut.isPending && rotatePasswordMut.variables?.id === record.id}
+                onClick={() => setRotateTarget(record)}
+              >
+                轮换密码
+              </Button>
+            )}
             {canShare && (
               <Button
                 type="link"
@@ -410,6 +440,17 @@ export default function DataSourceList() {
           );
         }}
         onCancel={() => setShareTarget(null)}
+      />
+
+      <RotatePasswordModal
+        open={rotateTarget != null}
+        dataSource={rotateTarget}
+        pending={rotatePasswordMut.isPending}
+        onSubmit={(body) => {
+          if (!rotateTarget) return Promise.reject(new Error('no target'));
+          return rotatePasswordMut.mutateAsync({ id: rotateTarget.id, body });
+        }}
+        onClose={() => setRotateTarget(null)}
       />
     </div>
   );

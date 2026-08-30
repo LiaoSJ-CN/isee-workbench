@@ -23,6 +23,7 @@ export const AUDIT_ACTIONS = [
   'data_source.delete',
   'data_source.grant',
   'data_source.revoke',
+  'data_source.password_rotated',
   'report.create',
   'report.update',
   'report.delete',

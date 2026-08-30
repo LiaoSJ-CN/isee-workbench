@@ -46,6 +46,7 @@ import type {
   ReportVersionResponse,
   ReportVersionRestoreResponse,
   ReportVersionSummary,
+  RotatePasswordResponse,
   SaveAsTemplateRequest,
   SchedulerStatus,
   SchedulerJob,
@@ -695,6 +696,32 @@ export const reportVersionsApi = {
 export const adminMetricsApi = {
   get: async (): Promise<AdminMetricsResponse> => {
     const { data } = await api.get('/admin/metrics');
+    return data;
+  },
+};
+
+// ============ Admin DataSource mutations (批 E) ============
+//
+// Admin-only endpoint — the page component (DataSourceList) gates
+// the action button on ``currentUser.role === 'admin'``; the server
+// enforces the same via ``Depends(admin_required)``.
+export const adminDataSourceApi = {
+  /**
+   * Rotate a DataSource's connection password.
+   *
+   * Pass ``{ new_password: '...' }`` for admin-supplied mode (the
+   * plaintext is echoed back as ``null``); pass ``{}`` (or omit
+   * ``new_password``) for server-generated mode (the plaintext is
+   * returned ONCE in ``response.generated_password``).
+   */
+  rotatePassword: async (
+    sourceId: number,
+    body: { new_password?: string },
+  ): Promise<RotatePasswordResponse> => {
+    const { data } = await api.post(
+      `/admin/data-sources/${sourceId}/rotate-password`,
+      body,
+    );
     return data;
   },
 };

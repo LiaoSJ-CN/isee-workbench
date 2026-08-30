@@ -342,6 +342,37 @@ docker compose --profile postgres up -d
 | `EXPLORER_STATEMENT_TIMEOUT` | `30` | Explorer PG 类查询 statement timeout（秒）；`0` = 无超时；SQLite 忽略 |
 | `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
 
+#### 数据源密码轮换（批 E）
+
+admin-only 端点 `POST /admin/data-sources/{id}/rotate-password`，用于响应泄漏 / 定期轮换 / 离职交接：
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}' | jq -r .access_token)
+
+# 模式 1：admin 已知新密码（运维同步过来的）
+curl -s -X POST localhost:8000/admin/data-sources/1/rotate-password \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"new_password":"hunter2"}' | jq
+# {"data_source_id":1,"rotation_method":"admin_supplied",
+#  "rotated_at":"...","generated_password":null}
+
+# 模式 2：服务器生成强随机密码，明文只显示一次
+curl -s -X POST localhost:8000/admin/data-sources/1/rotate-password \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{}' | jq
+# {"data_source_id":1,"rotation_method":"server_generated",
+#  "rotated_at":"...","generated_password":"<24-字符随机串>"}
+```
+
+UI 入口：DataSource 列表每行 `[轮换密码]` 按钮（admin-only），弹窗内可二选一。
+
+**行为**：旋转后立即清空 cached SQLAlchemy 引擎（下次连接用新凭据重建）；写入 `data_source.password_rotated` 审计行；新密码**不会**写进 audit snapshot（仅 `rotation_method` metadata）。
+
+**审计追溯**：`GET /audit-logs?action=data_source.password_rotated` 即可过滤所有轮换事件。
+
 ### 调度器
 
 | 变量名 | 默认值 | 说明 |

@@ -314,6 +314,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | 方法 | 路径 | 功能 |
 |------|------|------|
 | GET | `/admin/metrics` | 每个 DataSource 的连接池实时指标（活跃连接 / 借出归还 / 超时 / 平均持有时间 / 健康度评分），供前端监控页与告警基线使用 |
+| POST | `/admin/data-sources/{source_id}/rotate-password` | Admin 轮换指定 DataSource 的连接密码（admin-only，泄漏响应/定期轮换场景）。支持 admin 传新密码或服务器生成随机密码并 one-time 返回明文；同时清空 cached SQLAlchemy engine 并写入 `data_source.password_rotated` 审计行 |
 
 ## 测试
 
