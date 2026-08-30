@@ -1,229 +1,241 @@
-"""Tests for 批 6b.3 — CSRF middleware (Origin header check)."""
+"""Tests for 批 6b.3 — CSRF middleware (Origin header check).
+
+Rewritten 2026-08-30 as direct middleware unit tests after the
+[[test-pollution-anti-pattern]] audit. The previous suite routed
+through ``/reports/1/items`` as a real-auth-passing fixture, which
+left empty ``name='x'`` rows on the demo ``财务经营月报`` because the
+CSRF tests only assert ``status != 403`` — they PASS but the row
+sticks.
+
+These tests invoke ``CSRFMiddleware.__call__`` directly with a
+hand-built ASGI ``scope`` dict. No TestClient, no route, no DB. The
+leak shape can no longer be produced.
+"""
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
-from fastapi.testclient import TestClient
-
-from app.config import settings
-from app.main import app
+from starlette.types import Receive, Scope, Send
 
 
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(app)
+def _build_scope(
+    *,
+    method: str = "POST",
+    path: str = "/reports/1/items",
+    headers: list[tuple[bytes, bytes]] | None = None,
+    host: bytes = b"testserver",
+) -> Scope:
+    """Hand-rolled ASGI ``scope`` dict for a single HTTP request.
+
+    ``headers`` is the ASGI wire format: list of (name, value) byte
+    pairs. ``Host`` defaults to ``testserver`` — TestClient's
+    ``base_url`` — which is what the same-origin trust check compares
+    against.
+    """
+    return {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": headers or [],
+        "server": (host.decode("latin-1"), 80),
+    }
 
 
-@pytest.fixture
-def auth_headers():
-    """Bearer token — the routes under test are JWT-gated."""
-    from app.services.jwt_auth import create_access_token
+async def _drive_middleware(
+    scope: Scope,
+    *,
+    csrf_enabled: bool | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Invoke ``CSRFMiddleware`` once against *scope*.
 
-    token = create_access_token(subject="admin")
-    return {"Authorization": f"Bearer {token}"}
+    Returns ``(messages, downstream_called)``: ``messages`` is what the
+    middleware sent upstream (typically a 403 response shape), and
+    ``downstream_called`` is whether the inner app was reached.
 
-
-def _endpoint_that_exists_post() -> tuple[str, dict]:
-    """A real POST endpoint that won't 403 on auth. /reports/1/items
-    is convenient: 404 if report 1 doesn't exist, but the auth + CSRF
-    gates both pass before that."""
-    return "/reports/1/items", {"name": "x", "item_type": "text"}
-
-
-def test_post_with_whitelisted_origin_is_allowed(client: TestClient, auth_headers: dict) -> None:
-    path, body = _endpoint_that_exists_post()
-    headers = {**auth_headers, "Origin": settings.cors_origins[0]}
-    resp = client.post(path, json=body, headers=headers)
-    assert resp.status_code != 403, "whitelisted origin must NOT trip CSRF"
-
-
-def test_post_with_untrusted_origin_returns_403(client: TestClient, auth_headers: dict) -> None:
-    """Plan §6b.3 — reject state-changing requests whose Origin is
-    not in the whitelist. The 403 must come BEFORE auth/database
-    processing — CSRF is the outermost check."""
-    path, body = _endpoint_that_exists_post()
-    headers = {**auth_headers, "Origin": "http://evil.example.com"}
-    resp = client.post(path, json=body, headers=headers)
-    assert resp.status_code == 403, f"untrusted origin must 403, got {resp.status_code}"
-
-
-def test_post_with_no_origin_is_allowed(client: TestClient, auth_headers: dict) -> None:
-    """Server-to-server callers (curl, scripts) don't send Origin.
-    The middleware treats missing Origin as allowed — only
-    *present-but-untrusted* origins are rejected."""
-    path, body = _endpoint_that_exists_post()
-    resp = client.post(path, json=body, headers=auth_headers)
-    assert resp.status_code != 403, "missing Origin must NOT trip CSRF"
-
-
-def test_post_with_same_origin_is_allowed(client: TestClient, auth_headers: dict) -> None:
-    """Origin netloc == Host header → treated as same-origin, even
-    if the explicit whitelist doesn't list it. Keeps local dev
-    frictionless without weakening the cross-site defence."""
-    path, body = _endpoint_that_exists_post()
-    # ``base_url`` for TestClient is ``http://testserver`` by default.
-    headers = {**auth_headers, "Origin": "http://testserver"}
-    resp = client.post(path, json=body, headers=headers)
-    assert resp.status_code != 403, "same-origin Origin must NOT trip CSRF"
-
-
-def test_get_with_untrusted_origin_is_allowed(client: TestClient, auth_headers: dict) -> None:
-    """GET (and HEAD/OPTIONS) are not state-changing — CSRF doesn't
-    apply. Browsers enforce read-side isolation via CORS, not CSRF."""
-    resp = client.get(
-        "/reports",
-        headers={**auth_headers, "Origin": "http://evil.example.com"},
-    )
-    assert resp.status_code != 403, "GETs are exempt from CSRF"
-
-
-def test_metrics_endpoint_is_exempt(client: TestClient, auth_headers: dict) -> None:
-    """Prometheus scrapers send GETs (which are exempt) but we also
-    carve /metrics out explicitly in case someone adds a POST
-    probe. Verify with an untrusted Origin that 403 is *not*
-    triggered."""
-    resp = client.get(
-        "/metrics",
-        headers={**auth_headers, "Origin": "http://evil.example.com"},
-    )
-    assert resp.status_code == 200, f"/metrics must bypass CSRF, got {resp.status_code}"
-
-
-def test_health_endpoint_is_exempt(client: TestClient, auth_headers: dict) -> None:
-    """Load balancers probe /health from anywhere — Origin is never
-    set in those calls, but if someone configures a probe with one
-    we still want 200."""
-    resp = client.get(
-        "/health",
-        headers={**auth_headers, "Origin": "http://monitoring.internal"},
-    )
-    assert resp.status_code == 200, f"/health must bypass CSRF, got {resp.status_code}"
-
-
-def test_disabled_setting_lets_everything_through(
-    client: TestClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``settings.csrf_enabled = False`` disables the gate entirely
-    — useful for tests / scripts. The middleware reads the setting
-    on each request via ``settings.csrf_enabled``."""
-    # The middleware reads the setting on every request; toggling it
-    # mid-test is fine because Pydantic settings re-reads env each
-    # access for non-_frozen_ fields. But our setting isn't frozen —
-    # verify by patching the module-level reference.
+    ``csrf_enabled`` lets a test toggle the setting without touching
+    ``monkeypatch`` directly. ``None`` means "leave the current
+    setting alone".
+    """
     from app.middleware import csrf as csrf_module
 
-    monkeypatch.setattr(csrf_module.settings, "csrf_enabled", False)
-    # Force the middleware to re-init its cached setting.
-    monkeypatch.setattr(csrf_module.CSRFMiddleware, "_enabled", False, raising=False)
-    # The cached flag is set in __init__; re-init by re-importing. The
-    # simplest hack: construct a fresh middleware and verify behaviour.
-    # For end-to-end behaviour we just hit the route and check the
-    # setting flowed through. (FastAPI caches middleware per-app; we
-    # rely on the per-instance _enabled read.)
-    path, body = _endpoint_that_exists_post()
-    resp = client.post(
-        path,
-        json=body,
-        headers={**auth_headers, "Origin": "http://evil.example.com"},
-    )
-    # Setting is False → middleware short-circuits. The endpoint
-    # response is whatever the route returns (404 for missing report
-    # 1 is fine; what matters is no 403).
-    assert resp.status_code != 403, "csrf_enabled=False must let untrusted origins through"
+    saved: bool | None = None
+    if csrf_enabled is not None:
+        saved = csrf_module.settings.csrf_enabled
+        csrf_module.settings.csrf_enabled = csrf_enabled
 
+    messages: list[dict[str, Any]] = []
+    downstream_called = {"value": False}
 
-def test_conftest_cleans_csrf_shape_leakage(client, auth_headers):
-    """Regression guard for the 2026-08-30 incident.
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
 
-    ``_endpoint_that_exists_post`` posts ``{"name": "x", "item_type": "text"}``
-    to ``/reports/1/items`` (the demo ``财务经营月报``) as a real-auth-passing
-    CSRF fixture. The tests above assert ``status != 403`` — they PASS, but
-    the row sticks. ``report_items.name='x' AND item_type='text' AND
-    fields='[]'`` is the giveaway shape; the autouse
-    ``_cleanup_leaked_data_source_rows`` fixture in ``conftest.py`` MUST
-    sweep it, otherwise this test alone leaves 4 rows per ``pytest`` run on
-    the demo report (accumulating 59 rows on the operator's dev DB by the
-    time the user noticed).
+    async def send(message: dict[str, Any]) -> None:
+        messages.append(message)
 
-    This test re-creates the leak by issuing the same POST the CSRF suite
-    does, then invokes conftest's exact DELETE, and asserts no such row
-    survives while the legitimate demo items (本月关键指标 etc.) are
-    untouched.
-    """
-    from sqlalchemy import text
+    async def downstream(receive: Receive, _send: Send, _scope: Scope) -> None:
+        downstream_called["value"] = True
 
-    from app.database import SessionLocal
-    from app.models.report import ReportItem
-
-    # Drive the leak the way the CSRF suite does: whitelisted Origin +
-    # valid auth + the real ``/reports/1/items`` endpoint.
-    path, body = _endpoint_that_exists_post()
-    resp = client.post(
-        path,
-        json=body,
-        headers={**auth_headers, "Origin": settings.cors_origins[0]},
-    )
-    # The CSRF suite asserts ``status != 403``; the row sticks because the
-    # endpoint actually persists.
-    assert resp.status_code == 201, (
-        f"expected the CSRF-leak POST to insert a row, got {resp.status_code}: "
-        f"{resp.text}"
-    )
-
-    db = SessionLocal()
+    mw = csrf_module.CSRFMiddleware(app=downstream)
     try:
-        # Verify the leak row exists.
-        leaked = (
-            db.query(ReportItem)
-            .filter(
-                ReportItem.name == "x",
-                ReportItem.item_type == "text",
-                ReportItem.fields == "[]",
-            )
-            .all()
-        )
-        assert len(leaked) >= 1, "the CSRF POST must produce the leak shape"
-
-        # Run the SAME prune clause conftest uses. Future conftest drift
-        # would make this either leak or over-prune; both break this test
-        # loudly.
-        db.execute(
-            text(
-                "DELETE FROM report_items "
-                "WHERE name = 'x' AND ("
-                "    (table_name IN ('t', 'x') AND fields = '[\"a\"]') "
-                "    OR "
-                "    (item_type = 'text' AND fields = '[]' AND table_name IS NULL)"
-                ")"
-            )
-        )
-        db.commit()
-
-        # The leak is gone ...
-        assert (
-            db.query(ReportItem)
-            .filter(
-                ReportItem.name == "x",
-                ReportItem.item_type == "text",
-                ReportItem.fields == "[]",
-            )
-            .count()
-            == 0
-        )
-        # ... and the real demo items are intact.
-        real_demo_names = {
-            "本月关键指标",
-            "月度利润趋势",
-            "月度现金流",
-            "月度利润表",
-        }
-        real_demo_rows = (
-            db.query(ReportItem)
-            .filter(ReportItem.name.in_(real_demo_names))
-            .count()
-        )
-        assert real_demo_rows == 4, (
-            f"all 4 demo items must survive the prune, found {real_demo_rows}"
-        )
+        await mw(scope, receive, send)
     finally:
-        db.close()
+        if saved is not None:
+            csrf_module.settings.csrf_enabled = saved
+
+    return messages, downstream_called["value"]
+
+
+def _header_value(messages: list[dict[str, Any]], name: bytes) -> bytes | None:
+    """Extract a header value from the ``http.response.start`` message."""
+    for msg in messages:
+        if msg["type"] != "http.response.start":
+            continue
+        for h_name, h_value in msg.get("headers", []):
+            if h_name == name:
+                return h_value
+    return None
+
+
+def _response_status(messages: list[dict[str, Any]]) -> int | None:
+    for msg in messages:
+        if msg["type"] == "http.response.start":
+            return int(msg["status"])
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Origin trust
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_post_with_whitelisted_origin_is_allowed() -> None:
+    """``Origin`` matching ``settings.cors_origins[0]`` must reach the app."""
+    from app.config import settings
+
+    scope = _build_scope(
+        method="POST",
+        headers=[(b"origin", settings.cors_origins[0].encode("latin-1"))],
+    )
+    messages, downstream_called = await _drive_middleware(scope)
+    assert downstream_called, "whitelisted origin must NOT trip CSRF"
+    assert _response_status(messages) is None, (
+        "downstream was reached; CSRF must not have started a response"
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_with_untrusted_origin_returns_403() -> None:
+    """Plan §6b.3 — reject state-changing requests whose ``Origin`` is
+    not in the whitelist. The 403 must come BEFORE auth/database
+    processing — CSRF is the outermost check.
+    """
+    scope = _build_scope(
+        method="POST",
+        headers=[(b"origin", b"http://evil.example.com")],
+    )
+    messages, downstream_called = await _drive_middleware(scope)
+    assert not downstream_called, "untrusted origin must short-circuit before the app"
+    assert _response_status(messages) == 403, (
+        f"untrusted origin must return 403, got {_response_status(messages)}"
+    )
+    body = b"".join(m["body"] for m in messages if m["type"] == "http.response.body")
+    assert b"CSRF" in body, "403 body must surface the CSRF marker"
+
+
+@pytest.mark.asyncio
+async def test_post_with_no_origin_is_allowed() -> None:
+    """Server-to-server callers (curl, scripts) don't send ``Origin``.
+
+    The middleware treats missing ``Origin`` as allowed — only
+    *present-but-untrusted* origins are rejected.
+    """
+    scope = _build_scope(method="POST")
+    _messages, downstream_called = await _drive_middleware(scope)
+    assert downstream_called, "missing Origin must NOT trip CSRF"
+
+
+@pytest.mark.asyncio
+async def test_post_with_same_origin_is_allowed() -> None:
+    """``Origin`` netloc == ``Host`` header → treated as same-origin, even
+    if the explicit whitelist doesn't list it. Keeps local dev
+    frictionless without weakening the cross-site defence.
+    """
+    scope = _build_scope(
+        method="POST",
+        host=b"testserver",
+        headers=[(b"origin", b"http://testserver"), (b"host", b"testserver")],
+    )
+    _messages, downstream_called = await _drive_middleware(scope)
+    assert downstream_called, "same-origin Origin must NOT trip CSRF"
+
+
+# ---------------------------------------------------------------------------
+# Method / path exemptions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_with_untrusted_origin_is_allowed() -> None:
+    """GET (and HEAD/OPTIONS) are not state-changing — CSRF doesn't
+    apply. Browsers enforce read-side isolation via CORS, not CSRF.
+    """
+    scope = _build_scope(
+        method="GET",
+        path="/reports",
+        headers=[(b"origin", b"http://evil.example.com")],
+    )
+    _messages, downstream_called = await _drive_middleware(scope)
+    assert downstream_called, "GETs are exempt from CSRF"
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_is_exempt() -> None:
+    """Prometheus scrapers send GETs (which are exempt) but we also
+    carve ``/metrics`` out explicitly in case someone adds a POST
+    probe. Verify with an untrusted ``Origin`` that 403 is *not*
+    triggered even if the request is POST-shaped.
+    """
+    scope = _build_scope(
+        method="POST",
+        path="/metrics",
+        headers=[(b"origin", b"http://evil.example.com")],
+    )
+    _messages, downstream_called = await _drive_middleware(scope)
+    assert downstream_called, "/metrics must bypass CSRF"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_is_exempt() -> None:
+    """Load balancers probe ``/health`` from anywhere — ``Origin`` is
+    never set in those calls, but if someone configures a probe with
+    one we still want to pass.
+    """
+    scope = _build_scope(
+        method="POST",
+        path="/health",
+        headers=[(b"origin", b"http://monitoring.internal")],
+    )
+    _messages, downstream_called = await _drive_middleware(scope)
+    assert downstream_called, "/health must bypass CSRF"
+
+
+# ---------------------------------------------------------------------------
+# Setting toggle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_disabled_setting_lets_everything_through() -> None:
+    """``settings.csrf_enabled = False`` disables the gate entirely —
+    useful for tests / scripts. The middleware reads the setting on
+    every request via ``settings.csrf_enabled``.
+    """
+    scope = _build_scope(
+        method="POST",
+        headers=[(b"origin", b"http://evil.example.com")],
+    )
+    _messages, downstream_called = await _drive_middleware(scope, csrf_enabled=False)
+    assert downstream_called, "csrf_enabled=False must let untrusted origins through"

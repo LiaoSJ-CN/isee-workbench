@@ -19,14 +19,18 @@ def seeded_reports() -> list[Report]:
     try:
         # Eager-load items so the test can iterate them after the session
         # is closed without hitting DetachedInstanceError on lazy load.
+        # Restrict to ``is_demo=True`` so accumulated test rows (which
+        # live in the session-tmpfile DB and reference test-only tables
+        # like ``orders``) don't pollute this snapshot — see the
+        # post-批 B conftest root-cause fix on 2026-08-30.
         reports = (
             db.query(Report)
             .options(selectinload(Report.items))
-            .filter(Report.is_active.is_(True))
+            .filter(Report.is_active.is_(True), Report.is_demo.is_(True))
             .all()
         )
         if not reports:
-            pytest.skip("no active reports; run seed_reports.py to populate app.db")
+            pytest.skip("no seeded reports; run seed_reports.py to populate app.db")
         return reports
     finally:
         db.close()
