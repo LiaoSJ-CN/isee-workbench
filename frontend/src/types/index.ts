@@ -903,3 +903,94 @@ export interface DashboardSubscriptionUpdate {
   notification_config?: NotificationConfig | null;
   is_active?: boolean;
 }
+
+// ============ Admin user-management (批 user-management S3+S4) ============
+//
+// Mirror of backend Pydantic schemas in `backend/app/schemas/user.py`:
+// - UserCreate / UserUpdate / UserResponse / PasswordResetRequest /
+//   PasswordResetResponse / UserListResponse (S1, schemas/user.py:85-205)
+// - GrantSummaryItem / UserAclView / AdminGrantCreate (S2, schemas/user.py:213-275)
+// The admin-only endpoints live under /admin/users and /admin/grants; gated
+// server-side by admin_required. Frontend mirrors the gate via RequireAdmin
+// in App.tsx. The literal types below are kept separate from the existing
+// DataSourceGrantPermission / ReportSharePermission / DashboardSharePermission
+// so a future cleanup can collapse them — same string union today, but each
+// has its own audit convention.
+export type AdminUserRole = 'admin' | 'editor' | 'viewer';
+export type AdminResourceType = 'data_source' | 'report' | 'dashboard';
+export type AdminGrantPermission = 'read' | 'write';
+export type PasswordResetMethod = 'admin_supplied' | 'server_generated';
+
+export interface UserResponse {
+  id: number;
+  username: string;
+  role: AdminUserRole;
+  disabled: boolean;
+  org_id?: number | null;
+  created_at?: string | null;
+  last_login_at?: string | null;
+}
+
+export interface UserCreate {
+  username: string;
+  password: string;
+  role: AdminUserRole;
+}
+
+export interface UserUpdate {
+  role?: AdminUserRole;
+  disabled?: boolean;
+}
+
+export interface UserListResponse {
+  items: UserResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PasswordResetRequest {
+  /** Empty/null → server generates; otherwise admin-supplied plaintext. */
+  new_password?: string | null;
+}
+
+export interface PasswordResetResponse {
+  user_id: number;
+  rotation_method: PasswordResetMethod;
+  reset_at: string;
+  /** Non-null ONLY for server_generated; for admin_supplied we deliberately
+   *  do not echo the plaintext (admin already knows it). */
+  generated_password: string | null;
+}
+
+/** One grant row, normalised across DataSource / Report / Dashboard.
+ *
+ *  Mirrors backend `GrantSummaryItem` (schemas/user.py:213). `grant_id` is
+ *  the underlying access-row PK so the admin UI can drive the centralised
+ *  DELETE /admin/grants/{resource_type}/{grant_id} without re-resolving. */
+export interface GrantSummaryItem {
+  resource_type: AdminResourceType;
+  resource_id: number;
+  resource_name?: string | null;
+  grant_id: number;
+  permission: AdminGrantPermission;
+  granted_by?: number | null;
+  granted_by_username?: string | null;
+  created_at?: string | null;
+}
+
+/** Envelope for GET /admin/users/{id}/grants. subject_type is always
+ *  "user" from this endpoint today; the wider union is forward-compatible
+ *  with the per-resource counterpart. */
+export interface UserAclView {
+  subject_type: 'user';
+  subject_id: number;
+  grants: GrantSummaryItem[];
+}
+
+export interface AdminGrantCreate {
+  resource_type: AdminResourceType;
+  resource_id: number;
+  target_user_id: number;
+  permission: AdminGrantPermission;
+}

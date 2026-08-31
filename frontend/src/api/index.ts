@@ -1,6 +1,9 @@
 import axios from 'axios';
 import type {
+  AdminGrantCreate,
   AdminMetricsResponse,
+  AdminResourceType,
+  AdminUserRole,
   AuditLogFilters,
   AuditLogListResponse,
   CurrentUser,
@@ -50,7 +53,15 @@ import type {
   SaveAsTemplateRequest,
   SchedulerStatus,
   SchedulerJob,
+  GrantSummaryItem,
+  PasswordResetRequest,
+  PasswordResetResponse,
+  UserAclView,
+  UserCreate,
+  UserListResponse,
+  UserResponse,
   UserSummary,
+  UserUpdate,
 } from '../types';
 
 // T13: re-export `ReportVersionCreate` so consumers (e.g.
@@ -471,6 +482,116 @@ export const schedulerApi = {
 
   deleteJob: async (reportId: number): Promise<void> => {
     await api.delete(`/scheduler/jobs/${reportId}`);
+  },
+};
+
+// ============ Admin user-management (批 user-management S3+S4) ============
+//
+// Admin-only endpoints under /admin/users and /admin/grants; gated
+// server-side by admin_required. The frontend gate lives in <RequireAdmin>
+// (App.tsx) — non-admins never reach these. Mirrors the convention used
+// by adminDataSourceApi (批 E) and adminMetricsApi (批 12).
+export const adminUsersApi = {
+  /** List with optional filters + pagination. ``q`` is a substring match
+   *  on username / role applied post-ACL; ``filters ?? {}`` keeps an
+   *  empty filter object on the same key as no filter (mirrors
+   *  auditLogApi.list). */
+  list: async (filters?: {
+    role?: AdminUserRole;
+    disabled?: boolean;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<UserListResponse> => {
+    const params: Record<string, unknown> = {};
+    if (filters) {
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null && value !== '') params[key] = value;
+      }
+    }
+    const { data } = await api.get('/admin/users', { params });
+    return data;
+  },
+
+  get: async (id: number): Promise<UserResponse> => {
+    const { data } = await api.get(`/admin/users/${id}`);
+    return data;
+  },
+
+  /** Create a new user row. Backend returns 409 on duplicate username
+   *  (raised by the service-level pre-check; the DB unique constraint
+   *  is a defence-in-depth backstop). */
+  create: async (payload: UserCreate): Promise<UserResponse> => {
+    const { data } = await api.post('/admin/users', payload);
+    return data;
+  },
+
+  /** Patch role / disabled. 403 self-protection when an admin tries to
+   *  demote themselves from 'admin' or disable themselves (last-admin
+   *  guard) — surface the error verbatim to the form. */
+  update: async (id: number, payload: UserUpdate): Promise<UserResponse> => {
+    const { data } = await api.patch(`/admin/users/${id}`, payload);
+    return data;
+  },
+
+  /** Soft-disable (DELETE overloaded as "soft-delete" per the S1
+   *  precedent). Returns the updated row so the page can flip the
+   *  disabled tag without a refetch. */
+  disable: async (id: number): Promise<UserResponse> => {
+    const { data } = await api.delete(`/admin/users/${id}`);
+    return data;
+  },
+
+  /** Two-mode password reset (mirrors adminDataSourceApi.rotatePassword):
+   *  - ``new_password`` set & non-empty → admin_supplied (plaintext
+   *    NOT echoed in response).
+   *  - empty/null → server_generated (plaintext returned ONCE in
+   *    response.generated_password). */
+  resetPassword: async (
+    id: number,
+    payload: PasswordResetRequest,
+  ): Promise<PasswordResetResponse> => {
+    const { data } = await api.post(`/admin/users/${id}/reset-password`, payload);
+    return data;
+  },
+
+  /** Aggregate every grant a user holds across DataSource / Report /
+   *  Dashboard. The drawer renders this as 3 tables (one per resource
+   *  type) filtered client-side from the single response. */
+  grants: async (id: number): Promise<UserAclView> => {
+    const { data } = await api.get(`/admin/users/${id}/grants`);
+    return data;
+  },
+};
+
+export const adminGrantsApi = {
+  /** List every grant pointing at one resource. Used by the GrantModal
+   *  preview panel (after the operator picks a resource). Backend 422s
+   *  on an unknown resource_type so we let that error bubble — the
+   *  admin UI's dropdown only shows the three valid values. */
+  byResource: async (
+    resource_type: AdminResourceType,
+    resource_id: number,
+  ): Promise<GrantSummaryItem[]> => {
+    const { data } = await api.get('/admin/grants', {
+      params: { resource_type, resource_id },
+    });
+    return data;
+  },
+
+  /** Idempotent upsert — re-POSTing the same (resource_type, resource_id,
+   *  target_user_id) updates the permission level. Backend audit row
+   *  action matches the per-resource share endpoint so the audit
+   *  filter doesn't need a separate "centralised" entry. */
+  create: async (payload: AdminGrantCreate): Promise<GrantSummaryItem> => {
+    const { data } = await api.post('/admin/grants', payload);
+    return data;
+  },
+
+  /** Revoke by underlying access-row PK. 404 on unknown resource_type
+   *  or grant_id; the UI's mutation hook handles that. */
+  revoke: async (resource_type: AdminResourceType, grant_id: number): Promise<void> => {
+    await api.delete(`/admin/grants/${resource_type}/${grant_id}`);
   },
 };
 

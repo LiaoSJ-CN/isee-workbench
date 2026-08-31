@@ -6,6 +6,13 @@
 
 ### Added
 
+- **用户管理（批 user-management S1–S4）**：admin 集中管控账号 + 跨资源授权
+  - 后端 User CRUD + 密码重置（admin_supplied / server_generated 双模式）+ 自降级保护（403）+ soft-disable；26 + 23 = 49 pytest
+  - 后端 ACL 聚合 `GET /admin/users/{id}/grants` + 跨资源集中授权 `POST/GET/DELETE /admin/grants`（dispatch 到 DataSource / Report / Dashboard 各自的 upsert_grant / upsert_share）
+  - 前端 `/admin/users` 页面：表格 + 筛选（role / disabled / q）+ 创建/编辑表单 + 详情 Drawer（4 tabs：基本信息 / 数据源授权 / 报表授权 / 看板授权）+ 集中授权 Modal
+  - 跨 view 缓存失效：grant mutation 同时失效 `adminUsers.all` / `adminGrants.all` / per-resource ACL 三类 key，DS/Report/Dashboard 自身的 share modal 自动刷新
+  - 后端 self-protect：最后一个 admin 降级 / admin 自行禁用均返回 403；前端 self-edit 时 role Select + 禁用按钮 disabled
+  - 新增模块：`backend/app/routers/admin_users.py` + `admin_grants.py`；前端 `pages/admin/{Users,UserFormModal,UserDetailDrawer,ResetPasswordModal,GrantModal}.tsx` + `queries/useAdminUsers.ts`
 - 报表版本/历史：手动快照 + 原子 restore + 字段级 diff（批 report-versioning）。3 张规范化版本表，6 个新端点 `/reports/{id}/versions[/...]`。Spec：`docs/superpowers/specs/2026-08-25-report-versioning-design.md`。
 
 ### 新增

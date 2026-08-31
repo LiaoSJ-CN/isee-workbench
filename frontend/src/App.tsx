@@ -21,6 +21,7 @@ import {
   DashboardOutlined,
   AppstoreOutlined,
   MonitorOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -54,6 +55,9 @@ const ReportHistoryDiffPage = lazy(() => import('./pages/ReportHistory/DiffView'
 const DashboardList = lazy(() => import('./pages/DashboardList'));
 const DashboardView = lazy(() => import('./pages/DashboardView'));
 const DashboardEdit = lazy(() => import('./pages/DashboardEdit'));
+// 批 user-management S3+S4 — admin user-management page. Gated by
+// ``RequireAdmin`` (App.tsx:164) like the other admin surfaces.
+const AdminUsers = lazy(() => import('./pages/admin/Users'));
 
 const { Header, Content } = Layout;
 
@@ -109,6 +113,11 @@ function AppMenu() {
     },
     ...(isAdmin
       ? [
+          {
+            key: '/admin/users',
+            icon: <TeamOutlined />,
+            label: <Link to="/admin/users">用户管理</Link>,
+          },
           {
             key: '/audit-logs',
             icon: <AuditOutlined />,
@@ -265,6 +274,14 @@ function AppShell() {
               element={
                 <RequireAdmin>
                   <AdminMetrics />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <RequireAdmin>
+                  <AdminUsers />
                 </RequireAdmin>
               }
             />

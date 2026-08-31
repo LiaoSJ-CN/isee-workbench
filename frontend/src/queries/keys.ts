@@ -97,4 +97,33 @@ export const queryKeys = {
       q?: string;
     }) => [...queryKeys.reportTemplates.lists(), filters ?? {}] as const,
   },
+  // Admin user-management (批 user-management S3+S4) — admin-only.
+  // `adminUsers.all` is the single invalidation point for every user
+  // mutation (create / update / disable / reset-password) — covers the
+  // list, every detail, and every grants sub-tree.
+  adminUsers: {
+    all: ['admin-users'] as const,
+    lists: () => [...queryKeys.adminUsers.all, 'list'] as const,
+    // `filters ?? {}` keeps `useAdminUsers()` and `useAdminUsers({})`
+    // on the same cache key.
+    list: (filters?: {
+      role?: string;
+      disabled?: boolean;
+      q?: string;
+      limit?: number;
+      offset?: number;
+    }) => [...queryKeys.adminUsers.lists(), filters ?? {}] as const,
+    details: () => [...queryKeys.adminUsers.all, 'detail'] as const,
+    detail: (id: number) => [...queryKeys.adminUsers.details(), id] as const,
+    // Per-user grants view (used by the UserDetailDrawer tabs).
+    grants: (id: number) => [...queryKeys.adminUsers.all, 'grants', id] as const,
+  },
+  // Centralised grants (批 user-management S2). Cross-resource:
+  // every grant mutation invalidates this ancestor so the GrantModal
+  // preview (byResource) refetches when the underlying list changes.
+  adminGrants: {
+    all: ['admin-grants'] as const,
+    byResource: (rt: string, id: number) =>
+      [...queryKeys.adminGrants.all, 'resource', rt, id] as const,
+  },
 } as const;
