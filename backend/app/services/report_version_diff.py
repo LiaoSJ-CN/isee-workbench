@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from app.models.report import Report
-from app.models.report_parameter import ReportParameter
 from app.models.report_version import (
     ReportVersion,
     ReportVersionItem,
@@ -62,13 +61,11 @@ def _values_equal(a: Any, b: Any) -> bool:
     """JSON-aware equality (lists / dicts compared structurally)."""
     if type(a) is not type(b):
         return False
-    if isinstance(a, (list, dict)):
-        return a == b
-    return a == b
+    return bool(a == b)
 
 
-def _field_changes(base_obj: Any, target_obj: Any, fields: Iterable[str]) -> list[dict]:
-    changes: list[dict] = []
+def _field_changes(base_obj: Any, target_obj: Any, fields: Iterable[str]) -> list[dict[str, Any]]:
+    changes: list[dict[str, Any]] = []
     for f in fields:
         b = getattr(base_obj, f)
         t = getattr(target_obj, f)
@@ -77,7 +74,9 @@ def _field_changes(base_obj: Any, target_obj: Any, fields: Iterable[str]) -> lis
     return changes
 
 
-def diff_report_fields(base: ReportVersion, target: ReportVersion | Report) -> list[dict]:
+def diff_report_fields(
+    base: ReportVersion, target: ReportVersion | Report
+) -> list[dict[str, Any]]:
     return _field_changes(base, target, REPORT_DIFF_FIELDS)
 
 
@@ -88,7 +87,7 @@ def _index_by_name(rows: Iterable[Any]) -> dict[str, Any]:
 def diff_items(
     base_items: list[ReportVersionItem],
     target_items: list[Any],
-) -> tuple[list, list, list]:
+) -> tuple[list[Any], list[Any], list[dict[str, Any]]]:
     base_map = _index_by_name(base_items)
     target_map = _index_by_name(target_items)
 
@@ -98,7 +97,7 @@ def diff_items(
 
     added = [target_map[n] for n in added_names]
     removed = [base_map[n] for n in removed_names]
-    modified: list[dict] = []
+    modified: list[dict[str, Any]] = []
     for n in common_names:
         changes = _field_changes(base_map[n], target_map[n], ITEM_DIFF_FIELDS)
         if changes:
@@ -108,8 +107,8 @@ def diff_items(
 
 def diff_parameters(
     base_params: list[ReportVersionParameter],
-    target_params: list[ReportParameter],
-) -> tuple[list, list, list]:
+    target_params: list[Any],
+) -> tuple[list[Any], list[Any], list[dict[str, Any]]]:
     base_map = _index_by_name(base_params)
     target_map = _index_by_name(target_params)
 
@@ -119,7 +118,7 @@ def diff_parameters(
 
     added = [target_map[n] for n in added_names]
     removed = [base_map[n] for n in removed_names]
-    modified: list[dict] = []
+    modified: list[dict[str, Any]] = []
     for n in common_names:
         changes = _field_changes(base_map[n], target_map[n], PARAM_DIFF_FIELDS)
         if changes:
@@ -131,12 +130,16 @@ def compute_diff(
     base_version: ReportVersion,
     target_version: ReportVersion | None = None,
     live_report: Report | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Build the full diff structure. ``target_version`` takes precedence;
     fall back to ``live_report`` if provided. Exactly one must be set."""
-    if target_version is None and live_report is None:
+    target: ReportVersion | Report
+    if target_version is not None:
+        target = target_version
+    elif live_report is not None:
+        target = live_report
+    else:
         raise ValueError("Either target_version or live_report must be provided")
-    target = target_version if target_version is not None else live_report
 
     items_added, items_removed, items_modified = diff_items(base_version.items, target.items)
     params_added, params_removed, params_modified = diff_parameters(
@@ -156,7 +159,7 @@ def compute_diff(
     }
 
 
-def serialize_full(version: ReportVersion) -> dict:
+def serialize_full(version: ReportVersion) -> dict[str, Any]:
     """JSON-ready snapshot for the «查看完整快照» toggle."""
     return {
         "version": version.version_number,

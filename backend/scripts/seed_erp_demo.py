@@ -20,6 +20,7 @@ import random
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "erp_demo.db"
 
@@ -992,7 +993,7 @@ def seed(conn: sqlite3.Connection) -> None:
 
     # ---- DWD: ar_balance / ap_balance ----
     today = date(2025, 12, 31)
-    ar_rows = []
+    ar_rows: list[tuple[Any, ...]] = []
     for i in range(30):
         cid = random.randint(1, len(CUSTOMERS))
         issue = rand_date(date(2024, 1, 1), date(2025, 11, 30))
@@ -1022,7 +1023,7 @@ def seed(conn: sqlite3.Connection) -> None:
         ar_rows,
     )
 
-    ap_rows = []
+    ap_rows: list[tuple[Any, ...]] = []
     for i in range(25):
         sid = random.randint(1, len(SUPPLIERS))
         issue = rand_date(date(2024, 1, 1), date(2025, 11, 30))

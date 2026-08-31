@@ -60,7 +60,7 @@ from app.models.data_source_access import DataSourceAccess
 from app.models.report import Report
 from app.models.report_access import ReportAccess
 from app.models.user import ROLE_ADMIN, User
-from app.schemas.user import GrantSummaryItem
+from app.schemas.user import GrantSummaryItem, PasswordResetMethod
 from app.services import dashboard as dashboard_service
 from app.services import data_source as data_source_service
 from app.services import report as report_service
@@ -243,7 +243,7 @@ def reset_password(
     *,
     target: User,
     new_password: str | None,
-) -> tuple[User, str, str]:
+) -> tuple[User, str, PasswordResetMethod]:
     """Reset *target*'s password; return ``(user, plaintext, method)``.
 
     Two modes (mirrors :func:`app.routers.admin_data_sources.
@@ -259,6 +259,7 @@ def reset_password(
       the hash.
     """
     supplied = (new_password or "").strip()
+    method: PasswordResetMethod
     if supplied:
         plaintext = supplied
         method = "admin_supplied"

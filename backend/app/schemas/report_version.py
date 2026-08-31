@@ -7,7 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
 # Summary shapes — used by GET list (no items/parameters inline)
 # ---------------------------------------------------------------------------
@@ -168,7 +167,7 @@ class RestoreVersionRequest(BaseModel):
 class ReportVersionRestoreResponse(BaseModel):
     """Response of POST /versions/{vid}/restore — wraps the new live Report."""
 
-    report: dict  # ReportResponse (dict to avoid circular import at type-check time)
+    report: dict[str, Any]  # ReportResponse (dict to avoid circular import at type-check time)
 
 
 # ---------------------------------------------------------------------------

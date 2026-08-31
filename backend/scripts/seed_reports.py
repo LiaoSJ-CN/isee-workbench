@@ -20,6 +20,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Any
 
 META_DB = Path(__file__).resolve().parent.parent / "app.db"
 # Preferred display name for the finance demo database. If not present, the
@@ -27,7 +28,7 @@ META_DB = Path(__file__).resolve().parent.parent / "app.db"
 PREFERRED_NAME = "sqlite_demo"
 
 
-def _dump(obj):
+def _dump(obj: Any) -> str | None:
     """Serialize Python obj to JSON string (None for None)."""
     return json.dumps(obj, ensure_ascii=False) if obj is not None else None
 
@@ -36,7 +37,7 @@ def _dump(obj):
 # Report definitions
 # ---------------------------------------------------------------------------
 
-REPORTS = [
+REPORTS: list[dict[str, Any]] = [
     {
         "name": "财务经营月报",
         "description": "展示最近 18 个月的营收、成本、利润、现金流走势及本月关键指标。",
@@ -325,7 +326,7 @@ def _resolve_data_source_id(cur: sqlite3.Cursor, override: int | None) -> int:
             print(f"--data-source-id {override} not found in data_sources", file=sys.stderr)
             sys.exit(2)
         print(f"using --data-source-id={override} (name={row[1]!r})")
-        return row[0]
+        return int(row[0])
 
     row = cur.execute(
         "SELECT id FROM data_sources WHERE name = ? ORDER BY id LIMIT 1",
@@ -333,7 +334,7 @@ def _resolve_data_source_id(cur: sqlite3.Cursor, override: int | None) -> int:
     ).fetchone()
     if row:
         print(f"using DataSource id={row[0]} (matched PREFERRED_NAME={PREFERRED_NAME!r})")
-        return row[0]
+        return int(row[0])
 
     row = cur.execute(
         "SELECT id, name, db_type, database FROM data_sources ORDER BY id LIMIT 1"
@@ -349,7 +350,7 @@ def _resolve_data_source_id(cur: sqlite3.Cursor, override: int | None) -> int:
         f"using DataSource id={row[0]} (name={row[1]!r}, db_type={row[2]!r}); "
         f"PREFERRED_NAME {PREFERRED_NAME!r} not present"
     )
-    return row[0]
+    return int(row[0])
 
 
 def seed(keep_existing: bool = False, data_source_id: int | None = None) -> None:

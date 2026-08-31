@@ -44,6 +44,7 @@ from app.models.user import User
 from app.schemas.admin_data_source import (
     RotatePasswordRequest,
     RotatePasswordResponse,
+    RotationMethod,
 )
 from app.services import audit as audit_service
 from app.services.report_generator import evict_engine
@@ -125,6 +126,7 @@ def rotate_data_source_password(
         )
 
     supplied = (payload.new_password or "").strip()
+    rotation_method: RotationMethod
     if supplied:
         plaintext = supplied
         rotation_method = "admin_supplied"

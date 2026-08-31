@@ -187,7 +187,7 @@ def create_user_admin(
 
     audit_service.log(
         db,
-        actor_user_id=int(admin.id),
+        actor_user_id=cast(int, admin.id),
         action=audit_service.ACTION_USER_CREATE,
         target_type=audit_service.TARGET_TYPE_USER,
         target_id=user.id,
@@ -277,7 +277,7 @@ def update_user_admin(
 
     audit_service.log(
         db,
-        actor_user_id=int(admin.id),
+        actor_user_id=cast(int, admin.id),
         action=action,
         target_type=audit_service.TARGET_TYPE_USER,
         target_id=target.id,
@@ -328,7 +328,7 @@ def delete_user_admin(
     if target.disabled and not before_snapshot["disabled"]:
         audit_service.log(
             db,
-            actor_user_id=int(admin.id),
+            actor_user_id=cast(int, admin.id),
             action=audit_service.ACTION_USER_DISABLE,
             target_type=audit_service.TARGET_TYPE_USER,
             target_id=target.id,
@@ -373,7 +373,7 @@ def reset_user_password_admin(
 
     audit_service.log(
         db,
-        actor_user_id=int(admin.id),
+        actor_user_id=cast(int, admin.id),
         action=audit_service.ACTION_USER_PASSWORD_RESET,
         target_type=audit_service.TARGET_TYPE_USER,
         target_id=target.id,
@@ -388,7 +388,7 @@ def reset_user_password_admin(
     )
 
     return PasswordResetResponse(
-        user_id=target.id,
+        user_id=cast(int, target.id),
         rotation_method=method,
         reset_at=datetime.now(timezone.utc),
         generated_password=plaintext if method == "server_generated" else None,

@@ -442,7 +442,6 @@ def test_shares_endpoint_owner_or_admin_only(
             headers=_auth_for(user_a),
         )
         assert r_create.status_code == 201
-        share_id = int(r_create.json()["id"])
 
         # Non-owner create → 404
         r_create_b = client.post(
