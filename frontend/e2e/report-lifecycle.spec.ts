@@ -31,139 +31,24 @@
  * and run ``npx playwright test e2e/report-lifecycle.spec.ts``.
  */
 
-import { APIRequestContext, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:8000'
-const ADMIN_USER = 'admin'
-const ADMIN_PASS = 'admin'
+import {
+  authenticateAndEnter,
+  createSqliteDataSource,
+  createTextReport,
+  deleteDataSource,
+  deleteReport,
+  login,
+  skipIfBackendDown,
+} from './_helpers'
 
 // Mark used to detect that the preview actually rendered our text
 // item — survives the html.escape round-trip in the backend.
 const TEXT_ITEM_MARKER = `e2e-lifecycle-${Date.now()}`
 
-interface LoginResponse {
-  access_token: string
-  refresh_token: string
-  token_type: string
-}
-
-interface ReportResponse {
-  id: number
-  name: string
-  data_source_id: number
-}
-
-async function login(request: APIRequestContext): Promise<LoginResponse> {
-  const res = await request.post(`${BACKEND_URL}/auth/login`, {
-    data: { username: ADMIN_USER, password: ADMIN_PASS },
-  })
-  expect(res.ok(), `login failed: ${res.status()} ${await res.text()}`).toBeTruthy()
-  return res.json()
-}
-
-/**
- * Seed the page's localStorage with tokens from the API and bounce
- * into the SPA. This sidesteps both the UI login flow (slow, fragile
- * to copy changes) and the per-IP login rate limit that would
- * otherwise be exhausted by the suite's three back-to-back logins.
- */
-async function authenticateAndEnter(
-  page: import('@playwright/test').Page,
-  request: APIRequestContext,
-): Promise<{ accessToken: string; refreshToken: string }> {
-  const tokens = await login(request)
-  await page.goto('/login')
-  await page.evaluate(
-    ({ access, refresh }) => {
-      localStorage.setItem('access_token', access)
-      localStorage.setItem('refresh_token', refresh)
-    },
-    { access: tokens.access_token, refresh: tokens.refresh_token },
-  )
-  await page.goto('/reports')
-  await expect(page).toHaveURL(/\/reports$/)
-  return { accessToken: tokens.access_token, refreshToken: tokens.refresh_token }
-}
-
-async function createSqliteDataSource(
-  request: APIRequestContext,
-  token: string,
-): Promise<{ id: number; name: string }> {
-  const name = `e2e-lifecycle-ds-${Date.now()}`
-  const res = await request.post(`${BACKEND_URL}/data-sources`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      name,
-      db_type: 'sqlite',
-      host: 'placeholder',
-      port: 1,
-      username: 'placeholder',
-      password: 'placeholder',
-      database: ':memory:',
-    },
-  })
-  expect(res.ok(), `create data source failed: ${res.status()} ${await res.text()}`).toBeTruthy()
-  return res.json()
-}
-
-async function createTextReport(
-  request: APIRequestContext,
-  token: string,
-  dataSourceId: number,
-): Promise<ReportResponse> {
-  const res = await request.post(`${BACKEND_URL}/reports`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      name: `e2e-lifecycle-report-${Date.now()}`,
-      description: 'P2-1 lifecycle test report',
-      data_source_id: dataSourceId,
-      output_formats: ['excel', 'html'],
-      is_active: true,
-      items: [
-        {
-          name: 'lifecycle-marker',
-          item_type: 'text',
-          order_index: 0,
-          display_config: { content: TEXT_ITEM_MARKER },
-        },
-      ],
-    },
-  })
-  expect(res.ok(), `create report failed: ${res.status()} ${await res.text()}`).toBeTruthy()
-  return res.json()
-}
-
-async function deleteReport(
-  request: APIRequestContext,
-  token: string,
-  reportId: number,
-): Promise<void> {
-  await request.delete(`${BACKEND_URL}/reports/${reportId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-}
-
-async function deleteDataSource(
-  request: APIRequestContext,
-  token: string,
-  dataSourceId: number,
-): Promise<void> {
-  await request.delete(`${BACKEND_URL}/data-sources/${dataSourceId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-}
-
 test.beforeAll(async ({ request }) => {
-  // Same pre-flight smoke.spec.ts uses: bail when the backend isn't up.
-  // Local checkouts without `uvicorn` won't fail.
-  try {
-    const res = await request.get(`${BACKEND_URL}/docs`)
-    if (!res.ok() && res.status() !== 200) {
-      test.skip(true, `backend not reachable at ${BACKEND_URL}`)
-    }
-  } catch {
-    test.skip(true, `backend not reachable at ${BACKEND_URL}`)
-  }
+  await skipIfBackendDown(request)
 })
 
 test.describe('report lifecycle', () => {
@@ -173,7 +58,7 @@ test.describe('report lifecycle', () => {
   test('preview renders the report HTML', async ({ page, request }) => {
     const { accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
-    const report = await createTextReport(request, accessToken, ds.id)
+    const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
     try {
       await authenticateAndEnter(page, request)
@@ -211,7 +96,7 @@ test.describe('report lifecycle', () => {
   test('excel async export completes and download fires', async ({ page, request }) => {
     const { accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
-    const report = await createTextReport(request, accessToken, ds.id)
+    const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
     try {
       await authenticateAndEnter(page, request)
@@ -267,7 +152,7 @@ test.describe('report lifecycle', () => {
 
     const { accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
-    const report = await createTextReport(request, accessToken, ds.id)
+    const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
     try {
       await authenticateAndEnter(page, request)
