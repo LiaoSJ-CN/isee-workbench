@@ -567,6 +567,5 @@ def test_jobs_get_requires_ds_read_acl(
         r = client.get(f"/jobs/{jid}", headers=_auth_for(user_b))
         assert r.status_code == 404
     finally:
-        db.delete(job)
         db.delete(rep)
         _cleanup_ds(db, int(a_ds.id))

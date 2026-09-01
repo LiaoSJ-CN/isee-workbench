@@ -198,6 +198,52 @@ def test_delete_data_source_evicts_cached_engine(
         pass
 
 
+def test_delete_data_source_with_reports_returns_409(
+    client: TestClient, auth_headers: dict
+) -> None:
+    """A data source still referenced by a report cannot be deleted.
+
+    ``reports.data_source_id`` is NOT NULL with no cascade, so without
+    the pre-check SQLAlchemy nulls the FK on delete and the request
+    dies as a 500 IntegrityError — which the e2e cleanup swallowed,
+    leaving orphaned data sources in the dev database.
+    """
+    r = client.post(
+        "/data-sources",
+        headers=auth_headers,
+        json={
+            "name": _unique_name(),
+            "db_type": "sqlite",
+            "host": "h",
+            "port": 1,
+            "database": ":memory:",
+            "username": "u",
+            "password": "p",
+        },
+    )
+    assert r.status_code == 201
+    ds_id = r.json()["id"]
+
+    r = client.post(
+        "/reports",
+        headers=auth_headers,
+        json={"name": f"blocker-{ds_id}", "data_source_id": ds_id, "items": []},
+    )
+    assert r.status_code == 201, r.text
+    report_id = r.json()["id"]
+
+    try:
+        r = client.delete(f"/data-sources/{ds_id}", headers=auth_headers)
+        assert r.status_code == 409, r.text
+        assert f"blocker-{ds_id}" in r.json()["detail"]
+    finally:
+        client.delete(f"/reports/{report_id}", headers=auth_headers)
+
+    # Once the blocking report is gone the data source deletes cleanly.
+    r = client.delete(f"/data-sources/{ds_id}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+
+
 def test_test_connection_endpoint(client: TestClient, auth_headers: dict, temp_data_source) -> None:
     sid, _ = temp_data_source
     r = client.post(f"/data-sources/{sid}/test", headers=auth_headers)

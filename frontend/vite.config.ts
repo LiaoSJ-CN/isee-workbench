@@ -8,8 +8,12 @@ export default defineConfig({
     proxy: {
       // Proxy /api requests to the backend during development.
       // The nginx reverse proxy handles this in production.
+      //
+      // ``VITE_PROXY_TARGET`` lets the Playwright e2e run point the SPA
+      // at its own throwaway backend (see playwright.config.ts) instead
+      // of the developer's live one, so tests never write to app.db.
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

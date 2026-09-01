@@ -25,7 +25,13 @@
  */
 import { APIRequestContext, Page, expect, test } from '@playwright/test'
 
-export const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:8000'
+export const BACKEND_URL =
+  process.env.BACKEND_URL ??
+  // Mirrors the webServer gate in playwright.config.ts: with
+  // E2E_BASE_URL set we're running against an already-booted stack
+  // (CI's docker-compose on :8000); otherwise Playwright started the
+  // throwaway backend on :8001 for us.
+  (process.env.E2E_BASE_URL ? 'http://localhost:8000' : 'http://localhost:8001')
 export const ADMIN_USER = 'admin'
 export const ADMIN_PASS = 'admin'
 
@@ -156,6 +162,34 @@ export async function authenticateAndEnter(
 }
 
 // ---------------------------------------------------------------------------
+// Cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Assert that a cleanup DELETE actually removed the row.
+ *
+ * Cleanup used to be fire-and-forget (``await request.delete(...)`` with
+ * no status check), so a 500 or a 401 left the entity behind and nobody
+ * noticed until the dev database had accumulated dozens of ``e2e-*``
+ * rows. Now a botched cleanup fails the test that caused it.
+ *
+ * 404 counts as success: cleanup lives in ``finally`` and the happy path
+ * of some specs already deleted the entity through the UI.
+ *
+ * Soft assertion on purpose — cleanup runs in ``finally``, and a hard
+ * throw there would mask the real failure that got us into ``finally``
+ * in the first place. Soft failures still mark the test red.
+ */
+function expectCleanupOk(
+  res: { ok(): boolean; status(): number },
+  what: string,
+): void {
+  expect
+    .soft(res.ok() || res.status() === 404, `cleanup failed — ${what} returned ${res.status()}`)
+    .toBeTruthy()
+}
+
+// ---------------------------------------------------------------------------
 // DataSource helpers
 // ---------------------------------------------------------------------------
 
@@ -187,15 +221,21 @@ export async function createSqliteDataSource(
   return res.json()
 }
 
-/** Hard-delete a data source by id. */
+/** Hard-delete a data source by id.
+ *
+ *  Asserts on the status: a silent failure here is what let ``e2e-ds-*``
+ *  rows pile up in the dev database (``DELETE`` used to 500 whenever a
+ *  report still referenced the source). 404 is accepted so the call
+ *  stays idempotent — cleanup runs in ``finally`` and may re-delete. */
 export async function deleteDataSource(
   request: APIRequestContext,
   token: string,
   dataSourceId: number,
 ): Promise<void> {
-  await request.delete(`${BACKEND_URL}/data-sources/${dataSourceId}`, {
+  const res = await request.delete(`${BACKEND_URL}/data-sources/${dataSourceId}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
+  expectCleanupOk(res, `delete data source ${dataSourceId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -237,15 +277,16 @@ export async function createTextReport(
   return res.json()
 }
 
-/** Hard-delete a report by id. */
+/** Hard-delete a report by id. Asserts — see ``expectCleanupOk``. */
 export async function deleteReport(
   request: APIRequestContext,
   token: string,
   reportId: number,
 ): Promise<void> {
-  await request.delete(`${BACKEND_URL}/reports/${reportId}`, {
+  const res = await request.delete(`${BACKEND_URL}/reports/${reportId}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
+  expectCleanupOk(res, `delete report ${reportId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -272,34 +313,21 @@ export async function createUser(
   return res.json()
 }
 
-/** Soft-disable a user (DELETE /admin/users/{id} is idempotent). */
+/** Soft-disable a user (DELETE /admin/users/{id} is idempotent).
+ *
+ *  The admin API has no hard-delete, by design — audit rows reference
+ *  ``users.id``. That's fine now that the suite runs against its own
+ *  throwaway database (see playwright.config.ts); the disabled rows die
+ *  with ``e2e.db`` at the start of the next run. */
 export async function disableUser(
   request: APIRequestContext,
   token: string,
   userId: number,
 ): Promise<void> {
-  await request.delete(`${BACKEND_URL}/admin/users/${userId}`, {
+  const res = await request.delete(`${BACKEND_URL}/admin/users/${userId}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-}
-
-/** Hard-delete a user (skips soft-delete for the e2e cleanup path
- *  so we don't pollute the dev DB with disabled rows). Direct SQL
- *  via the test backdoor — used only after the soft-disable above.
- *  Falls back silently if the cleanup script can't connect (e.g.
- *  when running against a remote CI backend). */
-export async function hardDeleteUser(
-  request: APIRequestContext,
-  token: string,
-  userId: number,
-): Promise<void> {
-  // The admin API doesn't expose hard-delete; the test DB uses
-  // sqlite:///tmp/test.db in CI, but locally we hit dev's app.db.
-  // For the local pollution concern, we soft-disable + leave the
-  // row. CI is unaffected because the tmpfile is wiped per run.
-  void request
-  void token
-  void userId
+  expectCleanupOk(res, `disable user ${userId}`)
 }
 
 // ---------------------------------------------------------------------------

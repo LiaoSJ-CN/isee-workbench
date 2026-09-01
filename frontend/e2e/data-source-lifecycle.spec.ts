@@ -82,7 +82,7 @@ test.describe('data source lifecycle', () => {
     } finally {
       // Idempotent cleanup — covers the "assertion failed before
       // delete" path.
-      await deleteDataSource(request, accessToken, ds.id).catch(() => {})
+      await deleteDataSource(request, accessToken, ds.id)
     }
   })
 
@@ -142,7 +142,7 @@ test.describe('data source lifecycle', () => {
       // keeping the comment helps the next reader).
       void newName
     } finally {
-      await deleteDataSource(request, accessToken, ds.id).catch(() => {})
+      await deleteDataSource(request, accessToken, ds.id)
     }
   })
 
@@ -199,9 +199,9 @@ test.describe('data source lifecycle', () => {
         }
       }
     } finally {
-      await deleteDataSource(request, accessToken, ds.id).catch(() => {})
+      await deleteDataSource(request, accessToken, ds.id)
       for (const cloneId of clones) {
-        await deleteDataSource(request, accessToken, cloneId).catch(() => {})
+        await deleteDataSource(request, accessToken, cloneId)
       }
     }
   })

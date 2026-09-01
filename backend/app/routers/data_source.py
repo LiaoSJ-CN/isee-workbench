@@ -12,6 +12,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.models.data_source_access import DataSourceAccess
+from app.models.report import Report
 from app.models.user import User
 from app.schemas.data_source import (
     DataSourceCloneRequest,
@@ -47,6 +48,10 @@ router = APIRouter(
     tags=["data-sources"],
     dependencies=[Depends(get_current_user)],
 )
+
+# How many blocking report names to name in the 409 detail before
+# collapsing the rest into an "(and N more)" tail.
+_DELETE_BLOCKER_SAMPLE = 5
 
 
 def _not_found() -> HTTPException:
@@ -253,6 +258,28 @@ def delete_data_source(
     ds = get_data_source_for_user(db, source_id, user)
     if ds is None or not (is_admin(user) or is_owner(user, ds)):
         raise _not_found()
+    # ``reports.data_source_id`` is NOT NULL and the relationship has no
+    # cascade, so SQLAlchemy would try to NULL it out on delete and the
+    # request would surface as a 500 IntegrityError. Refuse up front and
+    # name the blockers so the caller knows what to delete first.
+    blocking = (
+        db.query(Report.name)
+        .filter(Report.data_source_id == source_id)
+        .order_by(Report.id.asc())
+        .limit(_DELETE_BLOCKER_SAMPLE)
+        .all()
+    )
+    if blocking:
+        total = db.query(Report).filter(Report.data_source_id == source_id).count()
+        names = ", ".join(repr(row[0]) for row in blocking)
+        suffix = f" (and {total - len(blocking)} more)" if total > len(blocking) else ""
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Data source is still used by {total} report(s): {names}{suffix}. "
+                "Delete or repoint them first."
+            ),
+        )
     # 批 9.5: capture the row before delete so we know what was removed.
     before_snapshot = audit_service._snapshot(ds)
     db.delete(ds)

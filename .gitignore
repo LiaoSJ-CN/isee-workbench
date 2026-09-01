@@ -86,6 +86,7 @@ frontend/dist/
 
 # Generated reports
 backend/generated_reports/
+backend/e2e_generated_reports/
 
 # Logs
 backend/logs/
