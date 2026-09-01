@@ -40,7 +40,7 @@ test.beforeAll(async ({ request }) => {
 
 test.describe('data source lifecycle', () => {
   test('create → list shows it → delete removes it', async ({ page, request }) => {
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken, 'e2e-create')
 
     try {
@@ -87,7 +87,7 @@ test.describe('data source lifecycle', () => {
   })
 
   test('edit DS name → list reflects new name', async ({ page, request }) => {
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken, 'e2e-edit')
 
     try {
@@ -150,7 +150,7 @@ test.describe('data source lifecycle', () => {
     page,
     request,
   }) => {
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken, 'e2e-clone')
     // Track clones to clean them up at end of test.
     const clones: number[] = []

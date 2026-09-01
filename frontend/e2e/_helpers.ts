@@ -79,23 +79,8 @@ let cachedAdminToken: CachedToken | null = null
  * Why cache: ``LOGIN_RATE_LIMIT=10/min/IP`` and the suite has 16
  * tests. Without the cache, the suite would hit the wall by spec 4
  * and every subsequent test would 429.
- *
- * Why clear-by-default in test contexts: see batch B2 / debug 2026-09-01.
- * The cache occasionally hands back a token whose ``jti`` has been
- * revoked by a prior spec's SPA refresh-rotation (refresh_token is
- * cached too — old refresh jti becomes invalid → next access via
- * cached refresh chain revokes the access jti on the way through
- * ``/auth/refresh``). Disabling the cache here means every test does
- * one extra ``/auth/login``, which is still under ``LOGIN_RATE_LIMIT``
- * after we bumped it to 100. The alternative — clearing cache at
- * every test boundary — is the same number of requests, just spread
- * out.
  */
 export async function login(request: APIRequestContext): Promise<LoginResponse> {
-  // Cache disabled for batch B2 (see comment above). Re-enable once
-  // the underlying refresh-token-rotation race is fixed.
-  cachedAdminToken = null
-
   const now = Date.now()
   if (cachedAdminToken && cachedAdminToken.expiresAt > now + 60_000) {
     return {
@@ -119,12 +104,6 @@ export async function login(request: APIRequestContext): Promise<LoginResponse> 
     expiresAt: now + 23 * 60 * 60 * 1000,
   }
   return body
-}
-
-/** Reset the cache — for tests that need a fresh login (e.g. after
- *  rotating the admin password). */
-export function clearLoginCache(): void {
-  cachedAdminToken = null
 }
 
 // ---------------------------------------------------------------------------

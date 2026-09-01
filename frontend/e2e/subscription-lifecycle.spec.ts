@@ -45,7 +45,7 @@ test.describe('subscription lifecycle', () => {
     page,
     request,
   }) => {
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, 'e2e-sub')
 
@@ -148,7 +148,7 @@ test.describe('subscription lifecycle', () => {
     request,
   }) => {
     test.setTimeout(120_000)
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, 'e2e-sub')
 

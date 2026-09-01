@@ -58,7 +58,7 @@ test.describe('scheduler lifecycle', () => {
     request,
   }) => {
     test.setTimeout(120_000)
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
@@ -196,7 +196,7 @@ test.describe('scheduler lifecycle', () => {
 
   test('delete schedule → row returns to 未配置', async ({ page, request }) => {
     test.setTimeout(120_000)
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 

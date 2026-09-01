@@ -112,14 +112,32 @@ api.interceptors.response.use(
           if (!refreshing) {
             refreshing = api
               .post('/auth/refresh', { refresh_token: refreshToken })
-              .then((r) => r.data.access_token as string)
+              .then((r) => {
+                // Persist BOTH tokens. The backend rotates the refresh
+                // jti on every successful refresh and rejects replays of
+                // the prior jti via the ``revoked_jti`` deny-list, so
+                // the SPA must update its cached refresh — otherwise the
+                // next 401 → refresh cycle posts a revoked jti, the
+                // server bounces with 401 "Refresh token has been
+                // revoked", and we end up at /login even though the
+                // cookie holds a perfectly valid rotated refresh.
+                // This was the latent bug behind the "logged out after
+                // ~24h" symptom and the e2e ``cachedAdminToken = null``
+                // band-aid (``e2e/_helpers.ts``).
+                const { access_token: newAccess, refresh_token: newRefresh } = r.data as {
+                  access_token: string
+                  refresh_token: string
+                };
+                if (newRefresh) localStorage.setItem(REFRESH_KEY, newRefresh);
+                if (newAccess) localStorage.setItem(ACCESS_KEY, newAccess);
+                return newAccess;
+              })
               .finally(() => {
                 refreshing = null;
               });
           }
           const newAccess = await refreshing;
           if (newAccess) {
-            localStorage.setItem(ACCESS_KEY, newAccess);
             original._retry = true;
             original.headers.Authorization = `Bearer ${newAccess}`;
             return api(original);

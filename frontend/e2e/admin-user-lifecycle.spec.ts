@@ -24,7 +24,6 @@ import { expect, test } from '@playwright/test'
 import {
   BACKEND_URL,
   authenticateAndEnter,
-  clearLoginCache,
   createSqliteDataSource,
   deleteDataSource,
   login,
@@ -41,7 +40,7 @@ test.describe('admin user lifecycle', () => {
     request,
   }) => {
     test.setTimeout(120_000)
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
 
     // User is created via the UI; tracked for cleanup at the end.
@@ -204,23 +203,10 @@ test.describe('admin user lifecycle', () => {
     // and is enforced by the router; we just confirm the wire
     // response. Local dev has exactly one admin, so demoting self
     // triggers the last-admin guard.
-    //
-    // Skip the token cache: a prior spec's Playwright page
-    // navigation may have triggered a 401 → refresh → logout path
-    // in the SPA that revokes the cached jti. Forcing a fresh
-    // login in this test sidesteps the race.
-    const { accessToken } = await login(request)
-    let list = await request.get(`${BACKEND_URL}/admin/users`, {
+    const { access_token: accessToken } = await login(request)
+    const list = await request.get(`${BACKEND_URL}/admin/users`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
-    if (!list.ok()) {
-      // Cache hit a revoked jti — force a fresh login.
-      clearLoginCache()
-      const fresh = await login(request)
-      list = await request.get(`${BACKEND_URL}/admin/users`, {
-        headers: { Authorization: `Bearer ${fresh.accessToken}` },
-      })
-    }
     expect(list.ok(), `/admin/users returned ${list.status()}`).toBeTruthy()
     const listed = (await list.json()) as {
       items: Array<{ id: number; role: string }>
@@ -240,11 +226,7 @@ test.describe('admin user lifecycle', () => {
     request,
   }) => {
     test.setTimeout(120_000)
-    // Force a fresh login — see self-protect test for the same
-    // rationale (cached jti can be revoked by a prior spec's SPA
-    // refresh-failure path).
-    clearLoginCache()
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     // Create a viewer directly via the API so the test focuses on
     // the password-reset + disable flows.
     const created = await request.post(`${BACKEND_URL}/admin/users`, {

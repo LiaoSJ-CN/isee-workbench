@@ -56,7 +56,7 @@ test.describe('report lifecycle', () => {
   // The cleanup is local to the test so a flake on one assertion
   // doesn't leak rows into siblings.
   test('preview renders the report HTML', async ({ page, request }) => {
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
@@ -94,7 +94,7 @@ test.describe('report lifecycle', () => {
   })
 
   test('excel async export completes and download fires', async ({ page, request }) => {
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
@@ -150,7 +150,7 @@ test.describe('report lifecycle', () => {
     // test-wide budget so cleanup runs to completion.
     test.setTimeout(180_000)
 
-    const { accessToken } = await login(request)
+    const { access_token: accessToken } = await login(request)
     const ds = await createSqliteDataSource(request, accessToken)
     const report = await createTextReport(request, accessToken, ds.id, TEXT_ITEM_MARKER)
 
