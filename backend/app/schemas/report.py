@@ -267,6 +267,10 @@ class ReportResponse(ReportBase):
     template_source_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # 批 3: optimistic-concurrency version counter. Surfaced on the
+    # wire so the frontend can compute ``If-Match: W/"v<N>"`` from the
+    # GET response without having to parse the ETag header.
+    version: int | None = None
 
     @field_validator("notification_config", mode="before")
     @classmethod
@@ -285,6 +289,25 @@ class ReportDetailResponse(ReportResponse):
     """Report with all items included."""
 
     items: list[ReportItemResponse] = Field(default_factory=list)
+
+
+# ---- 批 3: Optimistic concurrency ----
+
+
+class VersionConflict(BaseModel):
+    """412 Precondition Failed body for ``PUT /reports/{id}``.
+
+    Returned when the request supplied an ``If-Match`` ETag that no
+    longer matches the server-side ``updated_at``. ``current`` carries
+    the full post-conflict state so the client can render a diff
+    without a second round-trip — a follow-up GET would race again.
+
+    FastAPI wraps this in ``{"detail": <body>}`` per the HTTPException
+    convention; the frontend reads ``err.response.data.detail.current``.
+    """
+
+    message: str
+    current: ReportResponse
 
 
 # ---- Report Generation Schemas ----

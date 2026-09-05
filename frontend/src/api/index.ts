@@ -370,8 +370,20 @@ export const reportApi = {
     return data;
   },
 
-  update: async (id: number, payload: ReportUpdate): Promise<Report> => {
-    const { data } = await api.put(`/reports/${id}`, payload);
+  update: async (
+    id: number,
+    payload: ReportUpdate,
+    options?: { ifMatch?: string },
+  ): Promise<Report> => {
+    // 批 3: optimistic concurrency — when the caller supplies an
+    // ``ifMatch`` ETag we attach it as the standard ``If-Match``
+    // header. Missing header → server accepts the write (backward
+    // compat with pre-批 3 callers).
+    const headers: Record<string, string> = {};
+    if (options?.ifMatch) {
+      headers['If-Match'] = options.ifMatch;
+    }
+    const { data } = await api.put(`/reports/${id}`, payload, { headers });
     return data;
   },
 

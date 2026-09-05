@@ -1,6 +1,6 @@
 """SQLAlchemy models for iSee reports."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, relationship
@@ -122,6 +122,35 @@ class Report(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # 批 3: optimistic-concurrency version counter. SQLAlchemy's
+    # ``version_id_col`` mechanism auto-increments this column on every
+    # UPDATE so we have a strictly monotonic, sub-second-distinct
+    # comparison key for ``If-Match`` checks.
+    #
+    # Why not derive the ETag from ``updated_at``? On SQLite the
+    # default ``CURRENT_TIMESTAMP`` (and ORM ``onupdate=func.now()``)
+    # collapses to second precision — two writes inside the same
+    # second would collide on the ETag and the lock would silently
+    # pass. An integer counter sidesteps the precision issue and is
+    # cheaper to compare than a stringified timestamp.
+    version = Column(Integer, nullable=False, server_default="1")
+
+    # 批 3: optimistic-concurrency version counter.
+    #
+    # We intentionally do NOT bind ``version`` to SQLAlchemy's
+    # mapper-level ``version_id_col``. Using the ORM hook auto-increments
+    # ``version`` on every UPDATE — including ones issued as part of
+    # cascade-delete or relationship-refresh housekeeping, which makes
+    # the DELETE path fragile (StaleDataError / FK-violation races
+    # during fixture teardown). Instead the update_report router
+    # increments ``version`` manually via a single
+    # ``UPDATE reports SET version = version + 1 WHERE id = ? AND
+    # version = ?`` statement, with rowcount=0 → 412.
+    #
+    # The counter sidesteps the SQLite second-precision problem with
+    # ``updated_at`` (see the long-form note in the column comment).
+    __mapper_args__: dict[str, Any] = {}
 
     # Relationships
     data_source: Mapped["DataSource"] = relationship("DataSource", backref="reports")

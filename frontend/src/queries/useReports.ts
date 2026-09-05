@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 
 import { reportApi } from '../api';
 import type {
@@ -11,7 +12,9 @@ import type {
   ReportShare,
   ReportShareCreate,
   ReportUpdate,
+  VersionConflictBody,
 } from '../types';
+import { VersionConflictError } from '../types';
 import { queryKeys } from './keys';
 
 interface ReportListFilters {
@@ -139,8 +142,33 @@ export function useDuplicateReport() {
 export function useUpdateReport() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: ReportUpdate }) =>
-      reportApi.update(id, payload),
+    // 批 3: pull ``version`` from the cached detail and pass it as
+    // ``If-Match``. A missing cache (first save before any GET) means
+    // we skip the precondition — server-side backward compat handles
+    // it. The server returns 412 on stale, which we surface as a
+    // typed ``VersionConflictError`` so callers can render a diff.
+    mutationFn: async ({
+      id,
+      payload,
+      ifMatch,
+    }: {
+      id: number;
+      payload: ReportUpdate;
+      ifMatch?: string;
+    }) => {
+      const cached = qc.getQueryData<Report>(queryKeys.reports.detail(id));
+      const tag = ifMatch ?? (cached?.version != null ? `W/"v${cached.version}"` : undefined);
+      try {
+        return await reportApi.update(id, payload, { ifMatch: tag });
+      } catch (err) {
+        const axiosErr = err as AxiosError<{ detail: VersionConflictBody }>;
+        if (axiosErr?.response?.status === 412 && axiosErr.response.data?.detail) {
+          const body = axiosErr.response.data.detail;
+          throw new VersionConflictError(body.message, body.current);
+        }
+        throw err;
+      }
+    },
     onMutate: async ({ id, payload }) => {
       await qc.cancelQueries({ queryKey: queryKeys.reports.detail(id) });
       const prev = qc.getQueryData<Report>(queryKeys.reports.detail(id));
@@ -149,7 +177,16 @@ export function useUpdateReport() {
       }
       return { prev, id };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
+      // 批 3: a ``VersionConflictError`` means the server rejected the
+      // write because the row changed under us. We DON'T restore the
+      // snapshot — the caller wants to see ``err.current`` (the new
+      // truth) and decide between overwrite / abandon / fork. The
+      // ``onSettled`` invalidation below refreshes the cache to the
+      // post-conflict state.
+      if (err instanceof VersionConflictError) {
+        return;
+      }
       if (ctx?.prev && ctx.id != null) {
         qc.setQueryData(queryKeys.reports.detail(ctx.id), ctx.prev);
       }

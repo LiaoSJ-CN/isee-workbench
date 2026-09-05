@@ -13,7 +13,9 @@ import type {
   ReportParameterCreate,
   ReportParameterUpdate,
   ReportVisibility,
+  VersionConflictError,
 } from '../../types';
+import { isVersionConflict } from '../../types';
 import { formatError } from '../../utils/error';
 import {
   useCreateReportItem,
@@ -42,6 +44,7 @@ import { ParametersTab } from './ParametersTab';
 import { ItemEditorModal } from './ItemEditorModal';
 import { ParameterEditorModal } from './ParameterEditorModal';
 import { sortedItemsByOrder } from './itemsView';
+import { ConflictModal } from '../../components/ReportEditor/ConflictModal';
 
 export default function ReportEditor() {
   const { id } = useParams<{ id: string }>();
@@ -130,6 +133,18 @@ export default function ReportEditor() {
   const [activeTab, setActiveTab] = useState('config');
   const [saveVersionOpen, setSaveVersionOpen] = useState(false);
 
+  // 批 3: optimistic-concurrency conflict state. When
+  // ``useUpdateReport`` rejects a save with a typed
+  // ``VersionConflictError`` (server returned 412) we open the
+  // ConflictModal with three exits (overwrite / abandon / fork) and
+  // stash the post-conflict server state for the diff render.
+  const [conflictError, setConflictError] = useState<VersionConflictError | null>(null);
+  // Snapshot of the buffer at the moment of the failed save — the
+  // modal's diff column needs to show what the user *was trying* to
+  // save, which the server-truth ``conflictError.current`` doesn't
+  // have.
+  const [conflictLocal, setConflictLocal] = useState<Report | null>(null);
+
   // ---- 批 13: save-as-template (owner-or-admin) ----------------------
   // Pulls role + user id from useMe so we can hide the button for
   // non-owner non-admin users. The backend enforces the same — we
@@ -178,13 +193,76 @@ export default function ReportEditor() {
       },
       {
         onSuccess: () => message.success('保存成功'),
-        // Rollback handled by useUpdateReport's onError (writes prev back
-        // into the cache); the buffer follows the cache via the next
-        // refetch from onSettled's invalidation, so no manual setBuffer
-        // is needed on error.
-        onError: (err) => message.error(formatError(err, '保存失败')),
+        // 批 3: a 412 (VersionConflictError) opens the ConflictModal
+        // instead of the generic toast — the user gets a real
+        // three-way choice rather than a silent failure. The buffer
+        // snapshot is stashed so the modal's diff column can show
+        // what the user *was* about to save.
+        onError: (err) => {
+          if (isVersionConflict(err)) {
+            setConflictError(err);
+            setConflictLocal(buffer);
+            return;
+          }
+          message.error(formatError(err, '保存失败'));
+        },
       },
     );
+  };
+
+  // 批 3 — the three modal exits. Each updates either the cache or
+  // the buffer so the editor reflects the user's choice immediately
+  // on close.
+
+  /** 覆盖远端 — accept the conflict, discard remote changes. Re-PUT
+   *  using the server-truth version as the new If-Match. */
+  const handleConflictOverwrite = () => {
+    if (!reportId || !conflictError || !conflictLocal) return;
+    const fresh = conflictError.current;
+    updateReport.mutate(
+      {
+        id: reportId,
+        payload: {
+          name: conflictLocal.name,
+          description: conflictLocal.description,
+          data_source_id: conflictLocal.data_source_id,
+          output_formats: conflictLocal.output_formats,
+          is_active: conflictLocal.is_active,
+        },
+        ifMatch: `W/"v${fresh.version}"`,
+      },
+      {
+        onSuccess: () => {
+          message.success('已覆盖远端版本');
+          setConflictError(null);
+          setConflictLocal(null);
+        },
+        onError: (err) => {
+          message.error(formatError(err, '覆盖失败'));
+          // Keep the modal open so the user can pick another path
+          // (typically abandon or fork).
+        },
+      },
+    );
+  };
+
+  /** 放弃本地 — close the modal and let the cache invalidate re-
+   *  hydrate the buffer with server truth. The user's edits are
+   *  lost. */
+  const handleConflictAbandon = () => {
+    setConflictError(null);
+    setConflictLocal(null);
+  };
+
+  /** 复制改 — navigate to the existing ``/reports/{id}/duplicate``
+   *  endpoint, which creates a private copy the caller can edit
+   *  without touching the contested row. Both edits survive in
+   *  separate reports. */
+  const handleConflictFork = () => {
+    if (!reportId) return;
+    setConflictError(null);
+    setConflictLocal(null);
+    navigate(`/reports/${reportId}/duplicate`);
   };
 
   const handleAddItem = () => {
@@ -407,6 +485,20 @@ export default function ReportEditor() {
           onClose={() => setSaveVersionOpen(false)}
         />
       )}
+
+      {/* 批 3 — optimistic-concurrency conflict modal. Renders only
+          while a ``VersionConflictError`` is held in state. The
+          three callbacks route to overwrite / abandon / fork paths
+          in the parent. ``local`` is the buffer snapshot taken at
+          the moment of the failed save. */}
+      <ConflictModal
+        open={conflictError !== null}
+        conflict={conflictError}
+        local={conflictLocal}
+        onOverwrite={handleConflictOverwrite}
+        onAbandon={handleConflictAbandon}
+        onFork={handleConflictFork}
+      />
 
       {/* 批 13 — save-as-template modal. Visibility radio +
           free-text category; the backend validates

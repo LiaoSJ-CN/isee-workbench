@@ -341,7 +341,40 @@ export interface Report {
   template_source_id?: number | null;
   created_at?: string;
   updated_at?: string;
+  /** 批 3 — optimistic-concurrency counter. ``null`` for legacy rows
+   *  that pre-date the column; the frontend treats ``null`` as
+   *  "no If-Match available" and skips the precondition header. */
+  version?: number | null;
   items: ReportItem[];
+}
+
+/** 批 3 — body shape returned by the server on 412 Precondition
+ *  Failed. Mirrors the backend ``VersionConflict`` Pydantic model.
+ *  FastAPI wraps this in ``{detail: VersionConflict}`` per the
+ *  HTTPException convention. */
+export interface VersionConflictBody {
+  message: string;
+  current: Report;
+}
+
+/** 批 3 — typed error thrown by ``useUpdateReport`` when the
+ *  server returns 412. ``current`` carries the post-conflict state
+ *  so the editor's ConflictModal can render a diff without a
+ *  second round-trip. */
+export class VersionConflictError extends Error {
+  public readonly current: Report;
+
+  constructor(message: string, current: Report) {
+    super(message);
+    this.name = 'VersionConflictError';
+    this.current = current;
+  }
+}
+
+/** Type guard — ``unknown`` from a mutation ``onError`` callback
+ *  is a pain to narrow without this. */
+export function isVersionConflict(err: unknown): err is VersionConflictError {
+  return err instanceof VersionConflictError;
 }
 
 /** Body for ``POST /reports/{id}/save-as-template`` (批 13). */

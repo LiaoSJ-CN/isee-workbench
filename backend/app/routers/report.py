@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,7 @@ from app.schemas.report import (
     ReportShareResponse,
     ReportUpdate,
     SaveAsTemplateRequest,
+    VersionConflict,
 )
 from app.schemas.report_parameter import (
     ReportParameterCreate,
@@ -47,6 +48,7 @@ from app.services.data_source import (
     get_data_source_for_user,
     is_admin,
 )
+from app.services.etag import compute_etag, etag_matches, parse_if_match
 from app.services.parameter_validator import ParameterValidationError, validate_parameters
 from app.services.report import (
     PERMISSION_WRITE,
@@ -330,6 +332,7 @@ def list_reports(
 def create_report(
     payload: ReportCreate,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Report:
@@ -375,6 +378,13 @@ def create_report(
 
     db.commit()
     db.refresh(report)
+    # 批 3: publish the initial ETag so the caller can immediately
+    # follow up with a conditional PUT without a re-GET. Brand-new rows
+    # always have ``version=1`` (column default), so the ETag is
+    # always present here.
+    etag = compute_etag(cast(int, report.version))
+    if etag is not None:
+        response.headers["ETag"] = etag
     # 批 9.5: audit successful create. ``before`` is None (no pre-image).
     # Snapshot includes nested items because ``refresh`` populates the
     # relationship collection.
@@ -445,13 +455,22 @@ def list_templates_endpoint(
 @router.get("/{report_id}", response_model=ReportDetailResponse)
 def get_report(
     report_id: int,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Report:
-    """Get a single report by ID with all items. Read ACL."""
+    """Get a single report by ID with all items. Read ACL.
+
+    批 3: emits an ``ETag`` header (weak, derived from
+    ``updated_at``) so callers can do optimistic-concurrency PUTs
+    without a separate round-trip to discover the version.
+    """
     report = get_report_for_user(db, report_id, user)
     if report is None:
         raise _report_not_found()
+    etag = compute_etag(cast(int, report.version))
+    if etag is not None:
+        response.headers["ETag"] = etag
     return report
 
 
@@ -691,10 +710,26 @@ def update_report(
     report_id: int,
     payload: ReportUpdate,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Report:
-    """Update an existing report. Write ACL — owner or write-grantee."""
+    """Update an existing report. Write ACL — owner or write-grantee.
+
+    批 3: optimistic concurrency. If the caller supplies ``If-Match``,
+    the ETag must match the server-side ``version`` counter — otherwise
+    412 with the current state in the body. Missing ``If-Match`` is
+    accepted (backward-compatible — pre-批 3 clients keep working).
+    The response always carries an ``ETag`` header so the next PUT
+    has something to compare against.
+
+    The actual UPDATE goes through a single ``UPDATE reports SET ...
+    version = version + 1 WHERE id = ? AND version = ?`` statement so
+    the version precondition is enforced atomically by the DB — if a
+    concurrent writer bumps the row between our read and the write,
+    ``rowcount == 0`` and we 412 (this catches a TOCTOU window that
+    a Python-side read-then-write check alone can't).
+    """
     report = get_report_for_user(db, report_id, user, level=PERMISSION_WRITE)
     if report is None:
         # 404 even when the row exists but the caller lacks write —
@@ -702,9 +737,29 @@ def update_report(
         # probe for read-only rows they could otherwise PUT against.
         raise _report_not_found()
 
+    # 批 3: optimistic concurrency — read-time check. We compare
+    # BEFORE the mutation so the returned ``current`` reflects the
+    # state the caller's PUT would clobber, not a state that includes
+    # their own changes. The DB-level WHERE-version precondition
+    # below catches the narrower TOCTOU window where a concurrent
+    # writer slips in between this check and our UPDATE.
+    current_version = cast(int, report.version)
+    if_match = parse_if_match(request.headers.get("If-Match"))
+    if if_match is not None and not etag_matches(if_match, current_version):
+        conflict = VersionConflict(
+            message="Report was modified by someone else since you last fetched it.",
+            current=ReportDetailResponse.model_validate(
+                report, from_attributes=True
+            ),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail=conflict.model_dump(mode="json"),
+        )
+
     # 批 9.5: snapshot before mutation so the audit row carries a
     # before/after diff. ``get_report_for_user`` already returned the
-    # ORM row — capture it now before setattr.
+    # ORM row — capture it now before we mutate.
     before_snapshot = audit_service._snapshot(report)
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -718,11 +773,52 @@ def update_report(
                 detail=f"Report named '{update_data['name']}' already exists",
             )
 
-    for field, value in update_data.items():
-        setattr(report, field, value)
+    # 批 3: single-shot UPDATE with WHERE version = current_version.
+    # We bypass the ORM ``setattr`` path because it would emit an
+    # UPDATE that doesn't enforce the precondition (no version column
+    # in the WHERE clause), and ``version_id_col`` interacts poorly
+    # with cascade-delete / relationship-refresh housekeeping. The
+    # atomicity guarantee lives in the WHERE clause.
+    update_values = {**update_data, "version": current_version + 1}
+    result = db.execute(
+        update(Report)
+        .where(Report.id == report_id, Report.version == current_version)
+        .values(**update_values)
+    )
+    # ``db.execute`` for a core UPDATE returns ``CursorResult`` (a
+    # ``Result`` subtype) which exposes ``rowcount``; mypy only sees
+    # the ``Result`` superclass. ``type: ignore[attr-defined]`` is the
+    # narrowest escape hatch — alternative is an explicit
+    # ``CursorResult`` cast which is uglier and breaks the type
+    # relationship with the session.
+    if result.rowcount == 0:  # type: ignore[attr-defined]
+        # Someone else slipped in between our read and our write.
+        # Roll back the half-applied transaction and surface the
+        # current state so the caller can decide what to do.
+        db.rollback()
+        refreshed = db.get(Report, report_id)
+        if refreshed is None:
+            # Row was deleted entirely — surface as 404.
+            raise _report_not_found()
+        conflict = VersionConflict(
+            message="Report was modified by someone else since you last fetched it.",
+            current=ReportDetailResponse.model_validate(
+                refreshed, from_attributes=True
+            ),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail=conflict.model_dump(mode="json"),
+        )
 
     db.commit()
     db.refresh(report)
+
+    # 批 3: publish the new ETag so the caller's next PUT has a
+    # comparison point.
+    new_etag = compute_etag(cast(int, report.version))
+    if new_etag is not None:
+        response.headers["ETag"] = new_etag
     audit_service.log(
         db,
         actor_user_id=cast(int, user.id),
