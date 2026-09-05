@@ -14,6 +14,14 @@
   - 后端 self-protect：最后一个 admin 降级 / admin 自行禁用均返回 403；前端 self-edit 时 role Select + 禁用按钮 disabled
   - 新增模块：`backend/app/routers/admin_users.py` + `admin_grants.py`；前端 `pages/admin/{Users,UserFormModal,UserDetailDrawer,ResetPasswordModal,GrantModal}.tsx` + `queries/useAdminUsers.ts`
 - 报表版本/历史：手动快照 + 原子 restore + 字段级 diff（批 report-versioning）。3 张规范化版本表，6 个新端点 `/reports/{id}/versions[/...]`。Spec：`docs/superpowers/specs/2026-08-25-report-versioning-design.md`。
+- **协作编辑（批 3 — 乐观锁）**：HTTP 标准 `If-Match` / `ETag` / `412 Precondition Failed` 并发控制，告别 silent last-writer-wins
+  - 整数 `version` 列（`server_default="1"`）+ 原子 `db.execute(update(Report).where(Report.version == N))` + `rowcount==0 → 412`。不用 `version_id_col` mapper（与 cascade-delete 冲突）。不用 `updated_at`（SQLite 秒级精度 → 同秒两次写锁失效）
+  - Weak ETag `W/"v<N>"` 响应头；`If-Match` **可选**（缺头照样接受）→ 向后兼容老客户端/调度器/API 脚本
+  - 412 body：`{"detail": {"message": "...", "current": ReportResponse}}` — 客户端拿远端最新行直接渲染 diff，零额外 round-trip
+  - 前端 `useUpdateReport` 自动从缓存 `Report.version` 拼 `W/"v<N>"`；412 → typed `VersionConflictError(message, current)`
+  - `ConflictModal` 三按钮：覆盖远端（新 ETag 重 PUT）/ 放弃本地（缓存 invalidate 重新水合 buffer）/ 复制改（跳 `/reports/{id}/duplicate`，双方改动都不丢）
+  - Alembic `a1dfb1d7de6d` 加 `version INT NOT NULL DEFAULT 1` 列；15 backend tests + 10 frontend tests
+  - 新模块：`backend/app/services/etag.py`（helper）；`frontend/src/components/ReportEditor/ConflictModal.tsx`
 
 ### 新增
 - `ensure_columns` 启动期 schema 自愈：补齐 `create_all` 漏掉的「已存在表 + 新增列」（`Base.metadata.create_all` 只建表不补列）。新模块 `app/db_migrations.py`，在 `main.py` 启动时于 `create_all` 之后调用。幂等，`NOT NULL` 无 `server_default` 的列会 log warning + 跳过（要求人工迁移）
