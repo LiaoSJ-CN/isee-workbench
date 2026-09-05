@@ -40,6 +40,7 @@ import { ItemsTab } from './ItemsTab';
 import { ParametersTab } from './ParametersTab';
 import { ItemEditorModal } from './ItemEditorModal';
 import { ParameterEditorModal } from './ParameterEditorModal';
+import { sortedItemsByOrder } from './itemsView';
 
 export default function ReportEditor() {
   const { id } = useParams<{ id: string }>();
@@ -227,14 +228,18 @@ export default function ReportEditor() {
     });
   };
 
-  // Items list shown to the user. After a successful mutation, the cache
-  // refetches and `items` re-derives. During a drag-reorder we mutate the
-  // local view of items via a separate `itemsView` state so the visual
-  // update is instant; the server reorder call is a follow-up.
-  const itemsView = useMemo(() => {
-    if (!buffer) return [];
-    return [...buffer.items].sort((a, b) => a.order_index - b.order_index);
-  }, [buffer]);
+  // Items list shown to the user. Items derive from the React Query
+  // cache (server truth) — every item mutation already patches the
+  // cache optimistically (see ``useCreateReportItem`` / ``useDeleteReportItem``
+  // / ``useUpdateReportItem`` / ``useReorderReportItems``), so the list
+  // stays in sync without any local-state mirror. The previous design
+  // read items from a once-hydrated ``buffer`` copy, which left the tab
+  // stale after every create/delete/update and forced the drag-reorder
+  // path to manually ``setBuffer`` as a workaround (TODO-4, fixed here).
+  const itemsView = useMemo(
+    () => sortedItemsByOrder(report?.items),
+    [report],
+  );
 
   const persistOrder = (orderedItems: ReportItem[]) => {
     if (!reportId) return;
@@ -248,7 +253,6 @@ export default function ReportEditor() {
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    if (!buffer) return;
     const { active, over } = event;
     if (over && active.id !== over.id) {
       const oldIndex = itemsView.findIndex((i) => `item-${i.id}` === active.id);
@@ -256,19 +260,16 @@ export default function ReportEditor() {
       if (oldIndex !== -1 && newIndex !== -1) {
         const newItems = arrayMove(itemsView, oldIndex, newIndex);
         const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
-        setBuffer({ ...buffer, items: updatedItems });
         persistOrder(updatedItems);
       }
     }
   };
 
   const handleMoveItem = (index: number, direction: 'up' | 'down') => {
-    if (!buffer) return;
     const newIndex = direction === 'up' ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= itemsView.length) return;
     const newItems = arrayMove(itemsView, index, newIndex);
     const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
-    setBuffer({ ...buffer, items: updatedItems });
     persistOrder(updatedItems);
   };
 
@@ -346,7 +347,7 @@ export default function ReportEditor() {
           },
           {
             key: 'items',
-            label: `报表项 (${buffer.items?.length || 0})`,
+            label: `报表项 (${report?.items?.length ?? 0})`,
             children: (
               <ItemsTab
                 items={itemsView}
