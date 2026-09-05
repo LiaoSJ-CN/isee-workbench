@@ -40,28 +40,36 @@ const mockGet = vi.fn()
 
 function buildInstance() {
   // Callable so ``api(original)`` works (real axios dispatches by
-  // method). Reads ``original.method``; defaults to GET.
-  const instance: Record<string, unknown> = function (config: {
-    method?: string
-    url?: string
-  }) {
-    const method = (config.method ?? 'get').toLowerCase()
-    if (method === 'get') return mockGet(config)
-    if (method === 'post') return mockPost(config)
-    throw new Error(`mock: unsupported method ${method}`)
-  }
-  instance.interceptors = {
-    request: {
-      use: vi.fn(),
+  // method). Reads ``original.method``; defaults to GET. The
+  // ``Object.assign`` shape lets TypeScript infer a proper
+  // intersection of the callable signature and the extra property
+  // bag (``interceptors`` / ``post`` / ``get``), without resorting to
+  // ``any``. A bare ``Record<string, unknown>`` annotation rejects
+  // the function expression because functions have no index
+  // signature, and a hand-written intersection cast hits the same
+  // wall.
+  const instance = Object.assign(
+    function (config: { method?: string; url?: string }) {
+      const method = (config.method ?? 'get').toLowerCase()
+      if (method === 'get') return mockGet(config)
+      if (method === 'post') return mockPost(config)
+      throw new Error(`mock: unsupported method ${method}`)
     },
-    response: {
-      use: (_onFulfilled: unknown, onRejected: (err: unknown) => unknown) => {
-        rejectedHandler = onRejected
+    {
+      interceptors: {
+        request: {
+          use: vi.fn(),
+        },
+        response: {
+          use: (_onFulfilled: unknown, onRejected: (err: unknown) => unknown) => {
+            rejectedHandler = onRejected
+          },
+        },
       },
+      post: (cfg: unknown, body?: unknown) => mockPost(cfg, body),
+      get: (cfg: unknown) => mockGet(cfg),
     },
-  }
-  instance.post = (cfg: unknown, body?: unknown) => mockPost(cfg, body)
-  instance.get = (cfg: unknown) => mockGet(cfg)
+  )
   return instance
 }
 
