@@ -45,6 +45,11 @@ export interface DashboardGridEditorProps {
   /** Optional per-item delete hook. Renders a small "×" affordance in
    *  the top-right corner of every cell in edit mode. */
   onItemDelete?: (item: DashboardItem) => void;
+  /** Optional reverse-link hook (D 双向 link). Renders a small icon
+   *  button on each card that lets the viewer jump to the item's
+   *  underlying Report or DataSource. Forwarded to
+   *  ``DashboardItemCard`` unchanged. */
+  onOpenSource?: (item: DashboardItem) => void;
   /** Id of the item currently being deleted (loading state). */
   deletingItemId?: number | null;
   /** Read-only mode (hide drag/resize handles, swallow click). */
@@ -63,6 +68,7 @@ export function DashboardGridEditor({
   onLayoutChange,
   onItemClick,
   onItemDelete,
+  onOpenSource,
   deletingItemId,
   readOnly = false,
   debounceMs = 250,
@@ -222,7 +228,7 @@ export function DashboardGridEditor({
                   />
                 </Popconfirm>
               )}
-              <DashboardItemCard item={item} />
+              <DashboardItemCard item={item} onOpenSource={onOpenSource} />
             </div>
           ))}
         </GridLayout>

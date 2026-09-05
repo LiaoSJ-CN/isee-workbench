@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.crypto import encrypt as crypto_encrypt
 from app.database import get_db
 from app.deps import get_current_user
+from app.models.dashboard import Dashboard, DashboardItem
 from app.models.data_source import DataSource
 from app.models.data_source_access import DataSourceAccess
 from app.models.report import Report
@@ -23,8 +24,10 @@ from app.schemas.data_source import (
     GrantCreate,
     GrantResponse,
 )
+from app.schemas.reverse_link import DashboardRef, ReportRef
 from app.services import audit as audit_service
 from app.services.connection import ConnectionError, test_connection
+from app.services.dashboard import get_dashboard_for_user
 from app.services.data_source import (
     PERMISSION_WRITE,
     can_share,
@@ -37,6 +40,7 @@ from app.services.data_source import (
     revoke_grant,
     upsert_grant,
 )
+from app.services.report import list_accessible_reports
 from app.services.report_generator import evict_engine
 from app.services.schema_introspection import (
     SchemaIntrospectionError,
@@ -199,6 +203,119 @@ def get_data_source(
     return ds
 
 
+# D 双向 link: reverse listings. Each entry point first checks the
+# parent data source's read ACL (returns 404 uniformly when the
+# caller can't see the source), then applies the corresponding child
+# ACL — Report visibility through ``list_accessible_reports``,
+# Dashboard visibility through ``get_dashboard_for_user`` so the
+# dashboard's data-source gate is also honored. ``DashboardItem``s
+# themselves are filtered out at the dashboard level; the listing is
+# at dashboard granularity because that's what the UI renders.
+
+
+@router.get(
+    "/{source_id}/reports",
+    response_model=list[ReportRef],
+)
+def list_reports_for_data_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[ReportRef]:
+    """Reverse-link (D): reports whose ``data_source_id`` is this DS.
+
+    Admin sees every report; per-user accounts see only reports they
+    can already access (public / own / grant / org), as filtered by
+    :func:`list_accessible_reports`.
+    """
+    ds = get_data_source_for_user(db, source_id, user)
+    if ds is None:
+        raise _not_found()
+
+    reports = list_accessible_reports(db, user, data_source_id=source_id)
+    return [
+        ReportRef(
+            id=cast(int, report.id),
+            name=str(report.name),
+            visibility=report.visibility,  # type: ignore[arg-type]
+            is_active=bool(report.is_active),
+        )
+        for report in reports
+    ]
+
+
+@router.get(
+    "/{source_id}/dashboards",
+    response_model=list[DashboardRef],
+)
+def list_dashboards_for_data_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[DashboardRef]:
+    """Reverse-link (D): dashboards that reference this data source.
+
+    Coverage of the two paths a dashboard can take to a data source:
+
+    * chart items — direct ``DashboardItem.data_source_id`` FK.
+    * report items — transitive via ``DashboardItem.report_id`` →
+      ``Report.data_source_id``. We resolve through the report row
+      because the item only stores the report pointer.
+
+    Both paths feed a single deduplicated ``Dashboard.id`` set; each
+    id is then re-validated through :func:`get_dashboard_for_user` so
+    dashboards the caller can't see (private, or behind a data source
+    they have no grant on) are silently omitted.
+    """
+    ds = get_data_source_for_user(db, source_id, user)
+    if ds is None:
+        raise _not_found()
+
+    # chart items (direct FK)
+    chart_rows = (
+        db.query(DashboardItem.dashboard_id)
+        .filter(DashboardItem.data_source_id == source_id)
+        .all()
+    )
+    # report items (transitive via Report.data_source_id)
+    report_rows = (
+        db.query(DashboardItem.dashboard_id)
+        .join(Report, Report.id == DashboardItem.report_id)
+        .filter(Report.data_source_id == source_id)
+        .all()
+    )
+    candidate_ids = {row[0] for row in chart_rows} | {row[0] for row in report_rows}
+
+    refs: list[DashboardRef] = []
+    for dashboard_id in sorted(candidate_ids):
+        dashboard = get_dashboard_for_user(db, dashboard_id, user)
+        if dashboard is None:
+            continue
+        # Per-dashboard count of items that touch this DS (combined
+        # direct + transitive). Drives the UI's "(N 项)" badge.
+        item_count = (
+            db.query(DashboardItem)
+            .outerjoin(Report, Report.id == DashboardItem.report_id)
+            .filter(
+                DashboardItem.dashboard_id == dashboard_id,
+                (
+                    (DashboardItem.data_source_id == source_id)
+                    | (Report.data_source_id == source_id)
+                ),
+            )
+            .count()
+        )
+        refs.append(
+            DashboardRef(
+                id=cast(int, dashboard.id),
+                name=str(dashboard.name),
+                visibility=dashboard.visibility,  # type: ignore[arg-type]
+                item_count=item_count,
+            )
+        )
+    return refs
+
+
 @router.put("/{source_id}", response_model=DataSourceResponse)
 def update_data_source(
     source_id: int,
@@ -278,6 +395,42 @@ def delete_data_source(
             detail=(
                 f"Data source is still used by {total} report(s): {names}{suffix}. "
                 "Delete or repoint them first."
+            ),
+        )
+    # D 双向 link: ``dashboard_items.data_source_id`` is nullable with
+    # ``ON DELETE SET NULL`` — without this guard the request would
+    # silently null out the chart-item FK and break the dashboard's
+    # chart rendering on the next view. Surface the first N blockers
+    # (item title + parent dashboard name) so the caller can repoint
+    # or delete them first.
+    item_blocking = (
+        db.query(DashboardItem.id, DashboardItem.title, Dashboard.name)
+        .join(Dashboard, Dashboard.id == DashboardItem.dashboard_id)
+        .filter(DashboardItem.data_source_id == source_id)
+        .order_by(DashboardItem.id.asc())
+        .limit(_DELETE_BLOCKER_SAMPLE)
+        .all()
+    )
+    if item_blocking:
+        total_items = (
+            db.query(DashboardItem)
+            .filter(DashboardItem.data_source_id == source_id)
+            .count()
+        )
+        sample = ", ".join(
+            f"{row.title or f'#{row.id}'!r} (in {row.name!r})"
+            for row in item_blocking
+        )
+        suffix = (
+            f" (and {total_items - len(item_blocking)} more)"
+            if total_items > len(item_blocking)
+            else ""
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Data source is still referenced by {total_items} dashboard item(s): "
+                f"{sample}{suffix}. Remove or repoint them first."
             ),
         )
     # 批 9.5: capture the row before delete so we know what was removed.

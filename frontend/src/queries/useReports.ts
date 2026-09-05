@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { reportApi } from '../api';
 import type {
+  DashboardRef,
   Report,
   ReportCreate,
   ReportItem,
@@ -341,3 +342,21 @@ export function useDeleteReportShare() {
 // Re-export so callers can grab the share row type alongside the
 // hooks without importing from two places.
 export type { ReportShare };
+
+// ---- Reverse-link queries (D 双向 link) ----
+// Reports can be referenced by ``DashboardItem.item_type='report'``;
+// this surfaces which dashboards do so. ACL filter is server-side so
+// a non-owner sees only dashboards they can already reach; an ACL 404
+// surfaces as ``error`` rather than spinning react-query's retry.
+
+/** Dashboards whose items reference this report. */
+export function useReferencingDashboards(
+  reportId: number | null | undefined,
+): ReturnType<typeof useQuery<DashboardRef[]>> {
+  return useQuery<DashboardRef[]>({
+    queryKey: queryKeys.reports.referencingDashboards(reportId ?? -1),
+    queryFn: () => reportApi.listReferencingDashboards(reportId as number),
+    enabled: reportId != null,
+    retry: false,
+  });
+}

@@ -13,6 +13,7 @@ import type {
   DashboardItemCreate,
   DashboardItemLayoutEntry,
   DashboardItemUpdate,
+  DashboardRef,
   DashboardShare,
   DashboardShareCreate,
   DashboardSubscription,
@@ -28,6 +29,7 @@ import type {
   QueryResult,
   Report,
   ReportCreate,
+  ReportRef,
   ReportShare,
   ReportShareCreate,
   ReportSubscription,
@@ -250,6 +252,26 @@ export const dataSourceApi = {
   revokeAcl: async (grantId: number): Promise<void> => {
     await api.delete(`/data-sources/grants/${grantId}`);
   },
+
+  // ---- Reverse-link listings (D 双向 link) ----
+  // Three endpoints that expose "what uses this DS". The listing is
+  // server-filtered by ACL — a non-owner with no grant on the parent
+  // DS gets 404, and dashboards the caller can't see are silently
+  // omitted from the dashboard listing.
+
+  /** Reports whose ``data_source_id`` is this DS. */
+  listReferencingReports: async (id: number): Promise<ReportRef[]> => {
+    const { data } = await api.get(`/data-sources/${id}/reports`);
+    return data;
+  },
+
+  /** Dashboards that touch this DS — either directly via a chart
+   *  item, or transitively via a report item pointing at a report
+   *  whose data source is this one. Deduped by ``Dashboard.id``. */
+  listReferencingDashboards: async (id: number): Promise<DashboardRef[]> => {
+    const { data } = await api.get(`/data-sources/${id}/dashboards`);
+    return data;
+  },
 };
 
 /** Minimal user record returned by ``GET /users``.
@@ -349,6 +371,16 @@ export const reportApi = {
 
   update: async (id: number, payload: ReportUpdate): Promise<Report> => {
     const { data } = await api.put(`/reports/${id}`, payload);
+    return data;
+  },
+
+  // ---- Reverse-link listings (D 双向 link) ----
+  // Reports can be referenced by dashboard items of ``item_type='report'``;
+  // this listing surfaces which dashboards do so. Deduped by
+  // ``Dashboard.id``; dashboards the caller can't see are silently
+  // omitted by the backend.
+  listReferencingDashboards: async (id: number): Promise<DashboardRef[]> => {
+    const { data } = await api.get(`/reports/${id}/dashboards`);
     return data;
   },
 

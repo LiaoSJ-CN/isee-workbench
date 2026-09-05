@@ -35,6 +35,7 @@ import { useReportVersions } from '../../queries/useReportVersions';
 import { useMe } from '../../queries/useAuth';
 import { CardSkeleton } from '../../components/Skeleton';
 import { SaveVersionModal } from '../../components/SaveVersionModal';
+import { ReportReverseLinkSection } from '../../components/ReportReverseLinkSection';
 import { ConfigTab } from './ConfigTab';
 import { ItemsTab } from './ItemsTab';
 import { ParametersTab } from './ParametersTab';
@@ -374,6 +375,13 @@ export default function ReportEditor() {
           },
         ]}
       />
+
+      {/* Reverse-link inline section (D 双向 link). Lives outside the
+          tabs so it's visible regardless of which tab is active —
+          editors always see "this report is referenced by N dashboards"
+          before they hit delete. The report-is-not-null guard at the
+          top of render ensures ``reportId`` is a real id by here. */}
+      <ReportReverseLinkSection reportId={reportId as number} />
 
       <ItemEditorModal
         visible={itemModalVisible}

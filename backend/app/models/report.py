@@ -9,6 +9,7 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.dashboard import DashboardItem
     from app.models.data_source import DataSource
     from app.models.report_access import ReportAccess
     from app.models.report_parameter import ReportParameter
@@ -124,6 +125,17 @@ class Report(Base):
 
     # Relationships
     data_source: Mapped["DataSource"] = relationship("DataSource", backref="reports")
+    # Reverse-link for D: dashboards whose items reference this report.
+    # ``viewonly=True`` because ``DashboardItem.report_id`` already has
+    # ``ON DELETE SET NULL`` — we don't want ORM-level cascade to
+    # silently widen that to ORM writes. The end-user surfaces
+    # (``GET /reports/{id}/dashboards`` and the ReportEditor inline
+    # section) are read-only navigation.
+    dashboard_items: Mapped[list["DashboardItem"]] = relationship(
+        "DashboardItem",
+        primaryjoin="Report.id == DashboardItem.report_id",
+        viewonly=True,
+    )
     items: Mapped[list["ReportItem"]] = relationship(
         "ReportItem",
         back_populates="report",

@@ -59,6 +59,18 @@ export default function DashboardEdit() {
   const [creatingItem, setCreatingItem] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
+  // Reverse-link navigation (D 双向 link). Same dispatch as
+  // ``DashboardView`` — see comment there for why we land chart
+  // items on the DS list rather than a (currently nonexistent)
+  // DS detail page.
+  const handleOpenSource = (item: DashboardItem) => {
+    if (item.item_type === 'report' && item.report_id != null) {
+      navigate(`/reports/${item.report_id}`);
+    } else if (item.item_type === 'chart' && item.data_source_id != null) {
+      navigate('/data-sources');
+    }
+  };
+
   // ---- queries ----
 
   const dashboardQuery = useQuery({
@@ -320,6 +332,7 @@ export default function DashboardEdit() {
           onLayoutChange={(entries) => layoutMut.mutate(entries)}
           onItemClick={(item) => setEditingItem(item)}
           onItemDelete={(item) => deleteItemMut.mutate(item.id)}
+          onOpenSource={handleOpenSource}
           deletingItemId={
             deleteItemMut.isPending && typeof deleteItemMut.variables === 'number'
               ? deleteItemMut.variables

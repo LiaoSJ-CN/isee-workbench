@@ -11,6 +11,7 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.dashboard import DashboardItem
     from app.models.data_source_access import DataSourceAccess
 
 
@@ -59,4 +60,14 @@ class DataSource(Base):
         "DataSourceAccess",
         back_populates="data_source",
         cascade="all, delete-orphan",
+    )
+    # Reverse-link for D: chart-type dashboard items that bind directly
+    # to this data source. ``viewonly=True`` — the FK already has
+    # ``ON DELETE SET NULL`` and we don't want ORM-level cascade. The
+    # ``reports`` backref is provided by ``Report.data_source``'s
+    # ``backref="reports"`` (see ``models/report.py``).
+    dashboard_items: Mapped[list["DashboardItem"]] = relationship(
+        "DashboardItem",
+        primaryjoin="DataSource.id == DashboardItem.data_source_id",
+        viewonly=True,
     )

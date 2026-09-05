@@ -21,6 +21,14 @@ export const queryKeys = {
       [...queryKeys.dataSources.all, 'schema', id, schema ?? '__default__'] as const,
     // ACL key (批 9.3) — grants list per data source. Owner-or-admin only.
     acl: (id: number) => [...queryKeys.dataSources.all, 'acl', id] as const,
+    // D 双向 link: reverse-link listings. Kept under the
+    // ``data-sources`` ancestor so a report / dashboard mutation
+    // that changes what's referencing a DS invalidates them with
+    // the rest of the data-source cache tree.
+    referencingReports: (id: number) =>
+      [...queryKeys.dataSources.all, 'refs', 'reports', id] as const,
+    referencingDashboards: (id: number) =>
+      [...queryKeys.dataSources.all, 'refs', 'dashboards', id] as const,
   },
   users: {
     all: ['users'] as const,
@@ -38,6 +46,9 @@ export const queryKeys = {
     preview: (id: number) => [...queryKeys.reports.all, 'preview', id] as const,
     // Shares key (批 9.4) — per-report share list. Owner-or-admin only.
     shares: (id: number) => [...queryKeys.reports.all, 'shares', id] as const,
+    // D 双向 link: dashboards that reference this report.
+    referencingDashboards: (id: number) =>
+      [...queryKeys.reports.all, 'refs', 'dashboards', id] as const,
   },
   scheduler: {
     all: ['scheduler'] as const,

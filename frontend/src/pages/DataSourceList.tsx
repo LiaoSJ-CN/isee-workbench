@@ -34,12 +34,15 @@ import {
   useDataSources,
   useDeleteDataSource,
   useDeleteDataSourceAcl,
+  useReferencingDashboards,
+  useReferencingReports,
   useTestDataSource,
   useUpdateDataSource,
   useUpsertDataSourceAcl,
   useUsers,
 } from '../queries/useDataSources';
 import { DataSourceShareModal } from '../components/DataSourceShareModal';
+import { DataSourceReferencesPanel } from '../components/DataSourceReferencesPanel';
 import { RotatePasswordModal } from '../components/RotatePasswordModal';
 import { adminDataSourceApi } from '../api';
 
@@ -85,6 +88,10 @@ export default function DataSourceList() {
   const [dbType, setDbType] = useState<string>('postgresql');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+  // Reverse-link (D 双向 link) — controlled expand state. Single-row
+  // expand keeps the page light (each panel fires 2 queries on mount);
+  // multi-row would also work but is unnecessary for a 10-row page.
+  const [expandedRowKeys, setExpandedRowKeys] = useState<readonly React.Key[]>([]);
 
   const handleCreate = () => {
     setEditingSource(null);
@@ -197,6 +204,33 @@ export default function DataSourceList() {
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
   };
 
+  // Local cell renderer that fires the reverse-link hooks for the
+  // current row only. Lives outside the table body so each cell gets
+  // its own hook instance — AntD's render function isn't a component.
+  const ReferencesCell = ({ dataSourceId }: { dataSourceId: number }) => {
+    const reportsQ = useReferencingReports(dataSourceId);
+    const dashboardsQ = useReferencingDashboards(dataSourceId);
+    const reportsCount = reportsQ.data?.length ?? 0;
+    const dashboardsCount = dashboardsQ.data?.length ?? 0;
+    const pending = reportsQ.isPending || dashboardsQ.isPending;
+    return (
+      <Space size={4} data-testid="ds-references-cell">
+        {pending ? (
+          <Tag>…</Tag>
+        ) : (
+          <>
+            <Tag color={reportsCount > 0 ? 'blue' : 'default'} data-testid="ds-reports-count">
+              {reportsCount} 报表
+            </Tag>
+            <Tag color={dashboardsCount > 0 ? 'blue' : 'default'} data-testid="ds-dashboards-count">
+              {dashboardsCount} 看板
+            </Tag>
+          </>
+        )}
+      </Space>
+    );
+  };
+
   const columns: ColumnsType<DataSource> = [
     { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
     {
@@ -210,6 +244,15 @@ export default function DataSourceList() {
     { title: '端口', dataIndex: 'port', key: 'port', width: 80, render: (v) => v || '-' },
     { title: '数据库', dataIndex: 'database', key: 'database', width: 240, ellipsis: true },
     { title: '描述', dataIndex: 'description', key: 'description', width: 180, ellipsis: true },
+    {
+      // Reverse-link summary (D 双向 link). Showing the count at the
+      // cell level lets operators spot heavy-use DSs at a glance; the
+      // expandable row underneath surfaces the actual names.
+      title: '被引用',
+      key: 'references',
+      width: 160,
+      render: (_, record) => <ReferencesCell dataSourceId={record.id} />,
+    },
     {
       title: '操作',
       key: 'action',
@@ -307,6 +350,23 @@ export default function DataSourceList() {
         rowSelection={rowSelection}
         tableLayout="fixed"
         scroll={{ x: 1280 }}
+        // Reverse-link expand (D 双向 link). Renders
+        // ``DataSourceReferencesPanel`` per expanded row — that panel
+        // fires its own per-DS queries, so expanded rows stay cheap
+        // even when the table has hundreds of rows.
+        expandable={{
+          expandedRowKeys: expandedRowKeys as React.Key[],
+          onExpand: (expanded, record) => {
+            setExpandedRowKeys(
+              expanded
+                ? [...expandedRowKeys, record.id]
+                : expandedRowKeys.filter((k) => k !== record.id),
+            );
+          },
+          expandedRowRender: (record) => (
+            <DataSourceReferencesPanel dataSourceId={record.id} />
+          ),
+        }}
         pagination={{
           ...pagination,
           total: dataSources.length,

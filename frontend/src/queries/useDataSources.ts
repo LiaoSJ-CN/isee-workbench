@@ -6,6 +6,8 @@ import type {
   DataSourceCreate,
   DataSourceGrant,
   DataSourceGrantCreate,
+  DashboardRef,
+  ReportRef,
 } from '../types';
 import { queryKeys } from './keys';
 
@@ -191,3 +193,33 @@ export { useUsers } from './useUsers';
 // Re-export so callers can grab the grant row type alongside the hooks
 // without importing from two places.
 export type { DataSourceGrant };
+
+// ---- Reverse-link queries (D 双向 link) ----
+// Two listings keyed by data-source id. ``enabled: dsId != null`` keeps
+// the request cold until the parent row is known; ``retry: false`` so
+// an ACL 404 doesn't trigger react-query's retry loop.
+
+/** Reports whose ``data_source_id`` is this DS. */
+export function useReferencingReports(
+  dsId: number | null | undefined,
+): ReturnType<typeof useQuery<ReportRef[]>> {
+  return useQuery<ReportRef[]>({
+    queryKey: queryKeys.dataSources.referencingReports(dsId ?? -1),
+    queryFn: () => dataSourceApi.listReferencingReports(dsId as number),
+    enabled: dsId != null,
+    retry: false,
+  });
+}
+
+/** Dashboards that touch this DS — directly via chart items or
+ *  transitively via report items. Deduped by ``Dashboard.id``. */
+export function useReferencingDashboards(
+  dsId: number | null | undefined,
+): ReturnType<typeof useQuery<DashboardRef[]>> {
+  return useQuery<DashboardRef[]>({
+    queryKey: queryKeys.dataSources.referencingDashboards(dsId ?? -1),
+    queryFn: () => dataSourceApi.listReferencingDashboards(dsId as number),
+    enabled: dsId != null,
+    retry: false,
+  });
+}

@@ -31,14 +31,19 @@ import { useEffect, useState } from 'react';
 
 import { dashboardApi } from '../api';
 import type { DashboardItem } from '../types';
+import { DashboardItemSourceLink } from './DashboardItemSourceLink';
 
 const { Title } = Typography;
 
 export interface DashboardItemCardProps {
   item: DashboardItem;
+  /** Optional reverse-link callback (D 双向 link). When set and the
+   *  item has a referencable source (Report or DataSource), a small
+   *  icon button appears next to the title. Caller owns navigation. */
+  onOpenSource?: (item: DashboardItem) => void;
 }
 
-export function DashboardItemCard({ item }: DashboardItemCardProps) {
+export function DashboardItemCard({ item, onOpenSource }: DashboardItemCardProps) {
   return (
     <div
       style={{
@@ -51,14 +56,32 @@ export function DashboardItemCard({ item }: DashboardItemCardProps) {
         overflow: 'hidden',
       }}
     >
-      {item.title && (
-        <Title
-          level={5}
-          style={{ margin: '8px 12px', flexShrink: 0 }}
-          ellipsis={{ tooltip: item.title }}
+      {(item.title || onOpenSource) && (
+        // ``align: 'center'`` keeps the title baseline aligned with
+        // the icon button. ``justify: 'space-between'`` so the link
+        // pins to the right edge when the title is short / absent.
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            margin: '8px 12px',
+            flexShrink: 0,
+          }}
         >
-          {item.title}
-        </Title>
+          {item.title ? (
+            <Title
+              level={5}
+              style={{ margin: 0, flex: 1, minWidth: 0 }}
+              ellipsis={{ tooltip: item.title }}
+            >
+              {item.title}
+            </Title>
+          ) : (
+            <span style={{ flex: 1 }} />
+          )}
+          {onOpenSource && <DashboardItemSourceLink item={item} onOpen={onOpenSource} />}
+        </div>
       )}
       <div style={{ flex: 1, minHeight: 0, padding: '0 12px 12px' }}>
         {renderBody(item)}

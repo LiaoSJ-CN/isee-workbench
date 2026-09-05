@@ -14,6 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.middleware.rate_limit import RateLimiter
+from app.models.dashboard import Dashboard, DashboardItem
 from app.models.report import Report, ReportItem
 from app.models.report_access import ReportAccess
 from app.models.report_parameter import ReportParameter
@@ -39,7 +40,9 @@ from app.schemas.report_parameter import (
     ReportParameterResponse,
     ReportParameterUpdate,
 )
+from app.schemas.reverse_link import DashboardRef
 from app.services import audit as audit_service
+from app.services.dashboard import get_dashboard_for_user
 from app.services.data_source import (
     get_data_source_for_user,
     is_admin,
@@ -66,6 +69,12 @@ router = APIRouter(
     tags=["reports"],
     dependencies=[Depends(get_current_user)],
 )
+
+# D 双向 link: when a Report is being deleted, surface the first N
+# blocking DashboardItem rows in the 409 detail so the operator knows
+# what to clean up. Matches the existing pattern in
+# ``app.routers.data_source.delete_data_source``.
+_DELETE_BLOCKER_SAMPLE = 10
 
 
 def _client_ip(request: Request) -> str:
@@ -446,6 +455,66 @@ def get_report(
     return report
 
 
+@router.get(
+    "/{report_id}/dashboards",
+    response_model=list[DashboardRef],
+)
+def list_dashboards_for_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[DashboardRef]:
+    """Reverse-link (D): dashboards whose items reference this report.
+
+    Returns one ``DashboardRef`` per referencing dashboard, deduplicated
+    (a single dashboard may have multiple items pointing at the same
+    report). Each candidate is filtered through
+    :func:`get_dashboard_for_user` so the dashboard's own ACL — and the
+    data-source gate it inherits via items — is honored; private
+    dashboards of other users are silently omitted rather than leaked.
+
+    The parent report itself must be visible to the caller; otherwise
+    the endpoint returns 404 with no body, matching :func:`get_report`.
+    """
+    report = get_report_for_user(db, report_id, user)
+    if report is None:
+        raise _report_not_found()
+
+    # One row per (item.dashboard_id) where item.report_id matches;
+    # multiple items on the same dashboard collapse via DISTINCT.
+    rows = (
+        db.query(Dashboard.id)
+        .join(DashboardItem, DashboardItem.dashboard_id == Dashboard.id)
+        .filter(DashboardItem.report_id == report_id)
+        .distinct()
+        .order_by(Dashboard.id.asc())
+        .all()
+    )
+
+    refs: list[DashboardRef] = []
+    for (dashboard_id,) in rows:
+        dashboard = get_dashboard_for_user(db, dashboard_id, user)
+        if dashboard is None:
+            continue
+        item_count = (
+            db.query(DashboardItem)
+            .filter(
+                DashboardItem.dashboard_id == dashboard_id,
+                DashboardItem.report_id == report_id,
+            )
+            .count()
+        )
+        refs.append(
+            DashboardRef(
+                id=cast(int, dashboard.id),
+                name=str(dashboard.name),
+                visibility=dashboard.visibility,  # type: ignore[arg-type]
+                item_count=item_count,
+            )
+        )
+    return refs
+
+
 @router.post(
     "/{report_id}/duplicate",
     response_model=ReportDetailResponse,
@@ -680,6 +749,41 @@ def delete_report(
     report = get_report_for_user(db, report_id, user)
     if report is None or not (is_admin(user) or is_owner(user, report)):
         raise _report_not_found()
+
+    # D 双向 link: ``dashboard_items.report_id`` is nullable with
+    # ``ON DELETE SET NULL`` — without this guard the request would
+    # silently orphan the referencing item rows. Surface the first N
+    # blocking items (parent dashboard name + item id) so the caller
+    # knows which dashboards to repoint first.
+    blocking_items = (
+        db.query(DashboardItem.id, Dashboard.name)
+        .join(Dashboard, Dashboard.id == DashboardItem.dashboard_id)
+        .filter(DashboardItem.report_id == report_id)
+        .order_by(DashboardItem.id.asc())
+        .limit(_DELETE_BLOCKER_SAMPLE)
+        .all()
+    )
+    if blocking_items:
+        total = (
+            db.query(DashboardItem)
+            .filter(DashboardItem.report_id == report_id)
+            .count()
+        )
+        sample = ", ".join(
+            f"#{row.id} in {row.name!r}" for row in blocking_items
+        )
+        suffix = (
+            f" (and {total - len(blocking_items)} more)"
+            if total > len(blocking_items)
+            else ""
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Report is still referenced by {total} dashboard item(s): "
+                f"{sample}{suffix}. Remove or repoint them first."
+            ),
+        )
 
     # 批 9.5: capture the report row before delete so we know what
     # was removed (and which items / params / shares / subscriptions

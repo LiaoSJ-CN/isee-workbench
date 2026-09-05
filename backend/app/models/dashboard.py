@@ -52,6 +52,8 @@ from app.models.report import (  # noqa: F401  # re-exported
 if TYPE_CHECKING:
     from app.models.dashboard_access import DashboardAccess
     from app.models.dashboard_subscription import DashboardSubscription
+    from app.models.data_source import DataSource
+    from app.models.report import Report
 
 # Runtime imports so all three dashboard modules register their mappers
 # together. SQLAlchemy's class registry does late binding on string
@@ -213,6 +215,18 @@ class DashboardItem(Base):
     # Relationships
     dashboard: Mapped["Dashboard"] = relationship(
         "Dashboard", back_populates="items"
+    )
+    # Reverse-link for D: navigate from an item to its source Report or
+    # DataSource. ``foreign_keys=[...]`` is required because
+    # ``DashboardItem`` has FKs into both tables; without it SQLAlchemy
+    # can't pick which one is the join target. Both parents are nullable
+    # (``ON DELETE SET NULL``) so we declare the relationship as
+    # optional — ``None`` for text items and for orphan-after-delete rows.
+    report: Mapped["Report | None"] = relationship(
+        "Report", foreign_keys=[report_id]
+    )
+    data_source: Mapped["DataSource | None"] = relationship(
+        "DataSource", foreign_keys=[data_source_id]
     )
 
     def __repr__(self) -> str:

@@ -196,6 +196,8 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | POST | `/data-sources/{id}/test` | 测试连接 |
 | GET | `/data-sources/{id}/schema` | 拉取目标 DB 的表 / 列 schema（用于编辑器） |
 | POST | `/data-sources/{id}/clone` | 克隆数据源（仅改 name + owner） |
+| GET | `/data-sources/{id}/reports` | 反向 link（D）：引用此数据源的报表列表（带 ACL 过滤） |
+| GET | `/data-sources/{id}/dashboards` | 反向 link（D）：通过 chart-item 或 report-item 引用此数据源的看板列表（去重 + ACL 过滤） |
 | GET | `/data-sources/{id}/grants` | 列出该数据源所有授权 |
 | POST | `/data-sources/{id}/grants` | 授权（read / write） |
 | DELETE | `/data-sources/grants/{grant_id}` | 撤销授权 |
@@ -207,8 +209,9 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | GET | `/reports` | 报表列表（ACL 过滤） |
 | POST | `/reports` | 创建报表 |
 | GET | `/reports/{id}` | 获取报表详情 |
+| GET | `/reports/{id}/dashboards` | 反向 link（D）：引用此报表的看板列表（按 dashboard 去重 + ACL 过滤） |
 | PUT | `/reports/{id}` | 更新报表 |
-| DELETE | `/reports/{id}` | 删除报表 |
+| DELETE | `/reports/{id}` | 删除报表（被 DashboardItem 引用时返回 409） |
 | POST | `/reports/{id}/duplicate` | 克隆报表（含 item + 参数 + share） |
 | POST | `/reports/{id}/items` | 添加报表项 |
 | PUT | `/reports/{id}/items/{item_id}` | 更新报表项 |

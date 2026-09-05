@@ -20,7 +20,7 @@ import { DashboardGridEditor } from '../components/DashboardGridEditor';
 import { DashboardSubscriptionModal } from '../components/DashboardSubscriptionModal';
 import { MySubscriptionsPanel } from '../components/MySubscriptionsPanel';
 import { dashboardApi } from '../api';
-import type { DashboardItemLayoutEntry } from '../types';
+import type { DashboardItem, DashboardItemLayoutEntry } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -36,6 +36,18 @@ export default function DashboardView() {
     queryFn: () => dashboardApi.get(dashboardId),
     enabled: Number.isFinite(dashboardId),
   });
+
+  // Reverse-link navigation (D 双向 link). report items land in the
+  // editor (so the viewer can see items + config), chart items land
+  // on the data-source list (no /data-sources/:id detail page exists
+  // today — easy to upgrade by changing this one line).
+  const handleOpenSource = (item: DashboardItem) => {
+    if (item.item_type === 'report' && item.report_id != null) {
+      navigate(`/reports/${item.report_id}`);
+    } else if (item.item_type === 'chart' && item.data_source_id != null) {
+      navigate('/data-sources');
+    }
+  };
 
   const itemsQuery = useQuery({
     queryKey: ['dashboard', dashboardId, 'items'],
@@ -119,6 +131,7 @@ export default function DashboardView() {
         items={itemsQuery.data ?? []}
         readOnly
         onLayoutChange={(entries) => layoutStub.mutate(entries)}
+        onOpenSource={handleOpenSource}
       />
 
       {canEdit && (

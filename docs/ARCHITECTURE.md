@@ -433,6 +433,61 @@ Endpoints:
 See `docs/superpowers/specs/2026-08-25-report-versioning-design.md` for
 schema SQL, endpoint contracts, and diff algorithm.
 
+### Reverse-link endpoints (批 D)
+
+`DashboardItem` already holds `report_id` / `data_source_id` FKs, but
+until 批 D the only navigation direction was forward — dashboards could
+see their items, but a Report or DataSource had no way to learn
+"which dashboards reference me". The batch adds three reverse-listing
+endpoints plus two `DELETE` 409 guards so a referenced entity can't
+be silently orphaned.
+
+The ORM layer adds `viewonly=True` reverse relationships:
+
+- `Report.dashboard_items → DashboardItem` (via `DashboardItem.report_id`)
+- `DataSource.dashboard_items → DashboardItem` (via
+  `DashboardItem.data_source_id`)
+- `DashboardItem.report` and `DashboardItem.data_source` (nullable
+  one-to-one) so a single item card can name its source.
+
+`viewonly=True` keeps the relationships out of the unit-of-work so a
+manual `session.delete(report)` still relies on the existing
+`ON DELETE SET NULL` FK behavior — no cascade widening.
+
+Endpoints:
+
+- `GET /reports/{id}/dashboards` — list dashboards whose items
+  reference this report. Deduped by `Dashboard.id`; per-dashboard ACL
+  via `get_dashboard_for_user`.
+- `GET /data-sources/{id}/reports` — list reports bound to this DS
+  through `Report.data_source_id`. Uses `list_accessible_reports` so
+  per-report ACL applies.
+- `GET /data-sources/{id}/dashboards` — dashboards that touch this DS,
+  either directly (chart item) or transitively (report item whose
+  `Report.data_source_id` is this DS). UNION of the two paths,
+  `DISTINCT` on `Dashboard.id`, then per-dashboard ACL filter.
+
+Two new 409 paths (front of the existing report-delete / DS-delete
+handlers):
+
+- `DELETE /reports/{id}` — if any `DashboardItem.report_id == {id}`,
+  return 409 with a sampled list of dashboards (mirrors the existing
+  `test_delete_data_source_with_reports_returns_409` pattern).
+- `DELETE /data-sources/{id}` — if any `DashboardItem.data_source_id`
+  is set (direct chart refs), return 409 with a sampled list. The
+  transitive report-item path is already covered by the pre-existing
+  report-ref check.
+
+Frontend wiring: `DataSourceList` gains an expandable row rendering
+`DataSourceReferencesPanel` plus a new "被引用" column that shows
+`N 报表 / M 看板` counts at a glance. `ReportEditor` adds an inline
+`ReportReverseLinkSection` below the tabs. `DashboardItemCard`
+renders a small icon button (link / database glyph) that calls
+`onOpenSource(item)`; the parent page (`DashboardView` /
+`DashboardEdit`) handles navigation: report items land in
+`/reports/{id}` (editor), chart items land in `/data-sources` (no
+DS detail page exists yet — upgrade by changing one line).
+
 ---
 
 ## 13. 相关文档

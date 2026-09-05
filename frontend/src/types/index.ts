@@ -876,6 +876,34 @@ export interface DashboardShareCreate {
   permission: DashboardSharePermission;
 }
 
+// ---- Reverse-link references (D 双向 link) ----
+// Tiny shapes returned by ``/reports/{id}/dashboards``,
+// ``/data-sources/{id}/reports``, and ``/data-sources/{id}/dashboards``.
+// Mirrors :mod:`app.schemas.reverse_link`; the backend intentionally
+// returns only id + name (+ the bits the UI needs to render badges
+// and "used by N items" labels) so the listings stay cheap even
+// when a single DS is referenced by hundreds of dashboards.
+
+export interface ReportRef {
+  id: number;
+  name: string;
+  visibility: ReportVisibility;
+  is_active?: boolean | null;
+}
+
+export interface DataSourceRef {
+  id: number;
+  name: string;
+  db_type: string;
+}
+
+export interface DashboardRef {
+  id: number;
+  name: string;
+  visibility: DashboardVisibility;
+  item_count?: number | null;
+}
+
 export interface DashboardSubscription {
   id: number;
   owner_user_id: number;
