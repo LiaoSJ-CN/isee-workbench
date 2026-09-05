@@ -117,6 +117,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 - 连接测试、密码 Fernet 加密存储、Schema 内省
 - **Clone**：一键克隆已有数据源（仅改 name + owner，复用连接配置）
 - **RBAC（批 9.3）**：每个数据源 owner 默认 full，可向其他用户授权 `read` / `write`
+- **反向 link（批 D）**：列表 / 详情页展示哪些报表和看板引用了此数据源；删除被引用数据源返回 409
 
 ### 数据探索
 - SQL 查询执行（仅允许 SELECT，sqlglot AST 校验）
@@ -133,6 +134,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 - **Duplicate**：一键复制整个报表（含所有 item + 参数 + share 配置）
 - **报表版本与回滚**：手动「保存为版本」创建完整快照；任意版本可一键恢复；字段级 diff 查看改动（批 report-versioning）
 - **ACL（批 9.4）**：报表 owner 默认 full，可设 `visibility=private/link/internal` 或显式 `share` 给指定用户
+- **反向 link（批 D）**：详情页展示哪些看板引用了此报表；删除被引用报表返回 409
 
 ### 报表生成
 - HTML 预览（Chart.js 可视化，iframe blob-URL + sandbox）
@@ -144,9 +146,15 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 
 ### 通知与订阅（批 8.3 / 批 8.4）
 - **邮件**：SMTP（STARTTLS 587 / implicit SSL 465），mailpit 本地推荐
-- **IM**：钉钉 / 飞书 / 企业微信 三种 variant，飞书可选签名密钥
+- **IM**：钉钉 / 飞书 / 企业微信 三种 variant，富卡片（批 G），飞书可选签名密钥
 - **Webhook**：HMAC 签名 + 时间戳，SSRF guard 拒内网 / http（可关）
 - **订阅**：每个用户可订阅任意报表到自己信箱，独立 cron + 参数；owner-scoped API
+
+### 全局搜索（批 A）
+- 顶栏常驻 Input + `⌘K` / `Ctrl+K` 聚焦（macOS / 其他平台均可用）
+- 跨实体联合搜索：报表 / 看板 / 数据源三组结果，每组独立 ACL 过滤
+- 250ms debounce；键盘导航（↑↓ Enter Esc）；click-outside 关闭
+- 排序：exact > prefix > contains；ties 按 name 长度
 
 ### 定时调度
 - APScheduler 驱动，Cron 表达式（6 字段）

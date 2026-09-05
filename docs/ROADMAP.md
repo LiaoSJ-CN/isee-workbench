@@ -81,9 +81,13 @@
 
 ---
 
-### 5. 报表订阅投递更多渠道
+### 5. 报表订阅投递更多渠道 — **【部分已实现：邮件 + 钉钉 / 飞书 / 企业微信 + Webhook】**
 
-**现状**：邮件 + 钉钉 / 飞书 / 企业微信 + 通用 Webhook（批 8.3 / 8.4）。
+> Implemented: 2026-09-05 (`4cde064` — 飞书 / 企业微信 / 钉钉富卡片 + 协议 fix).
+> Earlier: 批 8.3 / 8.4 — 邮件 + Webhook + 三家 IM variant。
+> Remaining scope: 海外渠道 — Slack / Discord（schema + sender + tests per channel）。
+
+**现状**：邮件（批 8.3） + 钉钉 / 飞书 / 企业微信 三家 IM variant 含富卡片 + 通用 Webhook（均带 HMAC + SSRF guard）。
 
 **痛点**：海外用户 / Slack 团队 / Discord 社区用不上。
 
@@ -128,19 +132,55 @@
 
 ---
 
-### 8. Dashboard 模式 — 多 Report 拼装 landing page
+### 8. Dashboard 模式 — 多 Report 拼装 landing page — **【已实现】**
 
-**现状**：每个 Report 是独立入口；用户登录后看到 ReportList，没有"首页 dashboard"概念。
+> Implemented: 2026-09-05.
+> Commits: `695d0ea` (看板模型 + UI) / `5ebc42a` (批 D 跨实体反向 link) / `38fde06` (批 user-mgmt 集中授权) / `4cde064` (IM 通知 + 看板订阅)。
+> Spec: `docs/superpowers/specs/2026-08-25-report-versioning-design.md`（看板部分）。
+> Frontend: `/dashboards/:id` 网格拼装 + Report/Chart item + 看板订阅 (跟 Report 同机制)。
+> Remaining scope: 报表"标记为 KPI"快速入口、管理员把 Report 提升到默认 Dashboard。
 
-**痛点**：KPI 多的场景（销售总监 / 运维 leader）需要 5-10 个核心指标一眼可见，每次都点进单报表太低效。
+**现状**：Dashboard 模型完整落地，多 Report / Chart 拼装为看板首页；owner-scoped CRUD + 可见性 + 集中授权。
 
-**可能方案**：
-- 新增 `Dashboard` 模型（名称 + owner + 可见性 + layout JSON）+ item 列表（指向 Report 或子卡片）
-- 前端新页 `/dashboards/:id` 用 grid layout（react-grid-layout）拼装
-- Dashboard 也可以订阅（跟 Report 同机制）
+**痛点**：已解决 — KPI 多的场景（销售总监 / 运维 leader）一眼可见。
+
+**未来可能增强**：
 - 报表"标记为 KPI"快速入口（管理员可以把 Report 提升到默认 Dashboard）
+- Dashboard 内 item 的"实时刷新"（当前走刷新整页）
 
-**工作量**：~1-2 周
+**工作量**：KPI 入口 ~1 天；实时刷新 ~2-3 天
+
+---
+
+### 9. 全局联合搜索 (Command Palette) — **【已实现】**
+
+> Implemented: 2026-09-05 — `5051d65` (批 A)。
+> Backend: `GET /search?q=&limit_per_kind=` fan-out 三个 list helper，返回 `{ reports, dashboards, data_sources }` 三组结果。
+> Frontend: 顶栏常驻 Input + ⌘K / Ctrl+K 聚焦；250ms debounce；custom div popover (z=1100)；3 分组渲染 + 键盘导航 (↑↓ Enter Esc) + click-outside 关闭 + 路由变化关闭。
+> ACL ordering: ACL 先 `q` 后（项目惯例），防 filter probe。
+> Sort: exact > prefix > contains；ties 按 name 长度。
+> 不做：search history / 子串高亮 / description 字段（保持 name-only 与现有 list endpoint 一致）。
+
+**痛点**：跨实体的"找一个"入口 — 找报表 / 看板 / 数据源都得离开当前页 + 翻列表。
+
+**结论**：✅ 已落地。
+
+---
+
+### 10. 跨实体反向 Link — **【已实现】**
+
+> Implemented: 2026-09-05 — `5ebc42a` (批 D)。
+> Endpoints:
+> - `GET /data-sources/{id}/reports` / `GET /data-sources/{id}/dashboards`
+> - `GET /reports/{id}/dashboards`（按 dashboard 去重）
+> - `DELETE /data-sources/{id}` → 409 当被报表引用（`94fbbbb`）
+> - `DELETE /reports/{id}` → 409 当被 DashboardItem 引用
+> Frontend: 数据源 / 报表 / 看板列表页底部 + Drawer「References」面板；看板 item 用 `DashboardItemSourceLink` 一键跳引用源。
+> ACL ordering：ACL 先 `q` 后，防未授权 caller 通过 filter 组合探测。
+
+**痛点**：删数据源时不知道谁在用 → 误删报表失联；找"哪些报表用了这个数据源"要全文 grep SQL。
+
+**结论**：✅ 已落地。
 
 ---
 
@@ -176,4 +216,4 @@
 
 ---
 
-*Last reviewed: 2026-08-25 — 8 candidate directions. None selected yet.*
+*Last reviewed: 2026-09-05 — 10 candidate directions. #1 #5(部分：邮件 + IM + Webhook；Slack/Discord 待做) #8 #9 #10 已实现。*
