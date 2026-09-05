@@ -35,19 +35,22 @@
 
 ---
 
-### 2. 报表模板市场 (Report Template Marketplace)
+### 2. 报表模板市场 (Report Template Marketplace) — **【已实现】**
 
-**现状**：`ReportEditor` 从零搭。Demo 模板（`seed_reports.py`）是脚本注入，用户新建报表时用不上。
+> Implemented: 批 13 (2026-08-27).
+> Commits: `dee13ee` (backend schema + migration) / `865f2d5` (backend save-as-template + fork + gallery endpoints) / `dfe9da6` (frontend template gallery + integrations) / `a1b3b46` (alembic + PRAGMA FK isolation).
+> Endpoints:
+> - `GET /reports/templates` — public pool list (filterable)
+> - `POST /reports/{id}/save-as-template` — turn own report into template
+> - `POST /reports/template/{template_id}/from-template` — fork into new report
+> Frontend: `/report-templates` page (`ReportTemplates.tsx`) + ReportList 「新建报表」二级菜单 (从空白 / 从模板) + 「另存为模板」按钮。
 
-**痛点**：新用户上手成本高——从空白报表开始配数据源 / SQL / 图表类型，对非技术人员门槛陡峭。
+**结论**：✅ 已落地 — admin 自定义模板 + 普通用户 fork 的双向循环完成。
 
-**可能方案**：
-- 把 `seed_reports.py` 里的 demo 报表暴露为「模板」列表
-- ReportList 「新建报表」加二级菜单："从空白开始" / "从模板开始"
-- 选模板后预填数据源 + SQL + item 类型 + 图表配置，用户改改名字就能用
-- 模板可以由 admin 用户自定义（"另存为模板"）
-
-**工作量**：~2-3 天
+**未来可能增强**：
+- 模板版本号 + 升级提示（fork 后模板改动用户不知道）
+- 模板预览缩略图（当前只显示元数据）
+- 模板分类 / 标签 / 搜索
 
 ---
 
@@ -66,18 +69,20 @@
 
 ---
 
-### 4. 数据源连接池监控 UI
+### 4. 数据源连接池监控 UI — **【已实现】**
 
-**现状**：后端 Prometheus 已暴露 `engine_cache_*` metric + HTTP R / 5xx / 4xx / 报表 p95 等。Grafana dashboard 也配了。
+> Implemented: 批 12 (2026-08-27).
+> Commits: `75ea73e` (backend pool-metrics + admin /metrics endpoint) / `0e0735c` (frontend AdminMetrics dashboard + route) / `86e8689` (Pydantic v2 BucketStats hotfix).
+> Backend: `GET /admin/metrics` — admin only，返回 per-DataSource 连接池快照（`size` / `checked_out` / `overflow` / `pool_timeout_total`）。
+> Frontend: `/admin/metrics` 页 (`AdminMetrics.tsx` + `useAdminMetrics.ts`) — antd `Statistic` + `Table` 卡片，每 30s 自动轮询。
+> 互补而非替代：Prometheus `/metrics` + Grafana dashboard 还在（批 9a/9b），这是给「没 Grafana 的部署」和「快速看一眼」场景兜底。
 
-**痛点**：operator 只能 `curl /metrics` 查；前端没有 dashboard；新手不知道后端有这能力。
+**结论**：✅ 已落地。
 
-**可能方案**：
-- 新增 `/admin/metrics` 路由（admin only）+ 简单图表页（用 Chart.js 或 Recharts）
-- 不替代 Grafana，但给"无 Grafana 部署"和"快速看一眼"的场景兜底
-- 或者把现有 Grafana dashboard JSON 嵌入 iframe（更省事但依赖 Grafana 在线）
-
-**工作量**：~1-2 天
+**未来可能增强**：
+- 时间序列折线（当前是快照数值 + 轮询）
+- 阈值高亮 / 健康度色块（当前只有原始数字）
+- 一键跳到对应数据源编辑页
 
 ---
 
@@ -216,4 +221,4 @@
 
 ---
 
-*Last reviewed: 2026-09-05 — 10 candidate directions. #1 #5(部分：邮件 + IM + Webhook；Slack/Discord 待做) #8 #9 #10 已实现。*
+*Last reviewed: 2026-09-05 — 10 candidate directions. #1 #2 #4 #5(部分：邮件 + IM + Webhook；Slack/Discord 待做) #8 #9 #10 已实现。剩余候选: #3 协作编辑 / #5 Slack+Discord / #6 AI NL→SQL / #7 导出 CSV/JSON/MD。*
