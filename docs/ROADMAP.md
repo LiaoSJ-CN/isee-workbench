@@ -54,18 +54,23 @@
 
 ---
 
-### 3. 协作编辑 (Collaborative Editing)
+### 3. 协作编辑 (Collaborative Editing) — **【已实现 — 乐观锁 (HTTP ETag)】**
 
-**现状**：ACL 已就位（批 9.3/9.4），但 Report 仍只能 owner 单人改。
+> Implemented: 批 3 (2026-09-05).
+> 选择 **乐观锁**（HTTP 标准 `If-Match` / `ETag` + `412 Precondition Failed`），不强制老客户端 — 缺头照样保存。
 
-**痛点**：多人协作场景下，编辑冲突全靠后写覆盖前写，无任何提示或锁。
+**契约**：
+- `GET /reports/{id}` 响应头加 `ETag: W/"v<N>"`（weak ETag，version 整数自增，避免 SQLite `CURRENT_TIMESTAMP` 秒级碰撞）
+- `PUT /reports/{id}` 可选 `If-Match: W/"v<N>"` 头；服务端用 `db.execute(update(...).where(Report.version == N))` 原子比较，rowcount=0 → 412
+- 412 body：`{"detail": {"message": ..., "current": ReportResponse}}` — 客户端拿到远端最新行，弹 diff 模态
+- 三按钮：覆盖远端（用新 ETag 重 PUT）/ 放弃本地（关弹窗，让缓存 invalidate 同步 buffer）/ 复制改（跳 `/reports/{id}/duplicate`，双方改动都不丢）
 
-**可能方案**（由易到难）：
-- **乐观锁**：保存时检查 `updated_at`，冲突返回 409 + 当前版本 → 客户端弹 diff 让用户选
-- **悲观锁**：编辑页打开时占锁，其他人只读
-- **CRDT / OT**：完整实时协作（最高成本，可参考 Figma / Notion）
+**为什么不强制**：批 3 前已上线的客户端 / 调度器 / API 脚本不持 ETag，强制即破坏；不强制 → 老客户端继续可用，新客户端自动获得并发保护。
 
-**工作量**：乐观锁 ~1 天；悲观锁 ~0.5 天；CRDT ~2 周+
+**为什么不悲观锁**：编辑页常开不关占锁反而把并发冲突挪到锁租约上；乐观锁在「保存瞬间」才校验，符合直觉。
+**为什么不用 `updated_at`**：SQLite `CURRENT_TIMESTAMP` 是秒级，同秒两次写产生同 `updated_at` → 锁失效；改用整数 `version` 列，每次自增。
+
+**后续路径**：CRDT / OT 留给真有实时协作需求时再评估（~2 周+），目前乐观锁已覆盖「最后写者赢」以外的合理场景。
 
 ---
 
@@ -221,4 +226,4 @@
 
 ---
 
-*Last reviewed: 2026-09-05 — 10 candidate directions. #1 #2 #4 #5(部分：邮件 + IM + Webhook；Slack/Discord 待做) #8 #9 #10 已实现。剩余候选: #3 协作编辑 / #5 Slack+Discord / #6 AI NL→SQL / #7 导出 CSV/JSON/MD。*
+*Last reviewed: 2026-09-05 — 10 candidate directions. #1 #2 #3 #4 #5(部分：邮件 + IM + Webhook；Slack/Discord 待做) #8 #9 #10 已实现。剩余候选: #5 Slack+Discord / #6 AI NL→SQL / #7 导出 CSV/JSON/MD。*

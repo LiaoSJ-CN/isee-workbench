@@ -589,6 +589,101 @@ group by this score before rendering.
   but doesn't add state. A "recent searches" surfacing is a natural
   follow-up.
 
+### Optimistic concurrency (批 3)
+
+Reports can be co-edited by multiple users (owner + write grantees +
+admins). Before batch 3 the only protection was "last writer wins"
+silently — a slow typist could clobber a teammate's edits with no
+warning. Batch 3 layers an HTTP-standard optimistic lock on top of the
+existing write path.
+
+#### Contract
+
+- `GET /reports/{id}` and `POST /reports` and `PUT /reports/{id}` all
+  emit a weak ETag header: `ETag: W/"v<N>"` where `N` is an integer
+  monotonically incremented on every successful write.
+- `PUT /reports/{id}` accepts an optional `If-Match: W/"v<N>"` header.
+  Missing header → backward-compatible accept (existing clients keep
+  working). Present + matching → apply update + bump version + return
+  the new ETag. Present + stale → `412 Precondition Failed` with body
+  `{"detail": {"message": "...", "current": ReportResponse}}`.
+- 412 carries the **post-conflict server state** (`current` field), so
+  the client can render a diff without an extra GET round-trip.
+
+#### Why weak ETag (`W/"..."`)
+
+- Weak ETag is the RFC 7232-correct choice for "semantic equivalence
+  at the resource-state level" — two responses are byte-different
+  (`updated_at` jitter, JSON key order) but logically equivalent. The
+  server doesn't promise byte-equivalence, only version-equivalence,
+  so weak is the honest claim.
+- Single-token format keeps the wire cheap: 8-10 chars vs the full
+  `ReportResponse` hash that a strong ETag would imply.
+
+#### Why not `updated_at`
+
+- `CURRENT_TIMESTAMP` on SQLite is second-precision. Two writes within
+  the same second produce the same `updated_at`, collapsing the lock
+  discriminator. PostgreSQL `now()` has µs precision but adopting the
+  same code path for both would require a dialect-specific default.
+- An integer `version` column (`server_default="1"`, bumped in the
+  update statement) is portable, collision-free, and one integer
+  smaller than an ISO 8601 string.
+
+#### Implementation
+
+- `app/services/etag.py` — `compute_etag(version)` returns
+  `W/"v<N>"` or `None`; `parse_if_match(header)` is lenient (strips
+  `W/` prefix + quotes, accepts `*`, multi-value, unquoted bare
+  tokens — non-matching garbage is silently ignored to keep clients
+  working through minor formatting drift).
+- `app/models/report.py` — added `version = Column(Integer, nullable=False, server_default="1")`.
+  Empty `__mapper_args__: dict[str, Any] = {}` — intentionally NOT
+  using SQLAlchemy's `version_id_col` because it interacts badly with
+  cascade-delete / relationship-refresh housekeeping (`StaleDataError`
+  on unrelated `DELETE` operations). Manual increment is one line and
+  avoids the entanglement.
+- `app/routers/report.py` — `update_report` does the
+  read-then-compare-then-`update().where(Report.version == current).values(...)`
+  pattern. The DB-level `WHERE` is the actual lock — even if two
+  concurrent requests both pass the Python check (TOCTOU window), only
+  one's `UPDATE` affects a row; the loser sees `result.rowcount == 0`
+  and returns 412.
+- Alembic migration `a1dfb1d7de6d_add_report_version_column_for_.py`
+  adds the column with `DEFAULT 1` so existing rows get a sensible
+  value.
+
+#### Frontend
+
+- `useUpdateReport` (`frontend/src/queries/useReports.ts`) pulls the
+  cached `Report.version`, formats it as `W/"v<N>"`, and attaches it as
+  `If-Match` on the PUT. A cold cache (first save before any GET)
+  skips the header so the server's backward-compat path runs.
+- 412 → typed `VersionConflictError(message, current)`. The
+  mutation's `onError` deliberately does **not** roll back the
+  optimistic snapshot — the caller needs `err.current` (the new truth)
+  to render the diff.
+- `frontend/src/components/ReportEditor/ConflictModal.tsx` — three-button
+  modal (覆盖 / 放弃 / 复制改) with side-by-side diff of the 5
+  user-editable fields. Fork reuses the existing
+  `/reports/{id}/duplicate` endpoint — both edits survive in separate
+  reports.
+
+#### Tradeoffs
+
+- Backward compat (missing `If-Match` accepted) was the central call.
+  It preserves working clients / schedulers / scripts; it does mean
+  uncooperative writers can still race. The pattern is standard for
+  "versioning-optional" APIs (S3 has it for the same reason).
+- `version` is global per row, not per-field. Two users editing
+  different fields still conflict. Per-field vectors are a non-starter
+  on a normalized report model — the diff surface is wide (items,
+  parameters, schedule, notify_config).
+- The frontend conflates "save the report metadata" with
+  "save the row" — items / parameters / schedule edits are separate
+  endpoints and don't go through this lock. Future batch: extend
+  If-Match to `POST /reports/{id}/items` etc.
+
 ---
 
 ## 13. 相关文档

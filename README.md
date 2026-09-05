@@ -135,6 +135,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 - **报表版本与回滚**：手动「保存为版本」创建完整快照；任意版本可一键恢复；字段级 diff 查看改动（批 report-versioning）
 - **ACL（批 9.4）**：报表 owner 默认 full，可设 `visibility=private/link/internal` 或显式 `share` 给指定用户
 - **反向 link（批 D）**：详情页展示哪些看板引用了此报表；删除被引用报表返回 409
+- **乐观锁（批 3）**：保存时附带 `If-Match: W/"v<N>"`；服务端 version 不匹配返回 `412 Precondition Failed` + 当前远端状态，前端弹三按钮 diff（覆盖 / 放弃 / 复制改）。缺头照样保存 → 老客户端/调度器脚本不受影响
 
 ### 报表生成
 - HTML 预览（Chart.js 可视化，iframe blob-URL + sandbox）
@@ -155,6 +156,17 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 - 跨实体联合搜索：报表 / 看板 / 数据源三组结果，每组独立 ACL 过滤
 - 250ms debounce；键盘导航（↑↓ Enter Esc）；click-outside 关闭
 - 排序：exact > prefix > contains；ties 按 name 长度
+
+### 并发编辑（批 3）
+- HTTP 标准乐观锁：`ETag: W/"v<N>"` 响应头 + `If-Match` 请求头，`412 Precondition Failed` 触发冲突
+- 整数 `version` 列（`server_default="1"`），每次成功 PUT 自增；不用 `updated_at` 是因为 SQLite `CURRENT_TIMESTAMP` 是秒级 → 同秒两次写无法区分
+- 后端用 `db.execute(update(Report).where(Report.version == N))` 原子比较，rowcount=0 → 412；TOCTOU 窗口内并发请求只有一条会命中
+- `If-Match` **可选**：缺头照样接受，老客户端 / 调度器 / API 脚本不破坏
+- 前端 `useUpdateReport` 自动从缓存 `Report.version` 拼 `W/"v<N>"`；412 → typed `VersionConflictError(message, current)`
+- 冲突弹窗 `ConflictModal` 三按钮：
+  - **覆盖远端**：用冲突响应里的 `current.version` 重 PUT，本地修改胜出
+  - **放弃本地**：关弹窗，缓存 invalidate 重新水合 buffer
+  - **复制改**：跳 `/reports/{id}/duplicate`，双方改动都不丢
 
 ### 定时调度
 - APScheduler 驱动，Cron 表达式（6 字段）
@@ -224,7 +236,7 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | POST | `/reports` | 创建报表 |
 | GET | `/reports/{id}` | 获取报表详情 |
 | GET | `/reports/{id}/dashboards` | 反向 link（D）：引用此报表的看板列表（按 dashboard 去重 + ACL 过滤） |
-| PUT | `/reports/{id}` | 更新报表 |
+| PUT | `/reports/{id}` | 更新报表（乐观锁：可附 `If-Match: W/"v<N>"`，不匹配返回 412 + 当前远端状态） |
 | DELETE | `/reports/{id}` | 删除报表（被 DashboardItem 引用时返回 409） |
 | POST | `/reports/{id}/duplicate` | 克隆报表（含 item + 参数 + share） |
 | POST | `/reports/{id}/items` | 添加报表项 |
@@ -253,6 +265,8 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 | GET | `/reports/templates` | 模板市场列表（批 13：visibility ACL + category / 数据源 / `q` 过滤） |
 | POST | `/reports/{id}/save-as-template` | 另存为模板（owner/admin，剥离 scheduler + notification） |
 | POST | `/reports/{id}/from-template` | 从模板 fork 出新报表（read ACL 即可） |
+
+> **乐观锁（批 3）**：`GET /reports/{id}` / `POST /reports` / `PUT /reports/{id}` 响应头含 `ETag: W/"v<N>"`（weak ETag，N 为整数 version）。`PUT` 可选请求头 `If-Match: W/"v<N>"`；缺头照常接受（向后兼容老客户端），缺/匹配/不匹配的语义见「并发编辑（批 3）」章节。冲突响应 `412 Precondition Failed`，body 为 `{"detail": {"message": "...", "current": ReportResponse}}`。
 
 ### 看板（Dashboard，批 14）
 
