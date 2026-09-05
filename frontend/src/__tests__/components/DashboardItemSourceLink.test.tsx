@@ -86,8 +86,10 @@ describe('DashboardItemSourceLink (D 双向 link)', () => {
     const item = makeItem({ item_type: 'report', report_id: 42 });
     render(
       // Wrap in a parent that records bubbled clicks; the inner
-      // button click should NOT bubble up.
-      <div onClick={onCardClick}>
+      // button click should NOT bubble up. ``role="presentation"``
+      // so the test wrapper doesn't trip ``jsx-a11y`` — it's a
+      // non-interactive container used purely for assertion.
+      <div role="presentation" onClick={onCardClick}>
         <DashboardItemSourceLink item={item} onOpen={onOpen} />
       </div>,
       { wrapper },

@@ -58,9 +58,25 @@ class DashboardRef(RefSummary):
     item_count: int | None = None
 
 
+class SearchResponse(BaseModel):
+    """Three grouped result lists — one round-trip per keystroke (批 A).
+
+    Drives the top-bar command palette. Each list is independently
+    capped by the ``limit_per_kind`` query param; the palette does
+    not page. Snake-case ``data_sources`` matches the rest of the
+    API's resource naming (``/data-sources``) and the frontend
+    ``dataSourceApi`` mirror.
+    """
+
+    reports: list[ReportRef]
+    dashboards: list[DashboardRef]
+    data_sources: list[DataSourceRef]
+
+
 __all__ = [
     "DashboardRef",
     "DataSourceRef",
     "RefSummary",
     "ReportRef",
+    "SearchResponse",
 ]

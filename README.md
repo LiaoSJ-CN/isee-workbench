@@ -184,6 +184,12 @@ python scripts/seed_reports.py          # 默认指 DataSource 'sqlite_demo' (id
 |------|------|------|------|
 | GET | `/users` | 列出全部用户（`id` / `username` / `role`），报表版本化 UI 用此解析 `created_by` 外键为可读用户名 | Bearer access |
 
+### 搜索
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/search` | 联合搜索（批 A）：按 name 模糊匹配，返回 `{ reports, dashboards, data_sources }` 三组结果，每组独立 ACL 过滤 + `limit_per_kind` 上限（默认 8，max 50）。`q` ≤ 255 字符。供顶栏 command palette 用 |
+
 ### 数据源
 
 | 方法 | 路径 | 功能 |

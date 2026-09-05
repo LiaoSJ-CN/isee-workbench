@@ -488,6 +488,107 @@ renders a small icon button (link / database glyph) that calls
 `/reports/{id}` (editor), chart items land in `/data-sources` (no
 DS detail page exists yet — upgrade by changing one line).
 
+### Command palette search (批 A)
+
+Cross-entity reverse nav solves "where am I referenced from" but
+operators still have to drill through three pages to find a row by
+name — `DashboardList` had a client-side `Input.Search`, the other
+two lists had nothing, and there was no `/search` backend. Batch A
+adds one round-trip per keystroke endpoint plus a top-bar command
+palette so a single ⌘K opens a grouped dropdown across all three
+entity types.
+
+#### Backend
+
+`GET /search?q=&limit_per_kind=` returns
+`{ reports: ReportRef[], dashboards: DashboardRef[], data_sources: DataSourceRef[] }`.
+The response shape reuses the lightweight refs from `reverse_link.py`
+— no new per-entity surface. The fan-out is direct: each group
+reuses the corresponding list helper from the service layer:
+
+- reports → `list_accessible_reports(db, user, q=q)` (server-side
+  `ILIKE` is already supported, line 266 of `services/report.py`)
+- dashboards → `list_accessible_dashboards(db, user, q=q)`
+  (server-side `ILIKE`, line 287 of `services/dashboard.py`)
+- data sources → `list_accessible_data_sources(db, user)` plus a
+  Python `casefold` substring match on the post-ACL list (mirrors
+  `routers/data_source.list_data_sources` byte-for-byte — no service
+  signature change)
+
+ACL ordering: ACL first (`list_accessible_*`), then `q`. This is
+the same probe-protection pattern as the per-resource list endpoints
+so an unauthorized caller can't use `q` to leak row existence.
+
+`q` is capped at 255 characters (the standard `max_length`); empty
+`q` short-circuits to three empty lists without hitting the DB.
+Each kind is independently capped by `limit_per_kind` (default 8,
+max 50) so a noisy substring on one kind can't squeeze the others
+off the wire.
+
+#### Frontend
+
+`App.tsx` mounts `<CommandPalette />` between the logo div and
+`<AppMenu />` (line 228 of `App.tsx`). The palette owns:
+
+- A `<Input>` with `prefix={SearchOutlined}` and a `⌘K` suffix
+  hint (swapped to `<Spin size="small">` while a request is in
+  flight).
+- An absolutely-positioned `<div role="listbox">` (custom, not antd
+  `Popover` / `Dropdown` — those fight fixed-width centered
+  positioning). `z-index: 1100` keeps it above every antd surface
+  (modals: 1000, dropdowns: 1050).
+- Three sections — 报表 / 看板 / 数据源 — each rendered with a
+  sticky header and a list of clickable rows. Data-source hits land
+  on `/data-sources` (list page, since no `/data-sources/{id}` route
+  exists today).
+
+Keyboard model:
+
+- `⌘K` / `Ctrl+K` focuses the input from anywhere (bound via
+  `useGlobalShortcut('k', …)`).
+- `Esc` closes the popover and clears the input (same hook with
+  `requireModifier: false`).
+- `ArrowUp` / `ArrowDown` cycle through the visible results; the
+  active row gets the antd-selection blue background.
+- `Enter` picks the active row and navigates.
+- Click outside closes (mousedown listener on `window`, ignores
+  clicks inside the input wrapper or the popover).
+- Route change closes (`useEffect` on `location.pathname`) so
+  navigation doesn't leave the popover floating over the new page.
+
+`useSearch(q, limitPerKind=8)` from `queries/useSearch.ts` wraps
+react-query with `enabled: q.trim().length > 0` (no flash of empty
+state on every focus), `staleTime: 30_000` (repeated identical
+queries within 30 s hit cache), and `retry: false` (4xx surfaces
+immediately to the palette, no retry-loop).
+
+`useDebouncedValue(q, 250)` coalesces keystrokes so the wire only
+sees one request per settled burst — mirrors the inline
+`setTimeout` / `clearTimeout` pattern already used by
+`DashboardGridEditor`. No debounce package dependency.
+
+`scoreRef(name, q)` is a pure helper (lives next to the hook for
+testability) ranking hits within a group: exact match (0) > prefix
+(1) > contains (2), ties broken by ascending name length so the
+shortest plausible match surfaces first. The palette sorts each
+group by this score before rendering.
+
+#### Tradeoffs
+
+- One endpoint instead of three to keep the wire uniform — the
+  trade is that an empty `q` still triggers a (cheap) server-side
+  short-circuit rather than three independent list calls.
+- Name-only search (not name + description) keeps behavior
+  byte-equivalent to the existing per-resource list endpoints.
+  Operators searching on description content can request a follow-up
+  batch — out of scope here.
+- Custom `<div>` popover instead of antd `<Popover>` / `<Dropdown>`
+  to keep arrow / trigger positioning out of the way. ~30 lines
+  for full control over `maxHeight`, scroll, group headers.
+- Empty-query hint instead of recent-searches history — discoverable
+  but doesn't add state. A "recent searches" surfacing is a natural
+  follow-up.
+
 ---
 
 ## 13. 相关文档

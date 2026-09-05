@@ -50,6 +50,7 @@ from app.routers import (
     report,
     report_version,
     scheduler,
+    search,  # 批 A — global command-palette search
     subscription,
     users,  # A3 (post-批-report-versioning)
 )
@@ -343,6 +344,8 @@ app.include_router(admin_users.router)
 app.include_router(admin_grants.router)
 # User listing for client-side created_by resolution (A3, post-批-report-versioning).
 app.include_router(users.router)
+# Global command-palette search (批 A — 联合搜索).
+app.include_router(search.router)
 
 # Prometheus /metrics + default HTTP histogram. Must come AFTER the
 # routers so Instrumentator sees the final route table. Idempotent for

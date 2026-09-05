@@ -137,4 +137,13 @@ export const queryKeys = {
     byResource: (rt: string, id: number) =>
       [...queryKeys.adminGrants.all, 'resource', rt, id] as const,
   },
+  // Global command-palette search (批 A). Cache key bakes both
+  // ``q`` and ``limitPerKind`` so different keystrokes hit different
+  // cache entries; repeated identical queries within ``staleTime``
+  // are free.
+  search: {
+    all: ['search'] as const,
+    results: (q: string, limitPerKind: number) =>
+      [...queryKeys.search.all, 'results', q, limitPerKind] as const,
+  },
 } as const;

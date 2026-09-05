@@ -26,6 +26,9 @@ import {
 import { useLogout, useMe } from './queries/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
 import { PageSkeleton } from './components/Skeleton';
+// 批 A — global command-palette search. Mounted in the header
+// between the logo div and ``<AppMenu />``; ⌘K focuses the input.
+import CommandPalette from './components/CommandPalette';
 
 // 批 10 — every page is loaded lazily so the initial bundle only carries
 // the AppShell + shared vendor chunks (react/antd/router/rq). The page
@@ -225,6 +228,7 @@ function AppShell() {
           <FundOutlined />
           iSee数据分析工作台
         </div>
+        <CommandPalette />
         <AppMenu />
         <Button
           type="text"

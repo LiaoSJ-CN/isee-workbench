@@ -904,6 +904,18 @@ export interface DashboardRef {
   item_count?: number | null;
 }
 
+// ---- Global command-palette search (批 A) ----
+// Three grouped result lists returned by ``GET /search``. The palette
+// renders one round-trip per keystroke; per-kind caps are enforced
+// server-side. Snake-case ``data_sources`` mirrors the resource path
+// (``/data-sources``) and the ``dataSourceApi`` naming.
+
+export interface SearchResponse {
+  reports: ReportRef[];
+  dashboards: DashboardRef[];
+  data_sources: DataSourceRef[];
+}
+
 export interface DashboardSubscription {
   id: number;
   owner_user_id: number;

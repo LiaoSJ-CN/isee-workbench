@@ -48,6 +48,7 @@ import type {
   ReportParameterUpdate,
   ReportVersionCreate,
   ReportVersionDiff,
+  SearchResponse,
   ReportVersionResponse,
   ReportVersionRestoreResponse,
   ReportVersionSummary,
@@ -1116,6 +1117,21 @@ export const dashboardSubscriptionApi = {
 
   resume: async (subscriptionId: number): Promise<DashboardSubscription> => {
     const { data } = await api.post(`/dashboard-subscriptions/${subscriptionId}/resume`);
+    return data;
+  },
+};
+
+// ============ Global command-palette search (批 A) ============
+// One round-trip per keystroke — returns three grouped result lists
+// (reports / dashboards / data sources), each independently capped by
+// ``limitPerKind``. The palette calls this with ``limitPerKind = 8``
+// to balance dropdown density against result coverage.
+
+export const searchApi = {
+  search: async (q: string, limitPerKind = 8): Promise<SearchResponse> => {
+    const { data } = await api.get('/search', {
+      params: { q, limit_per_kind: limitPerKind },
+    });
     return data;
   },
 };
