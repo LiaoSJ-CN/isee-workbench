@@ -32,11 +32,11 @@ import {
 } from '../queries/useScheduler';
 import { useReports } from '../queries/useReports';
 
-type NotificationType = 'none' | 'webhook' | 'email' | 'feishu' | 'wechatwork';
+type NotificationType = 'none' | 'webhook' | 'email' | 'dingtalk' | 'feishu' | 'wechatwork';
 
 function buildNotificationConfig(values: Record<string, unknown>): Record<string, unknown> | null {
   const t = values.notification_type as NotificationType | undefined;
-  if (t === 'webhook' || t === 'feishu') {
+  if (t === 'webhook' || t === 'feishu' || t === 'dingtalk') {
     return {
       type: t,
       webhook_url: values.webhook_url ?? '',
@@ -281,6 +281,7 @@ export default function SchedulerPage() {
                 { value: 'webhook', label: 'Webhook' },
                 { value: 'email', label: 'Email (占位)' },
                 { value: 'feishu', label: '飞书' },
+                { value: 'dingtalk', label: '钉钉' },
                 { value: 'wechatwork', label: '企业微信' },
               ]}
             />
@@ -292,7 +293,12 @@ export default function SchedulerPage() {
           >
             {({ getFieldValue }) => {
               const t = getFieldValue('notification_type') as NotificationType;
-              if (t === 'webhook' || t === 'feishu' || t === 'wechatwork') {
+              if (
+                t === 'webhook' ||
+                t === 'feishu' ||
+                t === 'dingtalk' ||
+                t === 'wechatwork'
+              ) {
                 return (
                   <>
                     <Form.Item
@@ -300,9 +306,11 @@ export default function SchedulerPage() {
                       label={
                         t === 'feishu'
                           ? '飞书 Webhook URL'
-                          : t === 'wechatwork'
-                            ? '企业微信 Webhook URL'
-                            : 'Webhook URL'
+                          : t === 'dingtalk'
+                            ? '钉钉 Webhook URL'
+                            : t === 'wechatwork'
+                              ? '企业微信 Webhook URL'
+                              : 'Webhook URL'
                       }
                       rules={[
                         {
@@ -317,23 +325,41 @@ export default function SchedulerPage() {
                         placeholder={
                           t === 'feishu'
                             ? 'https://open.feishu.cn/open-apis/bot/v2/hook/...'
-                            : t === 'wechatwork'
-                              ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
-                              : 'https://example.com/webhook'
+                            : t === 'dingtalk'
+                              ? 'https://oapi.dingtalk.com/robot/send?access_token=...'
+                              : t === 'wechatwork'
+                                ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
+                                : 'https://example.com/webhook'
                         }
                       />
                     </Form.Item>
-                    {(t === 'webhook' || t === 'feishu') && (
+                    {(t === 'webhook' || t === 'feishu' || t === 'dingtalk') && (
                       <Form.Item
                         name="secret"
-                        label={t === 'feishu' ? '飞书签名密钥 (可选)' : 'Webhook 签名密钥 (可选)'}
+                        label={
+                          t === 'feishu'
+                            ? '飞书签名密钥 (可选)'
+                            : t === 'dingtalk'
+                              ? '钉钉加签密钥 (可选)'
+                              : 'Webhook 签名密钥 (可选)'
+                        }
                         tooltip={
                           t === 'feishu'
                             ? '开启签名校验后，飞书会在 JSON body 里追加 timestamp + sign 字段'
-                            : '设置后，webhook 请求会带上 X-Webhook-Timestamp 与 X-Webhook-Signature 头；不填则沿用后端 WEBHOOK_SECRET 全局配置'
+                            : t === 'dingtalk'
+                              ? '钉钉机器人「安全设置 → 加签」里的密钥；开启加签后请求 URL 必须带 timestamp + sign 参数，否则机器人返回 40035'
+                              : '设置后，webhook 请求会带上 X-Webhook-Timestamp 与 X-Webhook-Signature 头；不填则沿用后端 WEBHOOK_SECRET 全局配置'
                         }
                       >
-                        <Input.Password placeholder={t === 'feishu' ? 'SEC...' : 'shared-secret'} />
+                        <Input.Password
+                          placeholder={
+                            t === 'feishu'
+                              ? 'SEC...'
+                              : t === 'dingtalk'
+                                ? 'SEC...'
+                                : 'shared-secret'
+                          }
+                        />
                       </Form.Item>
                     )}
                   </>

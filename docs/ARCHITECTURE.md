@@ -337,6 +337,30 @@ def sync_subscriptions_with_database(db):
 
 调度器 tick 在 `scheduler_runner.py` 和 `main.py` lifespan 里和 `sync_with_database` 串行调用 —— 一个 reconcile 出错不会阻塞另一个。每个订阅 owner-scoped（创建时绑定 `owner_user_id`），触发时调 `_execute_subscription` 用订阅自身的 `parameters` + `notification_config` 生成 Excel 走邮件 / webhook / IM 投递。
 
+### IM 通知卡片与各渠道协议差异（批 G）
+
+三个 IM 渠道（飞书 / 钉钉 / 企微）在 cron tick 触发后都走结构化卡片，不再发纯文本：
+
+| 渠道 | payload 形状 | 标题 / 操作 |
+|------|-------------|------------|
+| 飞书 | `msg_type: "interactive"` + `card{header, elements}` | `header.title` 用 `plain_text`（不渲染 markdown，避免报表名含 `**` / `` ` `` 时被当成格式）；有 `PUBLIC_BASE_URL` 时 elements 末加 `action` 按钮 |
+| 钉钉 | `msg_type: "actionCard"` (`singleTitle` + `singleURL`) | 有 `PUBLIC_BASE_URL` 时带跳转按钮；否则回落 `msg_type: "markdown"` |
+| 企微 | `msgtype: "template_card"` (`card_type: "text_notice"` + `card_action`) | **`template_card` 的 `card_action` 必填**；无 `PUBLIC_BASE_URL` 时回落 `msgtype: "markdown"`（内容仍走 `escape_markdown`，名字里的 `**` 显示为字面量） |
+
+卡片正文固定含：生成时间（UTC）、文件列表（只 basename，不暴露服务端路径）、「查看报表 / 查看看板」按钮（看板订阅通过 `kind="dashboard"` 区分）。URL 形状：`{PUBLIC_BASE_URL}/reports/{id}` 或 `/dashboards/{id}`。
+
+**钉钉签名差异（这版必须修的协议 bug）** —— 三个渠道的签名协议形似而实不同：
+
+| 渠道 | HMAC key | HMAC msg | 时间戳粒度 | 签名位置 |
+|------|---------|---------|-----------|---------|
+| 飞书 | `f"{ts}\n{secret}"` | `b""`（空串） | 秒 | JSON body 顶层 |
+| 钉钉 | `secret` | `f"{ts}\n{secret}"` | **毫秒** | URL query string |
+| 通用 webhook | 全局 `WEBHOOK_SECRET`（非各 config `secret`） | `f"{timestamp}.{payload}"` | 秒 | `X-Webhook-Signature` 请求头 |
+
+批 G 之前钉钉走的是通用 webhook 路径（`X-Webhook-Signature` 头 + `{report_name, report_id, ...}` 通用 JSON），钉钉机器人返回 `errcode 40035 缺少参数 msgtype` —— 生产通知从未送达。修复后 `_send_dingtalk` 独立 sender，三段 SSRF 闸顺序保持不变；URL 通过 `urlsplit` / `parse_qsl` / `urlencode` 重新组装，**保留原有的 `access_token=` query param**，新追加的 `timestamp` / `sign` 由 `urllib.parse.quote_plus` 自动 percent-escape（base64 里的 `+/=` 字符不会破 URL 语法）。
+
+`PUBLIC_BASE_URL` 配置说明、`.env` 示例见 CLAUDE.md 配置表。
+
 ---
 
 ## 10. SSRF 防护策略

@@ -285,6 +285,7 @@ mypy app
 | `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
 | `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
 | `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
+| `PUBLIC_BASE_URL` | (空) | 对外站点根地址，如 `https://isee.example.com`。IM 通知卡片用它拼「查看报表/看板」按钮的 deep link（`{base}/reports/{id}` 或 `{base}/dashboards/{id}`）。留空 = 卡片不带按钮，企业微信额外回落为 `markdown`（`template_card.text_notice` 要求 `card_action`）。非 http(s) 开头或拼写错时按未配置处理 |
 
 前端 Sentry 通过 `VITE_SENTRY_DSN` / `VITE_SENTRY_ENVIRONMENT` / `VITE_SENTRY_TRACES_SAMPLE_RATE`（`frontend/.env` 或构建时变量）配置；空 DSN = 禁用，bundle 零开销。
 
@@ -299,6 +300,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=changeme
 JWT_SECRET_KEY=<生成一个长随机串>
 ENCRYPTION_KEY=<生成一个 Fernet key>
+PUBLIC_BASE_URL=https://isee.example.com
 ```
 
 ## 开发注意事项

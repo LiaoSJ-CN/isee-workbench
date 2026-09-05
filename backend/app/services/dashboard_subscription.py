@@ -22,8 +22,11 @@ pipeline:
    union (webhook / 钉钉 / 飞书 / 企微 / email).
 
 The senders were written for ``Report`` but only read ``.id`` /
-``.name``; we wrap the dashboard in a small structural shim so the
-existing sender pipeline is reused unchanged.
+``.name`` / ``.kind``; we wrap the dashboard in a small structural shim
+so the existing sender pipeline is reused unchanged. ``kind="dashboard"``
+is what :mod:`app.services.notification_cards` keys off to say 「看板」
+rather than 「报表」 and to point the card's deep link at
+``/dashboards/{id}``.
 """
 
 from __future__ import annotations
@@ -508,16 +511,17 @@ def _dashboard_sender_shim(dashboard: Dashboard) -> Any:
 
     The senders (:func:`_send_webhook`, :func:`_send_feishu`,
     :func:`_send_wechatwork`, :func:`_send_email`) only read
-    ``.id`` and ``.name`` off the second positional arg. ``SimpleNamespace``
-    exposes both attributes without inheriting any of :class:`Report`'s
-    schema — the dispatcher doesn't want to fake a report row just to
-    borrow a sender interface.
+    ``.id``, ``.name``, and ``.kind`` off the second positional arg.
+    ``SimpleNamespace`` exposes all three without inheriting any of
+    :class:`Report`'s schema — the dispatcher doesn't want to fake a
+    report row just to borrow a sender interface.
     """
     from types import SimpleNamespace
 
     return SimpleNamespace(
         id=int(dashboard.id) if dashboard.id is not None else 0,
         name=str(dashboard.name or ""),
+        kind="dashboard",
     )
 
 

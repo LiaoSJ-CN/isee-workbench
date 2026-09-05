@@ -104,6 +104,18 @@ class Settings(BaseSettings):
     # Payloads older than this are rejected by the receiver.
     webhook_timestamp_max_age: int = 300  # 5 min
 
+    # --- Public base URL (批 G) ---
+    # User-facing site root, e.g. ``https://isee.example.com``. IM
+    # notification cards use it to build the "view report" deep link
+    # (``{base}/reports/{id}`` / ``{base}/dashboards/{id}``).
+    #
+    # Empty (the default) means "we don't know how the site is reached"
+    # — cards then render without an action button rather than guessing
+    # a URL. The WeChat Work sender additionally falls back to its
+    # markdown envelope, because ``template_card`` needs a
+    # ``card_action`` target.
+    public_base_url: str = ""
+
     # --- Cookie auth (P3 / SEC-6) ---
     # When True, login/refresh set HttpOnly+SameSite cookies; the
     # ``Authorization: Bearer`` header remains supported as a fallback

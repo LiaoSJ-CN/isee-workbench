@@ -32,6 +32,7 @@ import base64
 import hashlib
 import hmac
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 from app.models.report import Report
 from app.schemas.notification import (
@@ -51,6 +52,22 @@ def _expected_feishu_signature(timestamp: str, secret: str) -> str:
     digest = hmac.new(
         string_to_sign.encode("utf-8"),
         digestmod=hashlib.sha256,
+    ).digest()
+    return base64.b64encode(digest).decode("utf-8")
+
+
+def _expected_dingtalk_signature(timestamp_ms: str, secret: str) -> str:
+    """Reference implementation of DingTalk's 加签 algorithm.
+
+    Note how it inverts Feishu's: the *secret* is the HMAC key and the
+    ``f"{ts}\\n{secret}"`` string is the message, where Feishu makes the
+    joined string the key and signs an empty message.
+    """
+    string_to_sign = f"{timestamp_ms}\n{secret}"
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
     ).digest()
     return base64.b64encode(digest).decode("utf-8")
 
@@ -139,7 +156,11 @@ def test_feishu_signature_matches_documented_algorithm() -> None:
 
 def test_feishu_with_secret_signs_body(monkeypatch: Any) -> None:
     """Feishu with a secret adds ``timestamp`` + ``sign`` keys inside
-    the JSON body (Feishu's protocol — *not* an HTTP header)."""
+    the JSON body (Feishu's protocol — *not* an HTTP header).
+
+    批 G changed the message type from ``text`` to ``interactive``; the
+    signing contract is orthogonal to it and must survive unchanged.
+    """
     from app.services import scheduler as scheduler_module
 
     factory = _patch_webhook_client(monkeypatch)
@@ -155,13 +176,14 @@ def test_feishu_with_secret_signs_body(monkeypatch: Any) -> None:
     url, kwargs = factory.client.calls[0]
     payload = kwargs["json"]
 
-    assert payload["msg_type"] == "text"
-    assert "报表「ok」已生成" in payload["content"]["text"]
-    assert "/tmp/r.xlsx" not in payload["content"]["text"]
+    assert payload["msg_type"] == "interactive"
+    rendered = str(payload["card"])
+    assert payload["card"]["header"]["title"]["content"] == "报表「ok」已生成"
+    assert "/tmp/r.xlsx" not in rendered
     # basename only — the absolute path is stripped (SEC-8).
-    assert "r.xlsx" in payload["content"]["text"]
+    assert "r.xlsx" in rendered
 
-    # Signature keys present.
+    # Signature keys present, at the top level next to msg_type/card.
     assert "timestamp" in payload
     assert "sign" in payload
     # Header count = 0 for Feishu (signing is in-body, per protocol).
@@ -189,11 +211,45 @@ def test_feishu_without_secret_omits_signature(monkeypatch: Any) -> None:
     _, kwargs = factory.client.calls[0]
     payload = kwargs["json"]
 
-    assert payload["msg_type"] == "text"
+    assert payload["msg_type"] == "interactive"
     assert "timestamp" not in payload
     assert "sign" not in payload
     # basename preservation.
-    assert "q.pdf" in payload["content"]["text"]
+    assert "q.pdf" in str(payload["card"])
+
+
+def test_feishu_card_button_follows_public_base_url(monkeypatch: Any) -> None:
+    """批 G: the card's action button exists iff ``public_base_url`` is
+    configured. Wired through the sender (not just the builder) so a
+    future refactor can't drop the settings lookup."""
+    from app.services import scheduler as scheduler_module
+
+    monkeypatch.setattr(scheduler_module.settings, "public_base_url", "https://isee.example.com")
+    factory = _patch_webhook_client(monkeypatch)
+
+    scheduler_module._send_feishu(
+        webhook_url="https://8.8.8.8/feishu-hook",
+        secret=None,
+        report=Report(id=42, name="ok"),
+        file_paths=["/tmp/r.xlsx"],
+    )
+
+    _, kwargs = factory.client.calls[0]
+    actions = [e for e in kwargs["json"]["card"]["elements"] if e["tag"] == "action"]
+    assert len(actions) == 1
+    assert actions[0]["actions"][0]["url"] == "https://isee.example.com/reports/42"
+
+    # And with the setting cleared, no action block at all.
+    monkeypatch.setattr(scheduler_module.settings, "public_base_url", "")
+    factory_no_link = _patch_webhook_client(monkeypatch)
+    scheduler_module._send_feishu(
+        webhook_url="https://8.8.8.8/feishu-hook",
+        secret=None,
+        report=Report(id=42, name="ok"),
+        file_paths=["/tmp/r.xlsx"],
+    )
+    _, kwargs_no_link = factory_no_link.client.calls[0]
+    assert not [e for e in kwargs_no_link["json"]["card"]["elements"] if e["tag"] == "action"]
 
 
 def test_feishu_blocked_by_ssrf_guard(monkeypatch: Any, caplog: Any) -> None:
@@ -222,12 +278,13 @@ def test_feishu_blocked_by_ssrf_guard(monkeypatch: Any, caplog: Any) -> None:
 # -------------------- _send_wechatwork --------------------
 
 
-def test_wechatwork_posts_markdown_envelope(monkeypatch: Any) -> None:
-    """WeChat Work sender wraps the report in a ``msgtype: markdown`` payload
-    with no signing keys — the URL's ``key=`` query param is the
-    authenticator."""
+def test_wechatwork_posts_markdown_when_no_public_base_url(monkeypatch: Any) -> None:
+    """Without ``public_base_url`` there is no ``card_action`` target,
+    so the sender must keep the markdown envelope rather than emit a
+    ``template_card`` WeCom would reject (批 G)."""
     from app.services import scheduler as scheduler_module
 
+    monkeypatch.setattr(scheduler_module.settings, "public_base_url", "")
     factory = _patch_webhook_client(monkeypatch)
 
     scheduler_module._send_wechatwork(
@@ -241,6 +298,7 @@ def test_wechatwork_posts_markdown_envelope(monkeypatch: Any) -> None:
     payload = kwargs["json"]
 
     assert payload["msgtype"] == "markdown"
+    assert "template_card" not in payload
     content = payload["markdown"]["content"]
     assert "报表「ok」已生成" in content
     # basenames only.
@@ -254,6 +312,37 @@ def test_wechatwork_posts_markdown_envelope(monkeypatch: Any) -> None:
     # Public URL — no Content-Signature header either.
     headers = kwargs.get("headers") or {}
     assert "X-Webhook-Signature" not in headers
+
+
+def test_wechatwork_posts_template_card_when_linkable(monkeypatch: Any) -> None:
+    """With ``public_base_url`` set the sender upgrades to a
+    ``template_card`` carrying a ``card_action`` deep link (批 G)."""
+    from app.services import scheduler as scheduler_module
+
+    monkeypatch.setattr(scheduler_module.settings, "public_base_url", "https://isee.example.com")
+    factory = _patch_webhook_client(monkeypatch)
+
+    scheduler_module._send_wechatwork(
+        webhook_url="https://8.8.8.8/cgi-bin/webhook/send?key=xyz",
+        report=Report(id=42, name="ok"),
+        file_paths=["/var/reports/q.pdf"],
+    )
+
+    _, kwargs = factory.client.calls[0]
+    payload = kwargs["json"]
+
+    assert payload["msgtype"] == "template_card"
+    card = payload["template_card"]
+    assert card["card_type"] == "text_notice"
+    assert card["main_title"]["title"] == "报表「ok」已生成"
+    assert card["card_action"]["url"] == "https://isee.example.com/reports/42"
+    # basenames only, here too.
+    rendered = str(card)
+    assert "q.pdf" in rendered
+    assert "/var/reports/" not in rendered
+    # Still no signing — the key= query param remains the authenticator.
+    assert "sign" not in payload
+    assert "timestamp" not in payload
 
 
 def test_wechatwork_blocked_by_ssrf_guard(monkeypatch: Any) -> None:
@@ -474,24 +563,28 @@ def test_webhook_falls_back_to_global_secret_when_per_config_is_none(
     assert headers["X-Webhook-Signature"] == _sign_payload(body, "GLOBAL", timestamp)
 
 
-def test_dingtalk_uses_per_config_secret(monkeypatch: Any) -> None:
-    """Mirror of the WebhookConfig per-config secret test, but for
-    DingTalkConfig — same bug, same fix path. Belt-and-braces guard
-    against a future refactor that splits DingTalk delivery away from
-    :func:`_send_webhook` without re-plumbing the ``secret`` kw."""
+def test_dingtalk_signs_in_query_string_not_headers(monkeypatch: Any) -> None:
+    """批 G rewrite. This test previously asserted that DingTalk went
+    through :func:`_send_webhook` and produced an
+    ``X-Webhook-Signature`` header — pinning a shape a real DingTalk
+    robot rejects with ``errcode 40035 (缺少参数 msgtype)``. Its own
+    docstring called itself a "guard against a future refactor that
+    splits DingTalk delivery away from ``_send_webhook``"; this batch
+    is that refactor, so the guard is re-pointed at the real contract:
+
+    * a ``msgtype`` envelope in the body,
+    * ``timestamp`` + ``sign`` in the query string,
+    * the bot's own ``access_token`` query param preserved,
+    * no HMAC headers.
+    """
     from app.schemas.notification import DingTalkConfig
     from app.services import scheduler as scheduler_module
 
     captured: dict[str, Any] = {}
 
-    class _FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self) -> None:
-            return None
-
-    class _FakeClient:
+    class _CapturingClient:
         def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            captured["url"] = url
             captured["headers"] = kwargs.get("headers") or {}
             captured["body"] = kwargs.get("json") or {}
             return _FakeResponse()
@@ -499,32 +592,146 @@ def test_dingtalk_uses_per_config_secret(monkeypatch: Any) -> None:
         def close(self) -> None:
             pass
 
-        def __enter__(self) -> "_FakeClient":
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-    def fake_create_client(url: str, **kw: Any) -> _FakeClient:
-        return _FakeClient()
-
     monkeypatch.setattr(scheduler_module.settings, "webhook_secret", "GLOBAL")
-    monkeypatch.setattr(scheduler_module, "create_webhook_client", fake_create_client)
+    monkeypatch.setattr(
+        scheduler_module, "create_webhook_client", lambda url, **kw: _CapturingClient()
+    )
 
     scheduler_module._send_notification(
         notification_config=DingTalkConfig(
             type="dingtalk",
-            webhook_url="https://8.8.8.8/dingtalk-hook",
+            webhook_url="https://8.8.8.8/robot/send?access_token=abc123",
             secret="DINGTALK_KEY",
+        ),
+        report=Report(id=1, name="x"),
+        file_paths=["/tmp/r.xlsx"],
+    )
+
+    # --- Body is a DingTalk envelope, not the generic webhook JSON ---
+    body = captured["body"]
+    assert "msgtype" in body
+    assert "report_name" not in body, "generic webhook payload leaked into DingTalk"
+
+    # --- Signature rides in the query string ---
+    query = dict(parse_qsl(urlsplit(captured["url"]).query))
+    assert query["access_token"] == "abc123", "bot's own query param must survive signing"
+    assert "timestamp" in query
+    assert "sign" in query
+    assert query["sign"] == _expected_dingtalk_signature(query["timestamp"], "DINGTALK_KEY")
+
+    # --- ...and not in headers or the body ---
+    assert "X-Webhook-Signature" not in captured["headers"]
+    assert "sign" not in body
+    assert "timestamp" not in body
+
+
+def test_dingtalk_signature_differs_from_feishu_for_same_inputs() -> None:
+    """The two algorithms look alike — same ``f"{ts}\\n{secret}"``
+    string, same HMAC-SHA256, same base64 — but swap which half is the
+    key. Swapping them yields a well-formed signature the provider
+    rejects, which is invisible without this assertion."""
+    from app.services.scheduler import _dingtalk_signature, _feishu_signature
+
+    timestamp = "1700000000"
+    secret = "same-secret"
+
+    assert _dingtalk_signature(timestamp, secret) != _feishu_signature(timestamp, secret)
+    assert _dingtalk_signature(timestamp, secret) == _expected_dingtalk_signature(timestamp, secret)
+
+
+def test_dingtalk_without_secret_posts_unsigned_url(monkeypatch: Any) -> None:
+    """DingTalk bots can be configured with keyword/IP allow-listing
+    instead of 加签 — no secret means the URL is left alone."""
+    from app.services import scheduler as scheduler_module
+
+    factory = _patch_webhook_client(monkeypatch)
+
+    scheduler_module._send_dingtalk(
+        webhook_url="https://8.8.8.8/robot/send?access_token=abc123",
+        secret=None,
+        report=Report(id=1, name="x"),
+        file_paths=[],
+    )
+
+    url, kwargs = factory.client.calls[0]
+    assert url == "https://8.8.8.8/robot/send?access_token=abc123"
+    assert "msgtype" in kwargs["json"]
+
+
+def test_dingtalk_blocked_by_ssrf_guard(monkeypatch: Any, caplog: Any) -> None:
+    """Loopback IP rejected before any outbound HTTP — same contract as
+    the Feishu and WeChat Work senders."""
+    import logging
+
+    from app.services import scheduler as scheduler_module
+
+    def _explode(*args: Any, **kw: Any) -> None:
+        raise AssertionError("create_webhook_client must NOT be called")
+
+    monkeypatch.setattr(scheduler_module, "create_webhook_client", _explode)
+
+    with caplog.at_level(logging.ERROR, logger="app.services.scheduler"):
+        scheduler_module._send_dingtalk(
+            webhook_url="http://127.0.0.1:9000/robot/send",
+            secret="s",
+            report=Report(id=1, name="x"),
+            file_paths=[],
+        )
+
+    assert any("SSRF guard" in rec.message for rec in caplog.records)
+
+
+def test_dispatch_routes_dingtalk_to_dingtalk_sender(monkeypatch: Any) -> None:
+    """``DingTalkConfig`` must reach :func:`_send_dingtalk`. Routing it
+    back to :func:`_send_webhook` is exactly the bug 批 G fixed."""
+    from app.schemas.notification import DingTalkConfig
+    from app.services import scheduler as scheduler_module
+
+    seen_in: list[str] = []
+
+    monkeypatch.setattr(
+        scheduler_module, "_send_dingtalk", lambda *a, **k: seen_in.append("dingtalk")
+    )
+    monkeypatch.setattr(
+        scheduler_module, "_send_webhook", lambda *a, **k: seen_in.append("generic_webhook")
+    )
+    monkeypatch.setattr(scheduler_module, "_send_feishu", lambda *a, **k: seen_in.append("feishu"))
+
+    scheduler_module._send_notification(
+        notification_config=DingTalkConfig(
+            type="dingtalk",
+            webhook_url="https://oapi.dingtalk.com/robot/send?access_token=abc",
+            secret="s",
         ),
         report=Report(id=1, name="x"),
         file_paths=[],
     )
 
-    headers = captured.get("headers", {})
-    body = captured.get("body", {})
-    assert "X-Webhook-Signature" in headers
-    from app.services.scheduler import _sign_payload
+    assert seen_in == ["dingtalk"]
 
-    timestamp = headers["X-Webhook-Timestamp"]
-    assert headers["X-Webhook-Signature"] == _sign_payload(body, "DINGTALK_KEY", timestamp)
+
+def test_generic_webhook_payload_contract_is_unchanged(monkeypatch: Any) -> None:
+    """Regression guard for 批 G: the IM channels moved to rich cards,
+    but ``WebhookConfig`` is consumed by *programs*. Its flat JSON
+    contract must not drift along with the card work."""
+    from app.schemas.notification import WebhookConfig
+    from app.services import scheduler as scheduler_module
+
+    factory = _patch_webhook_client(monkeypatch)
+
+    scheduler_module._send_notification(
+        notification_config=WebhookConfig(type="webhook", url="https://8.8.8.8/hook", secret=None),
+        report=Report(id=42, name="ok"),
+        file_paths=["/var/reports/q.pdf"],
+    )
+
+    _, kwargs = factory.client.calls[0]
+    body = kwargs["json"]
+
+    assert set(body) == {"report_name", "report_id", "generated_at", "files"}
+    assert body["report_name"] == "ok"
+    assert body["report_id"] == 42
+    assert body["files"] == ["q.pdf"]
+    # Definitely not a card.
+    assert "msgtype" not in body
+    assert "msg_type" not in body

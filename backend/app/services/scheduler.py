@@ -9,6 +9,7 @@ import smtplib
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -25,6 +26,12 @@ from app.schemas.notification import (
     NotificationConfig,
     WebhookConfig,
     WeChatWorkConfig,
+)
+from app.services.notification_cards import (
+    build_card_context,
+    build_dingtalk_payload,
+    build_feishu_card,
+    build_wechatwork_payload,
 )
 from app.services.report_generator import generate_report
 from app.services.ssrf_guard import SSRFBlocked, create_webhook_client, validate_webhook_url
@@ -316,17 +323,25 @@ def _send_notification(
     """Send notification about generated report.
 
     Dispatches on the typed ``NotificationConfig`` variant (批 6b.4
-    discriminated union). Webhook + DingTalk share the same delivery
-    pipeline — only the URL field name differs (``url`` vs
-    ``webhook_url``). Email is logged-but-not-sent (sender TBD).
+    discriminated union). Email is logged-but-not-sent when SMTP is
+    unconfigured.
 
-    Feishu (批 8.4) and WeChat Work (批 8.4) go through their own
-    senders because each provider's signing protocol differs:
+    Every IM provider has its own sender because no two of them agree
+    on either the envelope or the signing scheme:
 
     * Feishu signs inside the JSON body (``timestamp`` + ``sign``)
       using a string-as-key HMAC pattern.
+    * DingTalk signs in the *query string* with a millisecond
+      timestamp and the secret as the HMAC key — superficially similar
+      to Feishu, materially different (批 G).
     * WeChat Work bot URLs authenticate via a ``key=`` query
       parameter and don't sign at all.
+
+    ``WebhookConfig`` is the odd one out: its payload is consumed by
+    programs, not people, so it keeps the flat
+    ``{report_name, report_id, generated_at, files}`` JSON contract and
+    the ``X-Webhook-Signature`` header scheme. The IM variants send
+    rich cards instead.
 
     P4 hardening (SEC-4, SEC-8, SEC-14, PY-4) applies to all
     outbound variants:
@@ -338,25 +353,24 @@ def _send_notification(
     if notification_config is None:
         return
 
-    if isinstance(notification_config, (WebhookConfig, DingTalkConfig)):
-        # Both webhook variants share the same delivery pipeline; only
-        # the URL field name differs (``url`` vs ``webhook_url``).
+    if isinstance(notification_config, WebhookConfig):
         # The per-config ``secret`` is honoured when present; otherwise
         # :func:`_send_webhook` falls back to the global
         # ``settings.webhook_secret`` for backwards compatibility with
         # operators who configured signing at the app level rather than
         # per-report.
-        if isinstance(notification_config, WebhookConfig):
-            url = str(notification_config.url)
-            per_config_secret = notification_config.secret
-        else:
-            url = str(notification_config.webhook_url)
-            per_config_secret = notification_config.secret
         _send_webhook(
-            webhook_url=url,
+            webhook_url=str(notification_config.url),
             report=report,
             file_paths=file_paths,
-            secret=per_config_secret,
+            secret=notification_config.secret,
+        )
+    elif isinstance(notification_config, DingTalkConfig):
+        _send_dingtalk(
+            webhook_url=str(notification_config.webhook_url),
+            secret=notification_config.secret,
+            report=report,
+            file_paths=file_paths,
         )
     elif isinstance(notification_config, FeishuConfig):
         _send_feishu(
@@ -421,8 +435,11 @@ def _send_feishu(
     https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot
     — sign algorithm there has been stable since the feature's GA.
 
-    Payload shape (``msg_type: "text"`` keeps it dependency-free —
-    no rich-card rendering needed for a "report ready" notice).
+    Payload shape is a ``msg_type: "interactive"`` card built by
+    :func:`app.services.notification_cards.build_feishu_card` (批 G).
+    The signature keys stay at the top level, alongside ``msg_type`` /
+    ``card`` — Feishu's in-body signing contract is independent of the
+    message type.
     """
     if settings.webhook_https_only and not webhook_url.startswith("https://"):
         scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
@@ -442,17 +459,9 @@ def _send_feishu(
         webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
         return
 
-    safe_files = [os.path.basename(p) for p in file_paths]
-    file_list = "\n".join(safe_files) if safe_files else "(no files)"
-    text = (
-        f"报表「{report.name}」已生成\n"
-        f"生成时间: {datetime.now(timezone.utc).isoformat()}\n"
-        f"文件:\n{file_list}"
+    payload = build_feishu_card(
+        build_card_context(report, file_paths, base_url=settings.public_base_url)
     )
-    payload: dict[str, Any] = {
-        "msg_type": "text",
-        "content": {"text": text},
-    }
 
     if secret:
         timestamp = str(int(datetime.now(timezone.utc).timestamp()))
@@ -477,12 +486,16 @@ def _send_wechatwork(
 ) -> None:
     """WeChat Work bot webhook delivery (批 8.4).
 
-    Posts a plain ``msgtype: "markdown"`` envelope. WeChat Work
-    bots authenticate via the ``key=...`` query parameter set at
-    bot-creation time — we don't add any signing header or body
-    key. The receiver must accept that the URL itself is the
-    shared secret; this matches the documented behaviour for
-    legacy / non-encrypted bots.
+    WeChat Work bots authenticate via the ``key=...`` query parameter
+    set at bot-creation time — we don't add any signing header or body
+    key. The receiver must accept that the URL itself is the shared
+    secret; this matches the documented behaviour for legacy /
+    non-encrypted bots.
+
+    Envelope is chosen by
+    :func:`app.services.notification_cards.build_wechatwork_payload`
+    (批 G): a ``template_card`` when ``public_base_url`` gives us a
+    ``card_action`` target, else the original ``markdown`` envelope.
 
     Same SSRF + HTTPS + IP-pinning gates as the other senders.
     """
@@ -504,14 +517,9 @@ def _send_wechatwork(
         webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
         return
 
-    safe_files = [os.path.basename(p) for p in file_paths]
-    file_lines = "\n".join(f"- `{f}`" for f in safe_files) if safe_files else "_no files_"
-    content = (
-        f"**报表「{report.name}」已生成**\n"
-        f"> 生成时间: {datetime.now(timezone.utc).isoformat()}\n\n"
-        f"{file_lines}"
+    payload = build_wechatwork_payload(
+        build_card_context(report, file_paths, base_url=settings.public_base_url)
     )
-    payload: dict[str, Any] = {"msgtype": "markdown", "markdown": {"content": content}}
 
     try:
         client = create_webhook_client(webhook_url)
@@ -521,6 +529,98 @@ def _send_wechatwork(
         webhook_delivery_attempts_total.labels(outcome="success").inc()
     except Exception as exc:
         logger.error(f"Failed to send WeChat Work notification for report {report.id}: {exc}")
+        webhook_delivery_attempts_total.labels(outcome="http_error").inc()
+
+
+def _dingtalk_signature(timestamp_ms: str, secret: str) -> str:
+    """Compute DingTalk's base64 HMAC-SHA256 signature (批 G).
+
+    Looks like :func:`_feishu_signature` and is not. The two swap which
+    half of the pair is the HMAC *key*:
+
+    * Feishu — ``HMAC(key=f"{ts}\\n{secret}", msg=b"")``, seconds.
+    * DingTalk — ``HMAC(key=secret, msg=f"{ts}\\n{secret}")``,
+      milliseconds.
+
+    Getting them backwards produces a well-formed signature that the
+    other provider rejects, so they stay separate helpers with a test
+    asserting the two disagree.
+    """
+    string_to_sign = f"{timestamp_ms}\n{secret}"
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.b64encode(digest).decode("utf-8")
+
+
+def _dingtalk_signed_url(webhook_url: str, secret: str) -> str:
+    """Append DingTalk's ``timestamp`` + ``sign`` query parameters.
+
+    Rebuilt through :func:`urllib.parse.urlsplit` rather than string
+    concatenation so the bot's existing ``access_token=`` survives, and
+    so ``urlencode`` percent-escapes the base64 signature (``+`` and
+    ``=`` are not query-safe).
+    """
+    timestamp = str(int(datetime.now(timezone.utc).timestamp() * 1000))
+    parts = urlsplit(webhook_url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    query.extend([("timestamp", timestamp), ("sign", _dingtalk_signature(timestamp, secret))])
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+def _send_dingtalk(
+    webhook_url: str,
+    secret: str | None,
+    report: Report,
+    file_paths: list[str],
+) -> None:
+    """DingTalk robot webhook delivery (批 G).
+
+    Split out of :func:`_send_webhook`, which it used to share. That
+    pipeline posts the flat ``{report_name, report_id, ...}`` JSON with
+    an ``X-Webhook-Signature`` header — a shape a real DingTalk robot
+    rejects with ``errcode 40035 (缺少参数 msgtype)``, so DingTalk
+    notifications never actually arrived. DingTalk needs a ``msgtype``
+    envelope and its signature in the query string.
+
+    SSRF note: the HTTPS gate, :func:`validate_webhook_url` and
+    :func:`create_webhook_client` all run against the *unsigned* URL.
+    Appending query parameters cannot change the host, so the pinned IP
+    stays valid for the signed URL we actually POST to.
+    """
+    if settings.webhook_https_only and not webhook_url.startswith("https://"):
+        scheme = webhook_url.split("://")[0] if "://" in webhook_url else "unknown"
+        logger.error(
+            f"Refusing DingTalk webhook for report {report.id}: "
+            f"HTTPS required but URL uses {scheme} scheme"
+        )
+        webhook_delivery_attempts_total.labels(outcome="https_required").inc()
+        return
+
+    try:
+        validate_webhook_url(webhook_url)
+    except SSRFBlocked as exc:
+        logger.error(
+            f"Refusing DingTalk webhook for report {report.id}: URL blocked by SSRF guard: {exc}"
+        )
+        webhook_delivery_attempts_total.labels(outcome="ssrf_blocked").inc()
+        return
+
+    payload = build_dingtalk_payload(
+        build_card_context(report, file_paths, base_url=settings.public_base_url)
+    )
+    target_url = _dingtalk_signed_url(webhook_url, secret) if secret else webhook_url
+
+    try:
+        client = create_webhook_client(webhook_url)
+        resp = client.post(target_url, json=payload)
+        resp.raise_for_status()
+        logger.info(f"Sent DingTalk notification for report {report.id}")
+        webhook_delivery_attempts_total.labels(outcome="success").inc()
+    except Exception as exc:
+        logger.error(f"Failed to send DingTalk notification for report {report.id}: {exc}")
         webhook_delivery_attempts_total.labels(outcome="http_error").inc()
 
 

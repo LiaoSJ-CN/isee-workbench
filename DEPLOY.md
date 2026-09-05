@@ -332,6 +332,7 @@ docker compose --profile postgres up -d
 | `WEBHOOK_SECRET` | （空） | HMAC-SHA256 共享密钥；接收方用同密钥校验 `X-Webhook-Signature` |
 | `WEBHOOK_HTTPS_ONLY` | `false` | Webhook URL 必须 HTTPS；本地测试可关 |
 | `WEBHOOK_TIMESTAMP_MAX_AGE` | `300` | Webhook 时间戳最大允许秒数（防 replay），5 min 默认 |
+| `PUBLIC_BASE_URL` | （空） | 对外站点根地址，如 `https://isee.example.com`。IM 通知卡片用它拼「查看报表/看板」按钮；留空则卡片不带按钮，企业微信额外回落为 markdown（`template_card` 的 `card_action` 需要 URL） |
 
 ### 数据源 / 报表
 
